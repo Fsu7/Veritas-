@@ -1,0 +1,373 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / JM1：项目骨架与数据层就绪",
+    "requirement": "创建Java后端的Dockerfile（多阶段构建：Maven构建阶段eclipse-temurin:17-jdk-alpine + 运行阶段eclipse-temurin:17-jre-alpine，暴露8080端口，激活prod profile，健康检查）和docker-compose.yml中的backend服务定义（依赖mysql+redis+ai-service健康检查、环境变量注入、app-network网络、healthcheck配置、端口映射8080:8080）。同时创建项目根目录的docker-compose.yml基础框架（含mysql/redis服务定义，ai-service和frontend占位）。",
+    "requirement_ids": ["F2.1", "F2.2", "F2.3", "F2.4", "F2.5", "F2.6"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§17 部署架构（Dockerfile示例、Docker Compose配置、启动依赖顺序）"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.3 Day 7: Dockerfile + docker-compose.yml backend服务"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§14.1 Docker规范（多阶段构建、基础镜像选择、环境变量注入、健康检查）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§15 Docker部署（服务配置表、启动顺序、Nginx配置）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "infra"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "backend-java/Dockerfile",
+        "description": "Java后端Docker镜像构建文件"
+      },
+      {
+        "layer": "infra",
+        "module_path": "docker-compose.yml",
+        "description": "Docker Compose编排文件，定义5个服务（mysql/redis/ai-service/java-backend/frontend）"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L1883-L1921",
+        "description": "§17.1和§17.2中已有Dockerfile和Docker Compose配置示例",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "AGENTS.md#L15",
+        "description": "§15 Docker部署中已有完整服务配置表和启动顺序",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "Dockerfile",
+      "path": "backend-java/Dockerfile",
+      "responsibility": "Java后端Docker镜像构建，多阶段构建（Maven build + JRE runtime）",
+      "key_interfaces": [
+        {
+          "name": "build阶段",
+          "signature": "FROM eclipse-temurin:17-jdk-alpine AS build",
+          "description": "Maven编译打包阶段，生成app.jar"
+        },
+        {
+          "name": "run阶段",
+          "signature": "FROM eclipse-temurin:17-jre-alpine",
+          "description": "运行阶段，仅包含JRE和jar文件"
+        }
+      ]
+    },
+    {
+      "name": "docker-compose.yml",
+      "path": "docker-compose.yml",
+      "responsibility": "5服务编排（mysql/redis/ai-service/java-backend/frontend），启动顺序和依赖关系",
+      "key_interfaces": [
+        {
+          "name": "java-backend服务",
+          "signature": "build: ./backend-java, ports: 8080:8080, depends_on: mysql+redis+ai-service",
+          "description": "Java后端服务定义"
+        },
+        {
+          "name": "mysql服务",
+          "signature": "image: mysql:8.0, ports: 3306:3306, healthcheck",
+          "description": "MySQL 8.0数据库服务"
+        },
+        {
+          "name": "redis服务",
+          "signature": "image: redis:7-alpine, ports: 6379:6379, healthcheck",
+          "description": "Redis 7.0缓存服务"
+        }
+      ]
+    },
+    {
+      "name": ".env",
+      "path": ".env",
+      "responsibility": "环境变量文件，存储敏感配置（MySQL密码、JWT Secret等），不提交Git",
+      "key_interfaces": [
+        {
+          "name": "MYSQL_ROOT_PASSWORD",
+          "signature": "string",
+          "description": "MySQL root密码"
+        },
+        {
+          "name": "JWT_SECRET",
+          "signature": "string",
+          "description": "JWT签名密钥"
+        }
+      ]
+    },
+    {
+      "name": ".env.example",
+      "path": ".env.example",
+      "responsibility": "环境变量模板文件（仅含占位符），提交Git供参考",
+      "key_interfaces": [
+        {
+          "name": "所有环境变量",
+          "signature": "占位符",
+          "description": "列出所有需要配置的环境变量及说明"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "backend-java/Dockerfile",
+      "description": "Java后端Docker镜像构建文件（多阶段构建）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/.dockerignore",
+      "description": "Docker构建忽略文件（target/、.idea/、*.iml等）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "docker-compose.yml",
+      "description": "Docker Compose编排文件（5服务：mysql/redis/ai-service/java-backend/frontend）",
+      "layer": "infra"
+    },
+    {
+      "operation": "create",
+      "path": ".env.example",
+      "description": "环境变量模板文件（仅含占位符，提交Git）",
+      "layer": "infra"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "Dockerfile使用多阶段构建：阶段1(build)使用eclipse-temurin:17-jdk-alpine，安装Maven，COPY pom.xml先下载依赖（Docker缓存优化），COPY src编译打包；阶段2(run)使用eclipse-temurin:17-jre-alpine，COPY --from=build jar文件，EXPOSE 8080，ENTRYPOINT使用prod profile",
+        "priority": "P0",
+        "acceptance_condition": "docker build -t literature-assistant-backend ./backend-java 构建成功"
+      },
+      {
+        "id": "FR-002",
+        "description": "Dockerfile运行阶段配置：WORKDIR /app，COPY jar为app.jar，ENTRYPOINT [\"java\", \"-jar\", \"/app/app.jar\", \"--spring.profiles.active=prod\"]，添加HEALTHCHECK（curl -f http://localhost:8080/health || exit 1，interval=30s，timeout=10s，retries=3）",
+        "priority": "P0",
+        "acceptance_condition": "docker run后健康检查通过"
+      },
+      {
+        "id": "FR-003",
+        "description": "docker-compose.yml定义5个服务：mysql(mysql:8.0, 端口3306, environment含MYSQL_ROOT_PASSWORD/MYSQL_DATABASE, volume持久化, healthcheck)、redis(redis:7-alpine, 端口6379, healthcheck)、ai-service(python:3.10-slim构建, 端口8000, 依赖mysql+redis, healthcheck)、java-backend(eclipse-temurin:17-jre-alpine构建, 端口8080, 依赖mysql+redis+ai-service, environment注入环境变量, healthcheck)、frontend(nginx:alpine, 端口80, 依赖java-backend)",
+        "priority": "P0",
+        "acceptance_condition": "docker-compose config 验证通过"
+      },
+      {
+        "id": "FR-004",
+        "description": "docker-compose.yml中mysql服务：image=mysql:8.0，ports=3306:3306，environment={MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}, MYSQL_DATABASE=literature_assistant}，volumes=mysql_data:/var/lib/mysql + ./backend-java/src/main/resources/db/:/docker-entrypoint-initdb.d/（自动执行SQL初始化脚本），healthcheck={test=mysqladmin ping, interval=10s, timeout=5s, retries=5}，networks=app-network",
+        "priority": "P0",
+        "acceptance_condition": "mysql容器启动后数据库和表自动创建"
+      },
+      {
+        "id": "FR-005",
+        "description": "docker-compose.yml中redis服务：image=redis:7-alpine，ports=6379:6379，command=redis-server --appendonly yes（AOF持久化），healthcheck={test=redis-cli ping, interval=10s, timeout=5s, retries=5}，networks=app-network",
+        "priority": "P0",
+        "acceptance_condition": "redis容器启动后redis-cli ping返回PONG"
+      },
+      {
+        "id": "FR-006",
+        "description": "docker-compose.yml中java-backend服务：build=./backend-java，ports=8080:8080，environment={SPRING_PROFILES_ACTIVE=prod, AI_SERVICE_URL=http://ai-service:8000, MYSQL_URL=jdbc:mysql://mysql:3306/literature_assistant?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai, MYSQL_USERNAME=root, MYSQL_PASSWORD=${MYSQL_ROOT_PASSWORD}, REDIS_HOST=redis, REDIS_PORT=6379, JWT_SECRET=${JWT_SECRET}}，depends_on={mysql/redis/ai-service condition=service_healthy}，healthcheck={test=curl -f http://localhost:8080/health, interval=30s, timeout=10s, retries=3}，networks=app-network",
+        "priority": "P0",
+        "acceptance_condition": "java-backend容器启动后健康检查通过"
+      },
+      {
+        "id": "FR-007",
+        "description": "docker-compose.yml中ai-service和frontend服务使用占位定义（build路径和基本配置），标注#TODO待后续任务完善。ai-service: build=./ai-service-python, ports=8000:8000, depends_on={mysql+redis condition=service_healthy}。frontend: build=./frontend, ports=80:80, volumes=./nginx.conf:/etc/nginx/conf.d/default.conf, depends_on={java-backend condition=service_healthy}",
+        "priority": "P1",
+        "acceptance_condition": "docker-compose config 验证通过，占位服务定义语法正确"
+      },
+      {
+        "id": "FR-008",
+        "description": "创建.env.example模板文件，包含所有环境变量及注释说明：MYSQL_ROOT_PASSWORD、MYSQL_DATABASE、REDIS_HOST、REDIS_PORT、JWT_SECRET、AI_SERVICE_URL、LLM_MODE、LLM_BUILTIN_URL、LLM_API_KEY、LLM_API_BASE、LLM_MODEL_NAME",
+        "priority": "P0",
+        "acceptance_condition": "复制.env.example为.env并填写后，docker-compose up能正常启动"
+      },
+      {
+        "id": "FR-009",
+        "description": "docker-compose.yml定义顶级networks(app-network, driver=bridge)和volumes(mysql_data)",
+        "priority": "P0",
+        "acceptance_condition": "docker-compose up创建网络和数据卷成功"
+      },
+      {
+        "id": "FR-010",
+        "description": "启动顺序：mysql → redis → ai-service → java-backend → frontend，通过depends_on + healthcheck保证",
+        "priority": "P0",
+        "acceptance_condition": "docker-compose up按正确顺序启动各服务"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "Java→Python",
+          "method": "HTTP",
+          "request_format": {
+            "url": "http://ai-service:8000",
+            "note": "Docker内网通过服务名ai-service访问"
+          }
+        }
+      ],
+      "data_flow": "Docker内服务间通过服务名通信：java-backend→mysql:3306, java-backend→redis:6379, java-backend→ai-service:8000, frontend→java-backend:8080"
+    },
+    "degradation_requirements": null,
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "docker-compose.yml中MYSQL_ROOT_PASSWORD和JWT_SECRET通过${VAR}引用.env文件，不硬编码"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": ".env.example仅含占位符，不含真实密码；.env文件加入.gitignore"
+      },
+      {
+        "category": "other",
+        "requirement": "MySQL初始化脚本通过volume挂载/docker-entrypoint-initdb.d/自动执行，避免手动导入"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "config_key": "kebab-case"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" }
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行Dockerfile和docker-compose.yml", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-006", "action": "在docker-compose.yml中硬编码敏感配置（密码、JWT Secret等）", "reason": "安全约束：必须通过${VAR}引用.env文件", "severity": "critical" },
+    { "id": "FA-DOCKER1", "action": "Dockerfile使用单阶段构建（包含Maven和JDK）", "reason": "必须多阶段构建减小镜像体积，运行阶段仅JRE", "severity": "high" },
+    { "id": "FA-DOCKER2", "action": "Dockerfile以root用户运行", "reason": "安全最佳实践：应使用非root用户运行", "severity": "medium" },
+    { "id": "FA-DOCKER3", "action": "省略healthcheck配置", "reason": "Docker规范要求所有服务配置健康检查", "severity": "high" },
+    { "id": "FA-DOCKER4", "action": "省略depends_on的condition条件", "reason": "必须使用condition: service_healthy保证启动顺序", "severity": "high" },
+    { "id": "FA-DOCKER5", "action": "省略MySQL volume持久化", "reason": "数据持久化要求，容器重启后数据不丢失", "severity": "critical" },
+    { "id": "FA-DOCKER6", "action": "省略Redis AOF持久化配置", "reason": "JWT黑名单等关键数据需要持久化", "severity": "medium" },
+    { "id": "FA-DOCKER7", "action": ".env.example中包含真实密码", "reason": "模板文件仅含占位符，提交Git", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [],
+    "integration_tests": [
+      {
+        "test_name": "Docker镜像构建测试",
+        "description": "验证Java后端Docker镜像能成功构建",
+        "layers_involved": ["java_backend", "infra"]
+      },
+      {
+        "test_name": "Docker Compose启动测试",
+        "description": "验证docker-compose up能按正确顺序启动所有服务",
+        "layers_involved": ["java_backend", "data_layer", "infra"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "other",
+        "command": "cd backend-java && docker build -t literature-assistant-backend .",
+        "expected_result": "Successfully built和Successfully tagged输出"
+      },
+      {
+        "layer": "other",
+        "command": "docker-compose config",
+        "expected_result": "输出完整配置，无YAML语法错误"
+      },
+      {
+        "layer": "other",
+        "command": "docker-compose up -d mysql redis",
+        "expected_result": "mysql和redis容器启动成功，健康检查通过"
+      },
+      {
+        "layer": "other",
+        "command": "docker exec -it $(docker ps -qf name=mysql) mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e \"SHOW DATABASES LIKE 'literature_assistant'\"",
+        "expected_result": "返回literature_assistant数据库（需SQL初始化脚本已挂载）"
+      },
+      {
+        "layer": "other",
+        "command": "docker exec -it $(docker ps -qf name=redis) redis-cli ping",
+        "expected_result": "返回PONG"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "Dockerfile使用多阶段构建（build阶段jdk-alpine + run阶段jre-alpine）", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "docker build构建成功，镜像大小<200MB", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "Dockerfile中ENTRYPOINT激活prod profile", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "Dockerfile包含HEALTHCHECK配置", "verified_by": "code_review" },
+    { "id": "AC-005", "criterion": "docker-compose.yml定义5个服务（mysql/redis/ai-service/java-backend/frontend）", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "mysql服务配置volume持久化+初始化脚本挂载+healthcheck", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "redis服务配置AOF持久化+healthcheck", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "java-backend服务环境变量正确注入（SPRING_PROFILES_ACTIVE=prod, AI_SERVICE_URL, MYSQL_URL等）", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "服务依赖顺序正确：mysql→redis→ai-service→java-backend→frontend，使用condition: service_healthy", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "docker-compose.yml中无硬编码敏感信息，均通过${VAR}引用", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": ".env.example模板文件包含所有环境变量及注释说明", "verified_by": "code_review" },
+    { "id": "AC-012", "criterion": "docker-compose config验证通过，无YAML语法错误", "verified_by": "automated_test" },
+    { "id": "AC-013", "criterion": "顶级networks(app-network)和volumes(mysql_data)定义正确", "verified_by": "code_review" }
+  ]
+}

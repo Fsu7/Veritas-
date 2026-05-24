@@ -1,0 +1,792 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XH-202630 Coding Task Prompt",
+  "description": "科研文献智能助手项目的Coding Task Prompt JSON模板，供下游Coding Agent使用",
+  "file_naming_convention": {
+    "rule": "每一份JSON Prompt文件必须以序号开头，格式为 task{NN}_{descriptive_name}.json",
+    "pattern": "^task\\d{2}_[a-z][a-z0-9_]*\\.json$",
+    "examples": [
+      "task00_example_db_creation.json",
+      "task01_springboot_maven.json",
+      "task02_springboot_config.json",
+      "task03_python_fastapi_skeleton.json"
+    ],
+    "numbering": "从00开始递增，序号反映任务执行顺序",
+    "descriptive_name": "使用snake_case，简明概括任务内容（层级+功能），如 springboot_maven、python_fastapi_skeleton",
+    "location": "/json_prompt/",
+    "notes": [
+      "schema文件（coding_task_prompt_schema.json）和说明文件（Coding.md）不受此命名规则约束",
+      "序号应与项目里程碑中的任务顺序保持一致",
+      "同一里程碑内的任务按依赖关系排序编号"
+    ]
+  },
+  "project_structure": {
+    "project_root": "/Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/",
+    "layers": {
+      "java_backend": {
+        "root": "Veritas/backend/",
+        "src_main": "Veritas/backend/src/main/java/com/literatureassistant/",
+        "src_test": "Veritas/backend/src/test/java/com/literatureassistant/",
+        "resources": "Veritas/backend/src/main/resources/",
+        "db_scripts": "Veritas/backend/src/main/resources/db/",
+        "build_file": "Veritas/backend/pom.xml"
+      },
+      "python_ai_service": {
+        "root": "Veritas/ai-service/",
+        "app": "Veritas/ai-service/app/",
+        "agents": "Veritas/ai-service/app/agents/",
+        "services": "Veritas/ai-service/app/services/",
+        "models": "Veritas/ai-service/app/models/",
+        "api": "Veritas/ai-service/app/api/",
+        "prompts": "Veritas/ai-service/prompts/",
+        "requirements": "Veritas/ai-service/requirements.txt"
+      },
+      "frontend": {
+        "root": "Veritas/frontend/",
+        "src": "Veritas/frontend/src/",
+        "views": "Veritas/frontend/src/views/",
+        "components": "Veritas/frontend/src/components/",
+        "stores": "Veritas/frontend/src/stores/",
+        "api": "Veritas/frontend/src/api/",
+        "router": "Veritas/frontend/src/router/",
+        "composables": "Veritas/frontend/src/composables/",
+        "types": "Veritas/frontend/src/types/",
+        "utils": "Veritas/frontend/src/utils/",
+        "config": "Veritas/frontend/vite.config.ts"
+      },
+      "data_layer": {
+        "mysql_host": "localhost:3306",
+        "redis_host": "localhost:6379",
+        "chroma_path": "./data/vector_db"
+      },
+      "infra": {
+        "docker_compose": "docker-compose.yml",
+        "nginx_conf": "nginx.conf",
+        "env_example": ".env.example",
+        "env": ".env"
+      }
+    },
+    "docs": "docs/"
+  },
+  "type": "object",
+  "required": [
+    "context",
+    "current_architecture",
+    "relevant_modules",
+    "files_to_modify",
+    "implementation_requirements",
+    "constraints",
+    "forbidden_actions",
+    "test_requirements",
+    "acceptance_criteria"
+  ],
+  "properties": {
+    "context": {
+      "type": "object",
+      "description": "项目上下文与需求信息",
+      "required": ["project", "version", "milestone", "requirement", "reference_docs"],
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "项目全称",
+          "default": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究"
+        },
+        "version": {
+          "type": "string",
+          "description": "当前版本号，如 v0.1",
+          "examples": ["v0.1", "v0.2", "v0.3", "v0.4", "v0.5", "v1.0"]
+        },
+        "milestone": {
+          "type": "string",
+          "description": "当前里程碑，如 M1：基础设施就绪",
+          "examples": [
+            "M1：基础设施就绪",
+            "M2：单Agent可用",
+            "M3：前后端联调成功",
+            "M4：多Agent协同完成",
+            "M5：功能完整",
+            "M6：交付就绪"
+          ]
+        },
+        "requirement": {
+          "type": "string",
+          "description": "具体需求描述，必须明确、可执行"
+        },
+        "requirement_ids": {
+          "type": "array",
+          "description": "对应版本里程碑功能清单中的功能编号",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["F4.1.1", "F4.1.2", "F4.1.3", "F4.1.4"]]
+        },
+        "reference_docs": {
+          "type": "array",
+          "description": "Coding Agent需要查阅的文档路径列表",
+          "items": {
+            "type": "object",
+            "required": ["path", "purpose"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "文档相对路径"
+              },
+              "purpose": {
+                "type": "string",
+                "description": "查阅该文档的目的"
+              }
+            }
+          }
+        }
+      }
+    },
+    "current_architecture": {
+      "type": "object",
+      "description": "当前架构与已有实现",
+      "required": ["involved_layers", "related_modules", "existing_implementations"],
+      "properties": {
+        "involved_layers": {
+          "type": "array",
+          "description": "需求涉及的层级",
+          "items": {
+            "type": "string",
+            "enum": ["frontend", "java_backend", "python_ai_service", "data_layer"]
+          }
+        },
+        "related_modules": {
+          "type": "array",
+          "description": "涉及的模块，精确到包/目录级别",
+          "items": {
+            "type": "object",
+            "required": ["layer", "module_path", "description"],
+            "properties": {
+              "layer": {
+                "type": "string",
+                "enum": ["frontend", "java_backend", "python_ai_service", "data_layer"]
+              },
+              "module_path": {
+                "type": "string",
+                "description": "模块路径，如 com.literatureassistant.service"
+              },
+              "description": {
+                "type": "string",
+                "description": "模块职责说明"
+              }
+            }
+          }
+        },
+        "existing_implementations": {
+          "type": "array",
+          "description": "代码库中已有的相关代码，可直接复用或参考",
+          "items": {
+            "type": "object",
+            "required": ["file_path", "description", "reuse_type"],
+            "properties": {
+              "file_path": {
+                "type": "string",
+                "description": "已有文件路径"
+              },
+              "description": {
+                "type": "string",
+                "description": "已有实现的内容描述"
+              },
+              "reuse_type": {
+                "type": "string",
+                "enum": ["direct_reuse", "reference", "extend"],
+                "description": "复用方式：直接复用/参考/扩展"
+              }
+            }
+          }
+        }
+      }
+    },
+    "relevant_modules": {
+      "type": "array",
+      "description": "本次需求涉及的关键模块详情",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "responsibility", "key_interfaces"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "模块名称"
+          },
+          "path": {
+            "type": "string",
+            "description": "文件路径"
+          },
+          "responsibility": {
+            "type": "string",
+            "description": "模块职责"
+          },
+          "key_interfaces": {
+            "type": "array",
+            "description": "关键接口/方法列表",
+            "items": {
+              "type": "object",
+              "required": ["name", "signature", "description"],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "接口/方法名"
+                },
+                "signature": {
+                  "type": "string",
+                  "description": "方法签名"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "功能说明"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "files_to_modify": {
+      "type": "array",
+      "description": "需要新增或修改的文件列表",
+      "items": {
+        "type": "object",
+        "required": ["operation", "path", "description"],
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["create", "modify"],
+            "description": "操作类型：新增或修改"
+          },
+          "path": {
+            "type": "string",
+            "description": "文件路径（相对项目根目录）"
+          },
+          "description": {
+            "type": "string",
+            "description": "变更说明"
+          },
+          "layer": {
+            "type": "string",
+            "enum": ["frontend", "java_backend", "python_ai_service", "data_layer", "infra"],
+            "description": "所属层级"
+          }
+        }
+      }
+    },
+    "implementation_requirements": {
+      "type": "object",
+      "description": "详细的功能实现要求",
+      "required": ["functional_requirements"],
+      "properties": {
+        "functional_requirements": {
+          "type": "array",
+          "description": "功能要求列表，每项必须明确、可验证",
+          "items": {
+            "type": "object",
+            "required": ["id", "description", "priority"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "需求编号，如 FR-001"
+              },
+              "description": {
+                "type": "string",
+                "description": "详细的功能描述"
+              },
+              "priority": {
+                "type": "string",
+                "enum": ["P0", "P1", "P2"],
+                "description": "优先级"
+              },
+              "acceptance_condition": {
+                "type": "string",
+                "description": "验收条件"
+              }
+            }
+          }
+        },
+        "cross_system_consistency": {
+          "type": "object",
+          "description": "跨系统一致性要求（仅跨层变更时填写）",
+          "properties": {
+            "field_naming": {
+              "type": "object",
+              "description": "字段命名映射",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "description": "命名转换规则",
+                  "default": "Java camelCase ↔ Python/JSON snake_case"
+                },
+                "mappings": {
+                  "type": "array",
+                  "description": "具体字段映射",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "java": { "type": "string" },
+                      "python": { "type": "string" },
+                      "json": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            },
+            "api_contracts": {
+              "type": "array",
+              "description": "API契约定义",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "endpoint": { "type": "string" },
+                  "method": { "type": "string" },
+                  "request_format": { "type": "object" },
+                  "response_format": { "type": "object" }
+                }
+              }
+            },
+            "data_flow": {
+              "type": "string",
+              "description": "数据在各层间的流转方式描述"
+            }
+          }
+        },
+        "degradation_requirements": {
+          "type": "object",
+          "description": "降级要求（仅涉及AI服务时填写）",
+          "properties": {
+            "llm_degradation": {
+              "type": "object",
+              "description": "LLM三路降级策略",
+              "properties": {
+                "providers": {
+                  "type": "array",
+                  "description": "降级顺序",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "priority": { "type": "integer" },
+                      "name": { "type": "string" },
+                      "description": { "type": "string" }
+                    }
+                  }
+                },
+                "trigger_conditions": {
+                  "type": "array",
+                  "description": "降级触发条件",
+                  "items": { "type": "string" }
+                },
+                "recovery_strategy": {
+                  "type": "string",
+                  "description": "恢复策略"
+                }
+              }
+            },
+            "agent_degradation": {
+              "type": "object",
+              "description": "Agent降级策略",
+              "properties": {
+                "single_agent_failure": {
+                  "type": "string",
+                  "description": "单Agent失败处理"
+                },
+                "multi_agent_failure": {
+                  "type": "string",
+                  "description": "多Agent失败处理"
+                },
+                "review_retry_limit": {
+                  "type": "integer",
+                  "description": "审核重试次数限制"
+                }
+              }
+            }
+          }
+        },
+        "security_requirements": {
+          "type": "array",
+          "description": "安全要求（如涉及）",
+          "items": {
+            "type": "object",
+            "required": ["category", "requirement"],
+            "properties": {
+              "category": {
+                "type": "string",
+                "enum": ["jwt_auth", "data_isolation", "sensitive_info", "sql_injection", "xss", "other"],
+                "description": "安全类别"
+              },
+              "requirement": {
+                "type": "string",
+                "description": "具体安全要求"
+              }
+            }
+          }
+        }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "description": "编码约束",
+      "required": ["naming", "layering", "error_handling", "caching", "logging"],
+      "properties": {
+        "naming": {
+          "type": "object",
+          "description": "命名规范",
+          "properties": {
+            "java": {
+              "type": "object",
+              "properties": {
+                "class_name": { "type": "string", "default": "PascalCase" },
+                "method_variable": { "type": "string", "default": "camelCase" },
+                "constant": { "type": "string", "default": "UPPER_SNAKE_CASE" },
+                "file_name": { "type": "string", "default": "PascalCase.java" },
+                "enum_value": { "type": "string", "default": "UPPER_SNAKE_CASE" },
+                "config_key": { "type": "string", "default": "kebab-case" }
+              }
+            },
+            "python": {
+              "type": "object",
+              "properties": {
+                "class_name": { "type": "string", "default": "PascalCase" },
+                "function_variable": { "type": "string", "default": "snake_case" },
+                "constant": { "type": "string", "default": "UPPER_SNAKE_CASE" },
+                "file_name": { "type": "string", "default": "snake_case.py" },
+                "enum_value": { "type": "string", "default": "lower_case" },
+                "config_key": { "type": "string", "default": "UPPER_SNAKE_CASE" }
+              }
+            },
+            "typescript": {
+              "type": "object",
+              "properties": {
+                "class_name": { "type": "string", "default": "PascalCase" },
+                "method_variable": { "type": "string", "default": "camelCase" },
+                "constant": { "type": "string", "default": "UPPER_SNAKE_CASE" },
+                "file_name": { "type": "string", "default": "PascalCase.vue" },
+                "enum_value": { "type": "string", "default": "PascalCase" },
+                "config_key": { "type": "string", "default": "camelCase" }
+              }
+            },
+            "database": {
+              "type": "object",
+              "properties": {
+                "table_name": { "type": "string", "default": "snake_case, 复数形式" },
+                "column_name": { "type": "string", "default": "snake_case" },
+                "index_name": { "type": "string", "default": "idx_/uk_/ft_ + 字段名" }
+              }
+            },
+            "json": {
+              "type": "object",
+              "properties": {
+                "field_name": { "type": "string", "default": "snake_case" }
+              }
+            },
+            "cross_system_mapping": {
+              "type": "array",
+              "description": "跨系统字段命名映射",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "java": { "type": "string" },
+                  "python": { "type": "string" },
+                  "json": { "type": "string" }
+                }
+              },
+              "default": [
+                { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+                { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+                { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+                { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+                { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+              ]
+            }
+          }
+        },
+        "layering": {
+          "type": "object",
+          "description": "分层规范",
+          "properties": {
+            "java": {
+              "type": "object",
+              "properties": {
+                "rule": { "type": "string", "default": "Controller → Service → Repository → Client，禁止跨层" },
+                "entity_dto_separation": { "type": "boolean", "default": true },
+                "dto_naming": { "type": "string", "default": "XxxRequestDTO, XxxResponseDTO" }
+              }
+            },
+            "python": {
+              "type": "object",
+              "properties": {
+                "rule": { "type": "string", "default": "Router → Service → Agent，逻辑不在路由函数中" }
+              }
+            },
+            "frontend": {
+              "type": "object",
+              "properties": {
+                "rule": { "type": "string", "default": "View → Store → API，异步操作在Actions中" }
+              }
+            }
+          }
+        },
+        "error_handling": {
+          "type": "object",
+          "description": "错误处理规范",
+          "properties": {
+            "java": {
+              "type": "object",
+              "properties": {
+                "approach": { "type": "string", "default": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)" },
+                "business_exception_fields": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "default": ["code", "message", "errorKey"]
+                }
+              }
+            },
+            "python": {
+              "type": "object",
+              "properties": {
+                "approach": { "type": "string", "default": "try-except，Agent异常不阻塞后续Agent" },
+                "agent_error_handling": { "type": "string", "default": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state" }
+              }
+            },
+            "frontend": {
+              "type": "object",
+              "properties": {
+                "approach": { "type": "string", "default": "Axios响应拦截器统一错误处理" }
+              }
+            }
+          }
+        },
+        "caching": {
+          "type": "object",
+          "description": "缓存策略",
+          "properties": {
+            "pattern": { "type": "string", "default": "Cache-Aside：写MySQL后删Redis缓存" },
+            "ttl_layers": {
+              "type": "array",
+              "description": "TTL分层配置",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "cache_name": { "type": "string" },
+                  "key_pattern": { "type": "string" },
+                  "ttl": { "type": "string" }
+                }
+              },
+              "default": [
+                { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+                { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+                { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+                { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+                { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+                { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+                { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+                { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+              ]
+            },
+            "penetration_protection": { "type": "string", "default": "查询结果为空时缓存空值（TTL=60s）" },
+            "avalanche_protection": { "type": "string", "default": "TTL添加随机偏移（±10%）" },
+            "max_value_size": { "type": "string", "default": "单个缓存值不超过1MB" }
+          }
+        },
+        "logging": {
+          "type": "object",
+          "description": "日志规范",
+          "properties": {
+            "java": { "type": "string", "default": "SLF4J + Logback" },
+            "python": { "type": "string", "default": "Loguru" },
+            "prohibited": {
+              "type": "array",
+              "description": "禁止的日志行为",
+              "items": { "type": "string" },
+              "default": [
+                "在循环中打印INFO及以上级别日志",
+                "在日志中输出敏感信息（密码、Token、API Key）"
+              ]
+            }
+          }
+        },
+        "database": {
+          "type": "object",
+          "description": "数据库规范",
+          "properties": {
+            "charset": { "type": "string", "default": "utf8mb4 + utf8mb4_unicode_ci" },
+            "engine": { "type": "string", "default": "InnoDB" },
+            "primary_key": { "type": "string", "default": "id BIGINT AUTO_INCREMENT" },
+            "business_id": { "type": "string", "default": "xxx_id VARCHAR(100) UNIQUE NOT NULL" },
+            "timestamp_fields": {
+              "type": "object",
+              "properties": {
+                "created_at": { "type": "string", "default": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP" },
+                "updated_at": { "type": "string", "default": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" }
+              }
+            },
+            "comment_required": { "type": "boolean", "default": true },
+            "json_fields_only_for_dynamic": { "type": "boolean", "default": true },
+            "fulltext_parser": { "type": "string", "default": "ngram" },
+            "no_select_star": { "type": "boolean", "default": true },
+            "pagination_required": { "type": "boolean", "default": true }
+          }
+        },
+        "security": {
+          "type": "object",
+          "description": "安全规范",
+          "properties": {
+            "password_storage": { "type": "string", "default": "BCrypt哈希，盐值随机，强度10" },
+            "auth_mechanism": { "type": "string", "default": "JWT Token (24h有效期) + Redis黑名单" },
+            "jwt_payload": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"]
+            },
+            "sql_injection_prevention": { "type": "string", "default": "JPA参数化查询，禁止SQL拼接" },
+            "data_isolation": { "type": "string", "default": "WHERE user_id = currentUserId" },
+            "ai_content_label": { "type": "string", "default": "AI生成，仅供参考" },
+            "public_endpoints": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["/api/users/register", "/api/users/login"]
+            }
+          }
+        }
+      }
+    },
+    "forbidden_actions": {
+      "type": "array",
+      "description": "禁止行为列表",
+      "items": {
+        "type": "object",
+        "required": ["id", "action", "reason"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "禁止项编号，如 FA-001"
+          },
+          "action": {
+            "type": "string",
+            "description": "禁止的行为"
+          },
+          "reason": {
+            "type": "string",
+            "description": "禁止原因"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium"],
+            "description": "违反严重程度",
+            "default": "high"
+          }
+        }
+      },
+      "default": [
+        { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+        { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+        { "id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical" },
+        { "id": "FA-004", "action": "破坏分层调用规范（Controller直接操作Repository等）", "reason": "分层架构约束", "severity": "critical" },
+        { "id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high" },
+        { "id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical" },
+        { "id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high" },
+        { "id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium" },
+        { "id": "FA-009", "action": "使用SQL拼接（必须参数化查询）", "reason": "SQL注入防护", "severity": "critical" },
+        { "id": "FA-010", "action": "忽略降级场景（LLM/Agent失败时的处理）", "reason": "可用性约束ADR-003", "severity": "high" }
+      ]
+    },
+    "test_requirements": {
+      "type": "object",
+      "description": "测试要求",
+      "required": ["unit_tests", "verification_commands"],
+      "properties": {
+        "unit_tests": {
+          "type": "array",
+          "description": "需要测试的核心逻辑",
+          "items": {
+            "type": "object",
+            "required": ["test_name", "description", "framework"],
+            "properties": {
+              "test_name": {
+                "type": "string",
+                "description": "测试名称"
+              },
+              "description": {
+                "type": "string",
+                "description": "测试内容描述"
+              },
+              "framework": {
+                "type": "string",
+                "enum": ["junit5", "pytest", "vitest", "sql_verification"],
+                "description": "测试框架"
+              },
+              "coverage": {
+                "type": "array",
+                "description": "覆盖场景",
+                "items": {
+                  "type": "string",
+                  "enum": ["normal_flow", "error_flow", "boundary_condition", "degradation"]
+                }
+              }
+            }
+          }
+        },
+        "integration_tests": {
+          "type": "array",
+          "description": "集成测试（如涉及跨层）",
+          "items": {
+            "type": "object",
+            "required": ["test_name", "description", "layers_involved"],
+            "properties": {
+              "test_name": { "type": "string" },
+              "description": { "type": "string" },
+              "layers_involved": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "verification_commands": {
+          "type": "array",
+          "description": "验证命令",
+          "items": {
+            "type": "object",
+            "required": ["layer", "command"],
+            "properties": {
+              "layer": {
+                "type": "string",
+                "enum": ["java", "python", "frontend", "sql", "other"]
+              },
+              "command": {
+                "type": "string",
+                "description": "验证命令"
+              },
+              "expected_result": {
+                "type": "string",
+                "description": "预期结果"
+              }
+            }
+          }
+        }
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "description": "验收标准",
+      "items": {
+        "type": "object",
+        "required": ["id", "criterion", "verified_by"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "验收项编号，如 AC-001"
+          },
+          "criterion": {
+            "type": "string",
+            "description": "验收标准描述"
+          },
+          "verified_by": {
+            "type": "string",
+            "enum": ["automated_test", "manual_test", "code_review", "sql_query"],
+            "description": "验证方式"
+          }
+        }
+      }
+    }
+  }
+}

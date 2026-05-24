@@ -1,0 +1,461 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / AM1：项目骨架与模型层就绪",
+    "requirement": "实现Python AI服务的数据模型与异常体系：1) models/schemas.py — 基于Pydantic v2的请求/响应模型定义，包含UserProfile（4维度画像）、AnalyzeRequest（Agent分析请求）、SearchRequest（检索请求）、AgentStateResponse（Agent状态）、AnalyzeResponse（分析响应）、SearchResult（检索结果项）、SearchResponse（检索响应）、ModelStatusResponse（模型状态响应）、UnifiedResponse（统一响应包装），所有模型含Field校验和描述；2) models/enums.py — 枚举定义，包含EducationLevel、KnowledgeLevel、PreferredStyle、AnalysisType、AgentName、AgentStatus、LLMMode，所有枚举继承str和Enum确保JSON序列化正确；3) exception.py — 统一异常体系，包含AIServiceException基础异常（code+message）、LLMException、VectorStoreException、AgentTimeoutException、ModelNotLoadedException，以及main.py中的全局异常处理器（AIServiceException处理器和RequestValidationError处理器），返回统一格式{code, message, data:null, timestamp}。",
+    "requirement_ids": ["F3.5", "F3.1", "F3.2", "F3.3", "F3.4"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§14.1 Pydantic请求模型定义、§14.2 枚举定义、§15.1 统一响应格式、§15.2 异常体系、§15.3 全局异常处理器"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§3.2 AM1交付物清单（Pydantic数据模型、统一异常体系）、§3.3 Week1 Day7任务"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§8 Python AI服务开发规范"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7.1 MySQL核心表枚举值、§8.4 Java→Python请求契约、§8.5 SSE事件格式"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/models",
+        "description": "数据模型层，包含schemas.py（Pydantic请求/响应模型）和enums.py（枚举定义）"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/main.py",
+        "description": "FastAPI应用入口，任务4已创建骨架，任务5已集成配置和日志，本任务需添加全局异常处理器"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L2356-L2440",
+        "description": "§14.1中已有完整Pydantic请求/响应模型代码",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L2444-L2465",
+        "description": "§14.2中已有完整枚举定义代码",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L2494-L2545",
+        "description": "§15.2-15.3中已有异常体系和全局异常处理器代码",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/main.py",
+        "description": "任务4创建的FastAPI应用，含占位异常处理器",
+        "reuse_type": "modify"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "Pydantic请求/响应模型",
+      "path": "Veritas/ai-service/app/models/schemas.py",
+      "responsibility": "定义所有API请求和响应的Pydantic数据模型，含字段校验",
+      "key_interfaces": [
+        {
+          "name": "UserProfile",
+          "signature": "class UserProfile(BaseModel)",
+          "description": "用户画像模型：educationLevel(EducationLevel枚举)、researchField(str)、knowledgeLevel(KnowledgeLevel枚举)、preferredStyle(PreferredStyle枚举)"
+        },
+        {
+          "name": "AnalyzeRequest",
+          "signature": "class AnalyzeRequest(BaseModel)",
+          "description": "Agent分析请求：topic(str 1-500)、paperIds(List[str])、userProfile(UserProfile)、analysisType(AnalysisType枚举)、analysisId(str 1+)"
+        },
+        {
+          "name": "SearchRequest",
+          "signature": "class SearchRequest(BaseModel)",
+          "description": "检索请求：query(str 1-500)、topK(int 1-50 default=10)、filters(Optional[dict])"
+        },
+        {
+          "name": "AnalyzeResponse",
+          "signature": "class AnalyzeResponse(BaseModel)",
+          "description": "分析响应：analysisId、status、report(Optional)、citations(Optional)、agentStates(Optional)、degraded(Optional)、degradedReason(Optional)"
+        },
+        {
+          "name": "SearchResponse",
+          "signature": "class SearchResponse(BaseModel)",
+          "description": "检索响应：results(List[SearchResult])、total(int)"
+        },
+        {
+          "name": "UnifiedResponse",
+          "signature": "class UnifiedResponse(BaseModel)",
+          "description": "统一响应包装：code(int)、message(str)、data(Optional[Any])、timestamp(int 毫秒时间戳)"
+        }
+      ]
+    },
+    {
+      "name": "枚举定义",
+      "path": "Veritas/ai-service/app/models/enums.py",
+      "responsibility": "定义所有业务枚举，继承str+Enum确保JSON序列化正确",
+      "key_interfaces": [
+        {
+          "name": "EducationLevel",
+          "signature": "class EducationLevel(str, Enum)",
+          "description": "学历层次：undergraduate/master/phd/faculty"
+        },
+        {
+          "name": "KnowledgeLevel",
+          "signature": "class KnowledgeLevel(str, Enum)",
+          "description": "知识水平：beginner/intermediate/advanced/expert"
+        },
+        {
+          "name": "PreferredStyle",
+          "signature": "class PreferredStyle(str, Enum)",
+          "description": "偏好风格：simple/balanced/technical"
+        },
+        {
+          "name": "AnalysisType",
+          "signature": "class AnalysisType(str, Enum)",
+          "description": "分析类型：paper_analysis/compare/report"
+        },
+        {
+          "name": "AgentName",
+          "signature": "class AgentName(str, Enum)",
+          "description": "Agent名称：coordinator/retriever/analyzer/comparer/generator/reviewer"
+        },
+        {
+          "name": "AgentStatus",
+          "signature": "class AgentStatus(str, Enum)",
+          "description": "Agent状态：waiting/running/completed/failed"
+        },
+        {
+          "name": "LLMMode",
+          "signature": "class LLMMode(str, Enum)",
+          "description": "LLM模式：auto/builtin/api/local"
+        }
+      ]
+    },
+    {
+      "name": "异常体系",
+      "path": "Veritas/ai-service/app/exception.py",
+      "responsibility": "统一异常定义，包含基础异常和4个业务异常子类",
+      "key_interfaces": [
+        {
+          "name": "AIServiceException",
+          "signature": "class AIServiceException(Exception)",
+          "description": "AI服务基础异常，包含code(int)和message(str)属性"
+        },
+        {
+          "name": "LLMException",
+          "signature": "class LLMException(AIServiceException)",
+          "description": "LLM调用异常（调用失败、超时、降级耗尽）"
+        },
+        {
+          "name": "VectorStoreException",
+          "signature": "class VectorStoreException(AIServiceException)",
+          "description": "向量数据库异常（连接失败、查询错误）"
+        },
+        {
+          "name": "AgentTimeoutException",
+          "signature": "class AgentTimeoutException(AIServiceException)",
+          "description": "Agent执行超时异常"
+        },
+        {
+          "name": "ModelNotLoadedException",
+          "signature": "class ModelNotLoadedException(AIServiceException)",
+          "description": "模型未加载异常（Embedding或LLM模型未就绪时调用）"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/models/schemas.py",
+      "description": "Pydantic请求/响应模型定义，包含UserProfile、AnalyzeRequest、SearchRequest、AgentStateResponse、AnalyzeResponse、SearchResult、SearchResponse、ModelStatusResponse、UnifiedResponse",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/models/enums.py",
+      "description": "枚举定义，包含EducationLevel、KnowledgeLevel、PreferredStyle、AnalysisType、AgentName、AgentStatus、LLMMode",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/exception.py",
+      "description": "统一异常体系，包含AIServiceException基础异常和4个业务异常子类",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/main.py",
+      "description": "添加全局异常处理器：AIServiceException处理器（返回统一格式JSON，HTTP状态码使用exc.code）和RequestValidationError处理器（返回422+统一格式JSON），替换任务4的占位处理器",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "enums.py定义7个枚举类，全部继承(str, Enum)确保JSON序列化为字符串值：1)EducationLevel(undergraduate/master/phd/faculty)；2)KnowledgeLevel(beginner/intermediate/advanced/expert)；3)PreferredStyle(simple/balanced/technical)；4)AnalysisType(paper_analysis/compare/report)；5)AgentName(coordinator/retriever/analyzer/comparer/generator/reviewer)；6)AgentStatus(waiting/running/completed/failed)；7)LLMMode(auto/builtin/api/local)。枚举值使用lower_case（Python规范）",
+        "priority": "P0",
+        "acceptance_condition": "from app.models.enums import EducationLevel; EducationLevel.MASTER.value == 'master'"
+      },
+      {
+        "id": "FR-002",
+        "description": "schemas.py定义UserProfile模型：educationLevel:EducationLevel、researchField:str=Field(...,min_length=1,max_length=100)、knowledgeLevel:KnowledgeLevel、preferredStyle:PreferredStyle。字段名使用camelCase（与Java后端API契约一致），通过Pydantic的model_config设置populate_by_name=True支持alias",
+        "priority": "P0",
+        "acceptance_condition": "UserProfile(educationLevel='master',researchField='NLP',knowledgeLevel='intermediate',preferredStyle='balanced') 创建成功"
+      },
+      {
+        "id": "FR-003",
+        "description": "schemas.py定义AnalyzeRequest模型：topic:str=Field(...,min_length=1,max_length=500,description='研究主题')、paperIds:List[str]=Field(default_factory=list,description='论文ID列表')、userProfile:UserProfile、analysisType:AnalysisType=Field(...,description='分析类型')、analysisId:str=Field(...,min_length=1,description='分析任务ID')。字段名使用camelCase与Java契约一致",
+        "priority": "P0",
+        "acceptance_condition": "AnalyzeRequest(topic='test',paperIds=[],userProfile=...,analysisType='report',analysisId='anl_001') 创建成功；空topic创建失败抛ValidationError"
+      },
+      {
+        "id": "FR-004",
+        "description": "schemas.py定义SearchRequest模型：query:str=Field(...,min_length=1,max_length=500,description='检索查询')、topK:int=Field(default=10,ge=1,le=50,description='返回数量')、filters:Optional[dict]=Field(default=None,description='过滤条件')",
+        "priority": "P0",
+        "acceptance_condition": "SearchRequest(query='test') 创建成功，topK默认10；topK=100创建失败抛ValidationError"
+      },
+      {
+        "id": "FR-005",
+        "description": "schemas.py定义响应模型：1)AgentStateResponse(agentName:str, status:str, progress:Optional[float]=None, intermediateResult:Optional[str]=None, durationMs:Optional[int]=None)；2)AnalyzeResponse(analysisId:str, status:str, report:Optional[str]=None, citations:Optional[list]=None, agentStates:Optional[List[AgentStateResponse]]=None, degraded:Optional[bool]=None, degradedReason:Optional[str]=None)；3)SearchResult(paperId:str, title:str, abstract:Optional[str]=None, score:float, year:Optional[int]=None, venue:Optional[str]=None)；4)SearchResponse(results:List[SearchResult], total:int)；5)ModelStatusResponse(llmStatus:str, llmMode:str, embeddingStatus:str, chromaStatus:str, gpuAvailable:bool=False, gpuMemoryUsed:Optional[str]=None)",
+        "priority": "P0",
+        "acceptance_condition": "所有响应模型可正常创建和JSON序列化"
+      },
+      {
+        "id": "FR-006",
+        "description": "schemas.py定义UnifiedResponse泛型统一响应包装：code:int=200、message:str='success'、data:Optional[Any]=None、timestamp:int=Field(default_factory=lambda:int(datetime.now().timestamp()*1000))。提供类方法success(data,message='success')和error(code,message)快速创建响应",
+        "priority": "P0",
+        "acceptance_condition": "UnifiedResponse.success(data={'key':'value'}).model_dump() 返回正确JSON；UnifiedResponse.error(500,'Internal error') 返回正确错误JSON"
+      },
+      {
+        "id": "FR-007",
+        "description": "exception.py定义AIServiceException基础异常：class AIServiceException(Exception)，__init__(self, code:int, message:str)，self.code=code, self.message=message。定义4个子类：LLMException(AIServiceException)默认code=503、VectorStoreException(AIServiceException)默认code=503、AgentTimeoutException(AIServiceException)默认code=408、ModelNotLoadedException(AIServiceException)默认code=503。子类__init__接受message参数，code有默认值但可覆盖",
+        "priority": "P0",
+        "acceptance_condition": "raise LLMException('LLM call failed') 捕获后exc.code==503, exc.message=='LLM call failed'"
+      },
+      {
+        "id": "FR-008",
+        "description": "main.py添加全局异常处理器：1)@app.exception_handler(AIServiceException)返回JSONResponse(status_code=exc.code, content={code:exc.code, message:exc.message, data:None, timestamp:毫秒时间戳})；2)@app.exception_handler(RequestValidationError)返回JSONResponse(status_code=422, content={code:422, message:f'参数校验失败: {exc}', data:None, timestamp:毫秒时间戳})。替换任务4中的占位处理器",
+        "priority": "P0",
+        "acceptance_condition": "发送空topic请求返回422和统一格式JSON；触发AIServiceException返回对应HTTP状态码和统一格式JSON"
+      },
+      {
+        "id": "FR-009",
+        "description": "models/__init__.py导出所有模型和枚举，方便其他模块from app.models import AnalyzeRequest等",
+        "priority": "P1",
+        "acceptance_condition": "from app.models import AnalyzeRequest, EducationLevel 成功"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case。注意：API请求/响应模型字段名使用camelCase与Java后端契约一致（如educationLevel而非education_level），通过Pydantic model_config的populate_by_name=True支持两种命名方式",
+        "mappings": [
+          { "java": "educationLevel", "python": "educationLevel", "json": "educationLevel" },
+          { "java": "researchField", "python": "researchField", "json": "researchField" },
+          { "java": "knowledgeLevel", "python": "knowledgeLevel", "json": "knowledgeLevel" },
+          { "java": "preferredStyle", "python": "preferredStyle", "json": "preferredStyle" },
+          { "java": "paperIds", "python": "paperIds", "json": "paperIds" },
+          { "java": "analysisType", "python": "analysisType", "json": "analysisType" },
+          { "java": "analysisId", "python": "analysisId", "json": "analysisId" },
+          { "java": "agentStates", "python": "agentStates", "json": "agentStates" },
+          { "java": "agentName", "python": "agentName", "json": "agentName" },
+          { "java": "intermediateResult", "python": "intermediateResult", "json": "intermediateResult" },
+          { "java": "durationMs", "python": "durationMs", "json": "durationMs" },
+          { "java": "topK", "python": "topK", "json": "topK" },
+          { "java": "paperId", "python": "paperId", "json": "paperId" },
+          { "java": "llmStatus", "python": "llmStatus", "json": "llmStatus" },
+          { "java": "llmMode", "python": "llmMode", "json": "llmMode" },
+          { "java": "embeddingStatus", "python": "embeddingStatus", "json": "embeddingStatus" },
+          { "java": "chromaStatus", "python": "chromaStatus", "json": "chromaStatus" },
+          { "java": "gpuAvailable", "python": "gpuAvailable", "json": "gpuAvailable" },
+          { "java": "gpuMemoryUsed", "python": "gpuMemoryUsed", "json": "gpuMemoryUsed" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/agent/analyze",
+          "method": "POST",
+          "request_format": {
+            "topic": "string (1-500)",
+            "paperIds": "string[]",
+            "userProfile": { "educationLevel": "enum", "researchField": "string", "knowledgeLevel": "enum", "preferredStyle": "enum" },
+            "analysisType": "enum",
+            "analysisId": "string"
+          },
+          "response_format": { "code": 200, "message": "success", "data": { "analysisId": "string", "status": "string" }, "timestamp": "int(ms)" }
+        },
+        {
+          "endpoint": "POST /api/search",
+          "method": "POST",
+          "request_format": { "query": "string (1-500)", "topK": "int (1-50)", "filters": "object|null" },
+          "response_format": { "code": 200, "message": "success", "data": { "results": "array", "total": "int" }, "timestamp": "int(ms)" }
+        }
+      ],
+      "data_flow": "Java后端发送camelCase JSON → FastAPI Pydantic模型校验 → Python内部处理 → 返回camelCase JSON响应"
+    },
+    "degradation_requirements": null,
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "异常消息中禁止包含API Key、数据库密码等敏感信息。LLMException的message应仅包含通用错误描述，不暴露内部实现细节"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/health", "/api/model/status"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "枚举类不继承str", "reason": "不继承str会导致JSON序列化为对象而非字符串值", "severity": "critical" },
+    { "id": "FA-004", "action": "Pydantic模型字段名与Java后端API契约不一致", "reason": "跨系统一致性约束，API请求/响应必须使用camelCase", "severity": "critical" },
+    { "id": "FA-005", "action": "异常消息中包含敏感信息（API Key、密码等）", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-006", "action": "Pydantic模型缺少Field校验（min_length/ge/le等）", "reason": "API请求校验是核心安全要求", "severity": "high" },
+    { "id": "FA-007", "action": "全局异常处理器返回格式与Java后端不一致", "reason": "统一响应格式要求{code,message,data,timestamp}", "severity": "high" },
+    { "id": "FA-008", "action": "异常子类缺少默认HTTP状态码", "reason": "LLMException默认503、AgentTimeoutException默认408等", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "枚举序列化测试",
+        "description": "验证所有枚举类继承str+Enum，JSON序列化为字符串值",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "Pydantic模型校验测试",
+        "description": "验证AnalyzeRequest/SearchRequest字段校验（空topic、超范围topK、非法枚举值等）",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "异常体系测试",
+        "description": "验证AIServiceException及其子类的code/message属性，子类默认code值",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "全局异常处理器测试",
+        "description": "验证AIServiceException和RequestValidationError返回统一格式JSON",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "UnifiedResponse测试",
+        "description": "验证UnifiedResponse.success()和UnifiedResponse.error()类方法",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.models.enums import EducationLevel, AgentStatus, LLMMode; print(EducationLevel.MASTER.value, AgentStatus.RUNNING.value, LLMMode.AUTO.value)\"",
+        "expected_result": "输出 'master running auto'"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.models.schemas import AnalyzeRequest; req = AnalyzeRequest(topic='test',paperIds=[],userProfile={'educationLevel':'master','researchField':'NLP','knowledgeLevel':'intermediate','preferredStyle':'balanced'},analysisType='report',analysisId='anl_001'); print(req.model_dump_json())\"",
+        "expected_result": "输出正确JSON字符串"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.models.schemas import AnalyzeRequest; AnalyzeRequest(topic='',paperIds=[],userProfile={'educationLevel':'master','researchField':'NLP','knowledgeLevel':'intermediate','preferredStyle':'balanced'},analysisType='report',analysisId='anl_001')\" 2>&1",
+        "expected_result": "抛出ValidationError，提示topic校验失败"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.exception import LLMException, AgentTimeoutException; e1=LLMException('test'); e2=AgentTimeoutException('timeout'); print(e1.code, e2.code)\"",
+        "expected_result": "输出 '503 408'"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && uvicorn app.main:app --host 0.0.0.0 --port 8000 & sleep 3 && curl -s -X POST http://localhost:8000/api/agent/analyze -H 'Content-Type: application/json' -d '{\"topic\":\"\"}'",
+        "expected_result": "返回422和统一格式JSON {code:422, message:'参数校验失败...', data:null}"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "enums.py包含7个枚举类，全部继承(str, Enum)，枚举值使用lower_case", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "EducationLevel枚举值与MySQL user_profiles表education_level字段ENUM值一致", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "schemas.py包含9个Pydantic模型（UserProfile/AnalyzeRequest/SearchRequest/AgentStateResponse/AnalyzeResponse/SearchResult/SearchResponse/ModelStatusResponse/UnifiedResponse）", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "AnalyzeRequest字段名使用camelCase与Java后端API契约一致（educationLevel/paperIds/analysisType等）", "verified_by": "code_review" },
+    { "id": "AC-005", "criterion": "AnalyzeRequest空topic创建失败抛ValidationError，非法枚举值创建失败", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "SearchRequest topK范围1-50，默认10，超范围创建失败", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "UnifiedResponse.success()和.error()类方法正确创建响应，timestamp为毫秒时间戳", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "exception.py包含AIServiceException基础异常和4个子类，子类有默认HTTP状态码", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "LLMException默认code=503，AgentTimeoutException默认code=408", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "全局异常处理器返回统一格式{code, message, data:null, timestamp}，与Java后端一致", "verified_by": "automated_test" },
+    { "id": "AC-011", "criterion": "RequestValidationError处理器返回422状态码和统一格式JSON", "verified_by": "automated_test" },
+    { "id": "AC-012", "criterion": "异常消息中不包含API Key等敏感信息", "verified_by": "code_review" }
+  ]
+}

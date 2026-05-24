@@ -1,0 +1,63 @@
+*
+!AGENTS.md
+!docs/
+!docs/**
+!json_prompt/
+!json_prompt/**
+!log/
+!log/**
+!Veritas/
+!Veritas/**
+!.gitignore
+
+# ============================================================
+# 敏感文件 — 即使在白名单目录中也必须忽略
+# 规则：Git 中后匹配的规则优先级更高，以下规则覆盖上方的 ! 白名单
+# ============================================================
+
+# --- 环境变量（含密钥/密码/API Key）---
+**/.env
+**/.env.local
+**/.env.*.local
+**/.env.production
+**/.env.staging
+
+# --- Spring Boot 敏感配置 ---
+**/application-dev.yml
+**/application-prod.yml
+**/application-dev.properties
+**/application-prod.properties
+
+# --- 密钥与证书 ---
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/*.truststore
+**/secrets/
+**/certs/
+
+# --- 数据库备份与转储 ---
+**/*.sql.dump
+**/*.sql.gz
+**/*.sql.backup
+**/db-backup/
+
+# --- 日志文件（可能含敏感运行时信息）---
+**/*.log
+**/logs/
+
+# --- 操作系统生成文件 ---
+**/.DS_Store
+**/Thumbs.db
+**/desktop.ini
+
+# --- 编辑器/IDE 临时文件（可能含本地配置）---
+**/*.swp
+**/*.swo
+**/*~
+**/.idea/
+**/.vscode/
+**/*.iml

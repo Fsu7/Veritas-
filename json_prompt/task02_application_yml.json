@@ -1,0 +1,382 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / JM1：项目骨架与数据层就绪",
+    "requirement": "创建Spring Boot三层配置文件：application.yml（公共配置，含server/spring.datasource(JPA)/spring.data.redis/spring.jackson/ai-service/jwt/logging）、application-dev.yml（开发环境，连接本机MySQL 9 localhost:3306密码Aa2105268075.、本机Redis localhost:6379无密码、AI服务localhost:8000、DEBUG日志、ddl-auto=update）、application-prod.yml（生产环境，通过${环境变量}引用Docker内服务地址、INFO日志、ddl-auto=validate、连接池优化）。所有敏感配置必须通过${VAR}环境变量注入，提供默认值仅用于开发环境。",
+    "requirement_ids": ["F2.1", "F2.2", "F2.3", "F2.4", "F2.5", "F2.6"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§14 配置管理（application.yml完整示例、环境配置分离、环境变量清单）"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.3 详细任务分解（Day 6: application.yml + application-dev.yml + application-prod.yml）"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§7.4 配置规范（公共/开发/生产分离、禁止硬编码、@Value或@ConfigurationProperties注入）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§5.2 本机环境（MySQL/Redis/MinIO地址密码）、§5.3 关键环境变量"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.config",
+        "description": "配置类包，后续将包含RedisConfig/WebClientConfig/SecurityConfig等，依赖application.yml中的配置项"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L1693-L1764",
+        "description": "§14.1中已有完整application.yml示例，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L1776-L1787",
+        "description": "§14.3中已有完整环境变量清单",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "AGENTS.md#L5.2",
+        "description": "本机环境信息：MySQL9 localhost:3306 root/Aa2105268075.、Redis localhost:6379无密码",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "application.yml",
+      "path": "backend-java/src/main/resources/application.yml",
+      "responsibility": "公共配置：server端口、spring应用名、datasource/JPA/Redis/Jackson通用设置、ai-service/jwt/logging配置",
+      "key_interfaces": [
+        {
+          "name": "spring.datasource",
+          "signature": "url/username/password 通过${VAR}引用",
+          "description": "MySQL数据源配置，支持环境变量覆盖"
+        },
+        {
+          "name": "spring.data.redis",
+          "signature": "host/port/password 通过${VAR}引用",
+          "description": "Redis连接配置"
+        },
+        {
+          "name": "ai-service",
+          "signature": "url/timeout/retry-count/retry-interval",
+          "description": "Python AI服务连接配置"
+        },
+        {
+          "name": "jwt",
+          "signature": "secret/expiration",
+          "description": "JWT Token配置"
+        }
+      ]
+    },
+    {
+      "name": "application-dev.yml",
+      "path": "backend-java/src/main/resources/application-dev.yml",
+      "responsibility": "开发环境配置：本机MySQL9/Redis/AI服务地址、DEBUG日志、ddl-auto=update",
+      "key_interfaces": [
+        {
+          "name": "spring.datasource",
+          "signature": "localhost:3306, root/Aa2105268075.",
+          "description": "本机MySQL 9连接信息"
+        },
+        {
+          "name": "spring.jpa.hibernate.ddl-auto",
+          "signature": "update",
+          "description": "开发环境自动更新表结构"
+        }
+      ]
+    },
+    {
+      "name": "application-prod.yml",
+      "path": "backend-java/src/main/resources/application-prod.yml",
+      "responsibility": "生产环境配置：Docker内服务发现、INFO日志、ddl-auto=validate、连接池优化",
+      "key_interfaces": [
+        {
+          "name": "spring.datasource",
+          "signature": "mysql:3306, ${MYSQL_ROOT_PASSWORD}",
+          "description": "Docker内MySQL连接，密码通过环境变量注入"
+        },
+        {
+          "name": "spring.jpa.hibernate.ddl-auto",
+          "signature": "validate",
+          "description": "生产环境仅验证表结构，不自动修改"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "backend-java/src/main/resources/application.yml",
+      "description": "覆盖任务1的简化版，写入完整公共配置（server/spring.datasource/JPA/Redis/Jackson/ai-service/jwt/logging）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/resources/application-dev.yml",
+      "description": "开发环境配置（本机MySQL9/Redis/AI服务、DEBUG日志、ddl-auto=update）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/resources/application-prod.yml",
+      "description": "生产环境配置（Docker内服务发现、INFO日志、ddl-auto=validate、连接池优化）",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "application.yml公共配置包含：server.port=8080、spring.application.name=literature-assistant、spring.datasource（url/username/password/driver-class-name/hikari最大20最小5超时30s）、spring.jpa（hibernate.ddl-auto、show-sql、properties.hibernate.dialect/format_sql）、spring.data.redis（host/port/password/timeout/lettuce连接池max-active=20/max-idle=10/min-idle=5）、spring.jackson（date-format/time-zone/default-property-inclusion）、ai-service（url/timeout=30000/retry-count=1/retry-interval=3000）、jwt（secret/expiration=86400000）、logging（level和pattern）",
+        "priority": "P0",
+        "acceptance_condition": "Spring Boot启动时所有配置项正确加载，无Unresolved placeholder错误"
+      },
+      {
+        "id": "FR-002",
+        "description": "application.yml中所有环境相关值使用${VAR:defaultValue}格式，默认值仅适用于开发环境。具体：MYSQL_URL默认jdbc:mysql://localhost:3306/literature_assistant、MYSQL_USERNAME默认root、MYSQL_PASSWORD默认Aa2105268075.、REDIS_HOST默认localhost、REDIS_PORT默认6379、REDIS_PASSWORD默认空、AI_SERVICE_URL默认http://localhost:8000、JWT_SECRET默认literature-assistant-jwt-secret-key-2026",
+        "priority": "P0",
+        "acceptance_condition": "不设置任何环境变量时，应用能以开发环境默认值启动"
+      },
+      {
+        "id": "FR-003",
+        "description": "application-dev.yml开发环境配置：覆盖spring.datasource.url为本机MySQL9（jdbc:mysql://localhost:3306/literature_assistant?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai）、spring.datasource.username=root、spring.datasource.password=Aa2105268075.、spring.data.redis.host=localhost、spring.data.redis.port=6379、spring.data.redis.password为空、ai-service.url=http://localhost:8000、spring.jpa.hibernate.ddl-auto=update、spring.jpa.show-sql=true、logging.level.com.literatureassistant=DEBUG、logging.level.org.hibernate.SQL=DEBUG",
+        "priority": "P0",
+        "acceptance_condition": "激活dev profile后连接本机MySQL9和Redis成功"
+      },
+      {
+        "id": "FR-004",
+        "description": "application-prod.yml生产环境配置：spring.datasource.url=${MYSQL_URL}（无默认值，Docker内jdbc:mysql://mysql:3306/literature_assistant...）、spring.datasource.username=${MYSQL_USERNAME}、spring.datasource.password=${MYSQL_PASSWORD}、spring.data.redis.host=${REDIS_HOST}、spring.data.redis.port=${REDIS_PORT}、spring.data.redis.password=${REDIS_PASSWORD}、ai-service.url=${AI_SERVICE_URL}、jwt.secret=${JWT_SECRET}、spring.jpa.hibernate.ddl-auto=validate、spring.jpa.show-sql=false、logging.level.root=INFO、logging.level.com.literatureassistant=INFO、hikari连接池优化（maximum-pool-size=20、minimum-idle=10、connection-timeout=30000、idle-timeout=600000、max-lifetime=1800000）",
+        "priority": "P0",
+        "acceptance_condition": "激活prod profile且设置环境变量后，应用连接Docker内服务成功"
+      },
+      {
+        "id": "FR-005",
+        "description": "MySQL连接URL必须包含useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai参数，支持中文和时区",
+        "priority": "P0",
+        "acceptance_condition": "应用启动时HikariCP连接池初始化成功，无编码或时区错误"
+      },
+      {
+        "id": "FR-006",
+        "description": "JPA配置使用MySQL8Dialect（org.hibernate.dialect.MySQL8Dialect），即使本机是MySQL 9也使用MySQL8Dialect（Hibernate官方尚未提供MySQL9Dialect）",
+        "priority": "P1",
+        "acceptance_condition": "启动时Hibernate正确识别方言，无方言警告"
+      },
+      {
+        "id": "FR-007",
+        "description": "logging.pattern.console格式包含requestId：\"%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - [%X{requestId}] %msg%n\"",
+        "priority": "P1",
+        "acceptance_condition": "日志输出包含requestId占位"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/agent/analyze",
+          "method": "POST",
+          "request_format": {
+            "topic": "string",
+            "paper_ids": ["string"],
+            "user_id": "string",
+            "user_profile": {
+              "education_level": "string",
+              "research_field": "string",
+              "knowledge_level": "string",
+              "preferred_style": "string"
+            }
+          },
+          "response_format": {
+            "analysis_id": "string",
+            "status": "string",
+            "result": "object"
+          }
+        }
+      ],
+      "data_flow": "Java后端通过WebClient调用Python AI服务（ai-service.url配置），请求中用户画像字段使用snake_case（@JsonProperty注解），Python返回JSON也使用snake_case"
+    },
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          { "priority": 1, "name": "BuiltinLLMProvider", "description": "软件方模型（llm.literature-assistant.com）" },
+          { "priority": 2, "name": "APILLMProvider", "description": "外接API（用户自配LLM_API_KEY/LLM_API_BASE）" },
+          { "priority": 3, "name": "LocalLLMProvider", "description": "本地Qwen2模型" }
+        ],
+        "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "跳过该Agent，继续后续流程",
+        "multi_agent_failure": "降级为单Agent模式（仅Retriever+Generator）",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "application-prod.yml中MYSQL_PASSWORD、JWT_SECRET等必须通过${VAR}引用，不提供默认值"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "application-dev.yml中本机MySQL密码Aa2105268075.仅用于开发环境，不得出现在prod配置中"
+      },
+      {
+        "category": "jwt_auth",
+        "requirement": "jwt.secret在prod环境必须通过${JWT_SECRET}注入，dev环境允许默认值"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "config_key": "kebab-case"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "primary_key": "id BIGINT AUTO_INCREMENT",
+      "business_id": "xxx_id VARCHAR(100) UNIQUE NOT NULL",
+      "timestamp_fields": {
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+      },
+      "comment_required": true,
+      "json_fields_only_for_dynamic": true,
+      "fulltext_parser": "ngram",
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"],
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行YAML配置", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-006", "action": "在application-prod.yml中硬编码敏感配置（密码、JWT Secret等）", "reason": "安全约束：生产环境必须通过环境变量注入", "severity": "critical" },
+    { "id": "FA-CFG1", "action": "在application.yml中写死环境特定值（如localhost地址）", "reason": "公共配置应使用${VAR:defaultValue}格式，环境特定值放在profile文件中", "severity": "high" },
+    { "id": "FA-CFG2", "action": "生产环境ddl-auto设为update或create", "reason": "生产环境禁止自动修改表结构，必须validate", "severity": "critical" },
+    { "id": "FA-CFG3", "action": "省略MySQL连接URL中的useUnicode/characterEncoding/serverTimezone参数", "reason": "中文支持和时区正确性", "severity": "high" },
+    { "id": "FA-CFG4", "action": "HikariCP连接池参数缺失或配置不合理", "reason": "性能约束：max=20, min-idle=5, timeout=30s", "severity": "high" },
+    { "id": "FA-CFG5", "action": "Redis连接池参数缺失", "reason": "性能约束：lettuce pool max-active=20", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [],
+    "integration_tests": [
+      {
+        "test_name": "Dev环境MySQL连接测试",
+        "description": "激活dev profile，验证连接本机MySQL9成功，HikariCP连接池初始化",
+        "layers_involved": ["java_backend", "data_layer"]
+      },
+      {
+        "test_name": "Dev环境Redis连接测试",
+        "description": "激活dev profile，验证连接本机Redis成功，SET/GET操作正常",
+        "layers_involved": ["java_backend", "data_layer"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd backend-java && mvn spring-boot:run -Dspring-boot.run.profiles=dev",
+        "expected_result": "应用启动成功，HikariCP连接池初始化，Redis连接成功（需本机MySQL9和Redis运行中）"
+      },
+      {
+        "layer": "java",
+        "command": "curl -s http://localhost:8080/actuator/health 2>/dev/null || echo '需要HealthController'",
+        "expected_result": "健康检查端点返回UP状态（需HealthController已实现）"
+      },
+      {
+        "layer": "sql",
+        "command": "mysql -u root -p'Aa2105268075.' -e \"SELECT 1\"",
+        "expected_result": "本机MySQL9连接正常"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "application.yml包含完整公共配置：server/spring.datasource/JPA/Redis/Jackson/ai-service/jwt/logging", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "application.yml中所有环境相关值使用${VAR:defaultValue}格式", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "application-dev.yml正确配置本机MySQL9（localhost:3306, root/Aa2105268075.）和Redis（localhost:6379无密码）", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "application-dev.yml中ddl-auto=update, show-sql=true, DEBUG日志", "verified_by": "code_review" },
+    { "id": "AC-005", "criterion": "application-prod.yml中所有敏感配置通过${VAR}引用，无默认值", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "application-prod.yml中ddl-auto=validate, show-sql=false, INFO日志", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "MySQL连接URL包含useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "HikariCP连接池配置：max=20, min-idle=5, connection-timeout=30000", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "Redis Lettuce连接池配置：max-active=20, max-idle=10, min-idle=5", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "JPA dialect使用MySQL8Dialect", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "logging.pattern.console包含requestId（%X{requestId}）", "verified_by": "code_review" },
+    { "id": "AC-012", "criterion": "dev profile启动时HikariCP连接池初始化成功（需本机MySQL9运行）", "verified_by": "manual_test" }
+  ]
+}

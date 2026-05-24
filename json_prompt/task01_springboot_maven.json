@@ -1,0 +1,368 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / JM1：项目骨架与数据层就绪",
+    "requirement": "使用Spring Initializr创建Spring Boot 3.2+项目骨架，groupId=com.literatureassistant，artifactId=backend-java，Java 17，Maven构建。pom.xml包含全部必需依赖（spring-boot-starter-webflux、spring-boot-starter-data-jpa、spring-boot-starter-data-redis、spring-boot-starter-validation、mysql-connector-j、jjwt 0.12.5、lombok、mapstruct 1.5.5.Final、spring-boot-starter-test），并创建标准包结构（config/controller/service/repository/entity/dto/client/mapper/filter/exception/enums/util）和启动类LiteratureAssistantApplication。",
+    "requirement_ids": ["F2.1", "F2.2", "F2.3", "F2.4", "F2.5", "F2.6"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§1.3 技术栈版本、§3.1 包结构、附录A 核心Maven依赖"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3 JM1交付物清单（Spring Boot项目骨架+Maven依赖配置）"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§2.3 依赖管理规范（锁定版本号、Spring Boot Parent POM）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§5.1 技术栈版本、§6 项目目录结构"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant",
+        "description": "Java后端根包，包含6大业务模块（用户/论文/会话/分析/AI调用/缓存）"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L1943-L2010",
+        "description": "附录A中已有完整Maven依赖列表，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L170-L266",
+        "description": "§3.1中已有完整包结构定义",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "Spring Boot启动类",
+      "path": "backend-java/src/main/java/com/literatureassistant/LiteratureAssistantApplication.java",
+      "responsibility": "Spring Boot应用入口，@SpringBootApplication注解",
+      "key_interfaces": [
+        {
+          "name": "main",
+          "signature": "public static void main(String[] args)",
+          "description": "应用启动入口"
+        }
+      ]
+    },
+    {
+      "name": "Maven POM",
+      "path": "backend-java/pom.xml",
+      "responsibility": "项目构建配置、依赖管理、插件配置",
+      "key_interfaces": [
+        {
+          "name": "spring-boot-starter-parent",
+          "signature": "3.2.x",
+          "description": "Spring Boot Parent POM，统一管理Spring依赖版本"
+        },
+        {
+          "name": "maven-compiler-plugin",
+          "signature": "Java 17 + MapStruct annotation processor",
+          "description": "编译插件，需配置Lombok和MapStruct的annotationProcessorPaths"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "backend-java/pom.xml",
+      "description": "Maven项目配置文件，含Spring Boot Parent、全部依赖、编译插件（Lombok+MapStruct annotationProcessorPaths）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/LiteratureAssistantApplication.java",
+      "description": "Spring Boot启动类",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/config/.gitkeep",
+      "description": "config包占位（后续任务填充RedisConfig/WebClientConfig/SecurityConfig）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/controller/.gitkeep",
+      "description": "controller包占位",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/service/.gitkeep",
+      "description": "service包占位",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/repository/.gitkeep",
+      "description": "repository包占位",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/entity/.gitkeep",
+      "description": "entity包占位",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/dto/request/.gitkeep",
+      "description": "dto/request包占位",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/dto/response/.gitkeep",
+      "description": "dto/response包占位",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/dto/common/.gitkeep",
+      "description": "dto/common包占位",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/client/.gitkeep",
+      "description": "client包占位（PythonAIClient）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/mapper/.gitkeep",
+      "description": "mapper包占位（MapStruct映射器）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/filter/.gitkeep",
+      "description": "filter包占位（JwtAuthFilter）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/exception/.gitkeep",
+      "description": "exception包占位",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/enums/.gitkeep",
+      "description": "enums包占位",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/java/com/literatureassistant/util/.gitkeep",
+      "description": "util包占位",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/main/resources/application.yml",
+      "description": "主配置文件（仅spring.application.name和spring.profiles.active=dev，详细配置在任务2中完成）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/src/test/java/com/literatureassistant/LiteratureAssistantApplicationTests.java",
+      "description": "Spring Boot启动测试类",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "backend-java/.gitignore",
+      "description": "Java项目gitignore（target/、*.class、.idea/、*.iml等）",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "pom.xml使用spring-boot-starter-parent 3.2.x作为Parent POM，groupId=com.literatureassistant，artifactId=backend-java，java.version=17",
+        "priority": "P0",
+        "acceptance_condition": "mvn validate 成功，无依赖冲突"
+      },
+      {
+        "id": "FR-002",
+        "description": "pom.xml包含以下依赖：spring-boot-starter-webflux（非starter-web，因为需要WebClient+SSE）、spring-boot-starter-data-jpa、spring-boot-starter-data-redis、spring-boot-starter-validation、mysql-connector-j(runtime)、jjwt-api/jjwt-impl/jjwt-jackson(0.12.5, impl和jackson为runtime)、lombok(optional)、mapstruct(1.5.5.Final)、spring-boot-starter-test(test scope)",
+        "priority": "P0",
+        "acceptance_condition": "mvn dependency:resolve 成功，所有依赖下载完毕"
+      },
+      {
+        "id": "FR-003",
+        "description": "maven-compiler-plugin配置Java 17，并添加Lombok和MapStruct的annotationProcessorPaths，确保Lombok和MapStruct注解处理器共存（Lombok需使用lombok-mapstruct-binding绑定）",
+        "priority": "P0",
+        "acceptance_condition": "mvn compile 成功，MapStruct生成实现类"
+      },
+      {
+        "id": "FR-004",
+        "description": "创建LiteratureAssistantApplication启动类，@SpringBootApplication注解，标准main方法",
+        "priority": "P0",
+        "acceptance_condition": "mvn spring-boot:run 启动成功（无数据库连接时允许启动失败，但类加载和Spring容器初始化正常）"
+      },
+      {
+        "id": "FR-005",
+        "description": "创建标准包结构：config/controller/service/repository/entity/dto(request/response/common)/client/mapper/filter/exception/enums/util，每个包放.gitkeep占位",
+        "priority": "P0",
+        "acceptance_condition": "目录结构与Java后端架构文档§3.1一致"
+      },
+      {
+        "id": "FR-006",
+        "description": "application.yml仅包含spring.application.name=literature-assistant和spring.profiles.active=dev（详细配置在任务2中完成）",
+        "priority": "P0",
+        "acceptance_condition": "Spring Boot启动时读取到应用名"
+      },
+      {
+        "id": "FR-007",
+        "description": "创建LiteratureAssistantApplicationTests测试类，@SpringBootTest注解，包含contextLoads()测试方法",
+        "priority": "P1",
+        "acceptance_condition": "mvn test 执行contextLoads通过（需配合数据库配置）"
+      }
+    ],
+    "cross_system_consistency": null,
+    "degradation_requirements": null,
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "pom.xml中禁止硬编码数据库密码、JWT Secret等敏感信息，所有敏感配置通过application.yml中的${VAR}环境变量引用"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE",
+        "config_key": "kebab-case"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse（dto/request和dto/response子包）"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"],
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "使用spring-boot-starter-web代替webflux", "reason": "项目需要WebClient+SSE支持，必须使用webflux", "severity": "critical" },
+    { "id": "FA-004", "action": "Maven依赖使用模糊版本号（如RELEASE、LATEST）", "reason": "依赖管理规范要求锁定版本号", "severity": "high" },
+    { "id": "FA-005", "action": "Lombok和MapStruct注解处理器冲突未处理", "reason": "必须配置lombok-mapstruct-binding确保两者共存", "severity": "critical" },
+    { "id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-007", "action": "省略.gitkeep占位文件", "reason": "Git无法追踪空目录", "severity": "medium" },
+    { "id": "FA-008", "action": "包结构不符合架构文档定义", "reason": "架构约束", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "Spring上下文加载测试",
+        "description": "验证Spring Boot应用上下文能正常加载",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd backend-java && mvn validate",
+        "expected_result": "BUILD SUCCESS，POM文件格式正确"
+      },
+      {
+        "layer": "java",
+        "command": "cd backend-java && mvn dependency:resolve",
+        "expected_result": "BUILD SUCCESS，所有依赖下载完毕"
+      },
+      {
+        "layer": "java",
+        "command": "cd backend-java && mvn compile",
+        "expected_result": "BUILD SUCCESS，MapStruct生成实现类"
+      },
+      {
+        "layer": "java",
+        "command": "cd backend-java && find src/main/java/com/literatureassistant -type d | sort",
+        "expected_result": "列出所有包目录（config/controller/service/repository/entity/dto/client/mapper/filter/exception/enums/util）"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "pom.xml使用spring-boot-starter-parent 3.2.x，Java 17，groupId和artifactId正确", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "所有必需依赖已声明且版本锁定：webflux/jpa/redis/validation/mysql-connector/jjwt/lombok/mapstruct/test", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "maven-compiler-plugin配置了Lombok+MapStruct annotationProcessorPaths，含lombok-mapstruct-binding", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "mvn compile 成功，无编译错误", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "LiteratureAssistantApplication启动类存在且注解正确", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "包结构与架构文档§3.1完全一致（16个包目录）", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "application.yml包含spring.application.name和spring.profiles.active=dev", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "pom.xml中无硬编码敏感信息", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": ".gitignore包含target/、*.class、.idea/、*.iml", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "mvn dependency:tree 无依赖冲突", "verified_by": "automated_test" }
+  ]
+}

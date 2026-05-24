@@ -1,0 +1,357 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / AM1：项目骨架与模型层就绪",
+    "requirement": "实现Python AI服务的核心配置模块：1) config.py — 基于pydantic-settings的BaseSettings配置类，从.env环境变量读取所有配置项（应用配置、ChromaDB配置、Embedding配置、LLM三路配置、Agent配置、日志配置），所有配置项有合理默认值，创建全局settings单例；2) .env.example — 环境变量示例文件，包含所有配置项及中文注释说明，敏感值留空；3) core/logging.py — 基于Loguru的日志配置，支持控制台彩色输出+文件轮转输出，格式含时间/级别/模块:函数:行号/消息，文件日志按天轮转保留7天并压缩；4) core/events.py — FastAPI启动/关闭事件处理函数，在lifespan中调用，启动时初始化日志、关闭时清理资源。",
+    "requirement_ids": ["F3.5", "F3.3", "F5.2", "F4.3"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§16.1 Pydantic Settings配置类定义、§16.2 .env.example内容、§18.1 日志配置代码、§4.2 FastAPI生命周期"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§3.2 AM1交付物清单（Pydantic Settings配置、.env.example、日志配置）、§3.3 Week1 Day6任务"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§8 Python AI服务开发规范、§12 日志规范"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§5.2 本机环境、§5.3 关键环境变量"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core",
+        "description": "核心配置层，包含config.py（Pydantic Settings）、events.py（生命周期事件）、logging.py（日志配置）"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/main.py",
+        "description": "FastAPI应用入口，任务4已创建骨架，本任务需修改lifespan函数集成events.py"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/main.py",
+        "description": "任务4已创建FastAPI应用骨架，含lifespan占位和/health接口",
+        "reuse_type": "modify"
+      },
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L2554-L2606",
+        "description": "§16.1中已有完整Settings类定义代码",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L2610-L2640",
+        "description": "§16.2中已有完整.env.example内容",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L2676-L2698",
+        "description": "§18.1中已有Loguru日志配置代码",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "Settings配置类",
+      "path": "Veritas/ai-service/app/core/config.py",
+      "responsibility": "基于pydantic-settings BaseSettings，从.env读取所有配置项，提供全局settings单例",
+      "key_interfaces": [
+        {
+          "name": "Settings",
+          "signature": "class Settings(BaseSettings)",
+          "description": "应用配置类，包含APP_NAME/DEBUG/HOST/PORT、CHROMA_PATH、EMBEDDING_MODEL_PATH/DEVICE/API_KEY/API_BASE/API_MODEL、LLM_MODE/BUILTIN_URL/BUILTIN_API_KEY/BUILTIN_MODEL/API_KEY/API_BASE/MODEL_NAME/LOCAL_MODEL_PATH/TIMEOUT/RETRY_COUNT/RETRY_INTERVAL、AGENT_TIMEOUT/AGENT_FULL_TIMEOUT/AGENT_MAX_REGENERATE、LOG_LEVEL等字段"
+        },
+        {
+          "name": "settings",
+          "signature": "settings = Settings()",
+          "description": "全局配置单例，其他模块通过from app.core.config import settings使用"
+        }
+      ]
+    },
+    {
+      "name": "日志配置",
+      "path": "Veritas/ai-service/app/core/logging.py",
+      "responsibility": "基于Loguru配置日志输出，控制台+文件双输出",
+      "key_interfaces": [
+        {
+          "name": "setup_logging",
+          "signature": "def setup_logging(level: str = 'INFO') -> None",
+          "description": "初始化日志配置：移除默认handler，添加控制台彩色输出（INFO级别）和文件轮转输出（DEBUG级别，按天轮转，保留7天，压缩）"
+        }
+      ]
+    },
+    {
+      "name": "生命周期事件",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "responsibility": "FastAPI启动/关闭事件处理函数",
+      "key_interfaces": [
+        {
+          "name": "on_startup",
+          "signature": "async def on_startup() -> None",
+          "description": "启动事件：初始化日志、记录配置信息（LLM_MODE、EMBEDDING_MODEL_PATH等，不记录敏感值）"
+        },
+        {
+          "name": "on_shutdown",
+          "signature": "async def on_shutdown() -> None",
+          "description": "关闭事件：记录关闭日志"
+        }
+      ]
+    },
+    {
+      "name": "环境变量示例",
+      "path": "Veritas/ai-service/.env.example",
+      "responsibility": "环境变量示例文件，包含所有配置项及中文注释",
+      "key_interfaces": [
+        {
+          "name": "env_vars",
+          "signature": "N/A",
+          "description": "包含ChromaDB/Embedding/LLM三路/Agent/日志等所有配置项，敏感值留空，非敏感值提供默认值"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/config.py",
+      "description": "替换任务4的占位文件，实现完整Settings类和全局settings单例",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/logging.py",
+      "description": "替换任务4的占位文件，实现Loguru日志配置",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "description": "替换任务4的占位文件，实现启动/关闭事件处理函数",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/main.py",
+      "description": "修改lifespan函数，集成events.py的on_startup/on_shutdown",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/.env.example",
+      "description": "环境变量示例文件，包含所有配置项及中文注释，敏感值留空",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "config.py创建Settings类继承BaseSettings，包含以下配置组：1)应用配置(APP_NAME:str='Literature Assistant AI Service', DEBUG:bool=False, HOST:str='0.0.0.0', PORT:int=8000)；2)ChromaDB配置(CHROMA_PATH:str='./data/vector_db')；3)Embedding配置(EMBEDDING_MODEL_PATH:str='BAAI/bge-large-zh-v1.5', EMBEDDING_DEVICE:str='cpu', EMBEDDING_API_KEY:str='', EMBEDDING_API_BASE:str='', EMBEDDING_API_MODEL:str='')；4)LLM配置(LLM_MODE:str='auto', LLM_BUILTIN_URL:str='https://llm.literature-assistant.com/v1', LLM_BUILTIN_API_KEY:str='builtin', LLM_BUILTIN_MODEL:str='literature-assistant-pro', LLM_API_KEY:str='', LLM_API_BASE:str='', LLM_MODEL_NAME:str='', LLM_LOCAL_MODEL_PATH:str='', LLM_TIMEOUT:int=30, LLM_RETRY_COUNT:int=1, LLM_RETRY_INTERVAL:int=3)；5)Agent配置(AGENT_TIMEOUT:int=30, AGENT_FULL_TIMEOUT:int=120, AGENT_MAX_REGENERATE:int=1)；6)日志配置(LOG_LEVEL:str='INFO')。内部类Config设置env_file='.env', env_file_encoding='utf-8'",
+        "priority": "P0",
+        "acceptance_condition": "from app.core.config import settings 成功，settings.LLM_MODE返回'auto'"
+      },
+      {
+        "id": "FR-002",
+        "description": "config.py创建全局settings单例：settings = Settings()，其他模块通过from app.core.config import settings使用",
+        "priority": "P0",
+        "acceptance_condition": "多个模块import settings得到同一实例"
+      },
+      {
+        "id": "FR-003",
+        "description": ".env.example包含所有配置项，按功能分组并添加中文注释说明。分组：# 应用配置、# ChromaDB配置、# Embedding配置、# LLM配置（含三路方案说明）、# Agent配置、# 日志配置。敏感值（API Key等）留空，非敏感值提供默认值。LLM三路配置需注释说明优先级：方案A(软件方)→方案B(外接API)→方案C(本地模型)",
+        "priority": "P0",
+        "acceptance_condition": "cp .env.example .env 后应用能正常启动"
+      },
+      {
+        "id": "FR-004",
+        "description": "logging.py实现setup_logging函数：1)logger.remove()移除默认handler；2)logger.add(sys.stdout, level=level, format='{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{function}:{line} | {message}', colorize=True)；3)logger.add('logs/ai-service-{time:YYYY-MM-DD}.log', level='DEBUG', format同上, rotation='00:00', retention='7 days', compression='zip')。确保logs/目录在日志写入前自动创建",
+        "priority": "P0",
+        "acceptance_condition": "调用setup_logging后，控制台输出彩色日志，logs/目录下生成日志文件"
+      },
+      {
+        "id": "FR-005",
+        "description": "events.py实现on_startup和on_shutdown异步函数：on_startup调用setup_logging(settings.LOG_LEVEL)，然后logger.info记录关键配置信息（LLM_MODE、EMBEDDING_MODEL_PATH、CHROMA_PATH等，禁止记录API Key等敏感值）；on_shutdown记录关闭日志logger.info('AI Service shut down')",
+        "priority": "P0",
+        "acceptance_condition": "应用启动时日志输出配置信息，关闭时输出关闭日志"
+      },
+      {
+        "id": "FR-006",
+        "description": "修改main.py的lifespan函数，集成events.py：yield前调用await on_startup()，yield后调用await on_shutdown()。移除原有的占位logger.info语句",
+        "priority": "P0",
+        "acceptance_condition": "uvicorn启动时自动调用on_startup初始化日志，关闭时调用on_shutdown"
+      },
+      {
+        "id": "FR-007",
+        "description": "/health接口使用settings中的配置信息：返回{status:'UP', timestamp:ISO时间, llm:'not_loaded', embedding:'not_loaded', chroma:'not_connected'}（当前为占位值，后续任务替换为实际组件状态）",
+        "priority": "P1",
+        "acceptance_condition": "curl /health 返回正确JSON"
+      }
+    ],
+    "cross_system_consistency": null,
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          { "priority": 1, "name": "BuiltinLLMProvider", "description": "软件方模型，开箱即用，最高优先级" },
+          { "priority": 2, "name": "APILLMProvider", "description": "外接API，用户自配，中等优先级" },
+          { "priority": 3, "name": "LocalLLMProvider", "description": "本地模型，兜底方案，最低优先级" }
+        ],
+        "trigger_conditions": [
+          "连续3次调用失败",
+          "单次调用超时30秒",
+          "HTTP 5xx响应"
+        ],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "跳过该Agent，继续后续流程，记录错误日志",
+        "multi_agent_failure": "降级为单Agent模式（仅Retriever+Generator）",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "config.py中LLM_API_KEY、LLM_BUILTIN_API_KEY、EMBEDDING_API_KEY等敏感字段默认值为空字符串，禁止硬编码任何密钥。.env.example中敏感值留空并注释说明。日志中禁止输出API Key等敏感信息"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/health", "/api/model/status"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "硬编码API Key、密码等敏感信息", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-004", "action": "在日志中输出API Key等敏感信息", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-005", "action": "Settings类缺少.env文件加载配置", "reason": "pydantic-settings规范要求env_file配置", "severity": "high" },
+    { "id": "FA-006", "action": "配置项缺少默认值", "reason": "应用应能在无.env文件时以默认配置启动", "severity": "high" },
+    { "id": "FA-007", "action": "使用print()代替logger输出", "reason": "日志规范要求使用Loguru", "severity": "high" },
+    { "id": "FA-008", "action": "日志文件路径不自动创建目录", "reason": "logs/目录不存在时日志写入会失败", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "Settings配置加载测试",
+        "description": "验证Settings类能正确加载默认值和.env文件中的配置",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "日志配置测试",
+        "description": "验证setup_logging正确配置控制台和文件输出",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "敏感信息过滤测试",
+        "description": "验证日志输出不包含API Key等敏感信息",
+        "framework": "pytest",
+        "coverage": ["security"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.core.config import settings; print(f'LLM_MODE={settings.LLM_MODE}, CHROMA_PATH={settings.CHROMA_PATH}')\"",
+        "expected_result": "输出 LLM_MODE=auto, CHROMA_PATH=./data/vector_db"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.core.logging import setup_logging; setup_logging('DEBUG'); from loguru import logger; logger.info('Test log')\"",
+        "expected_result": "控制台输出日志，logs/目录下生成日志文件"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && cp .env.example .env && python -c \"from app.core.config import settings; assert settings.LLM_MODE == 'auto'\"",
+        "expected_result": "无断言错误"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && uvicorn app.main:app --host 0.0.0.0 --port 8000 & sleep 3 && curl http://localhost:8000/health",
+        "expected_result": "返回JSON含status:'UP'和配置信息"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "Settings类包含6组配置（应用/ChromaDB/Embedding/LLM/Agent/日志），所有字段有默认值", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "Settings类Config内部类配置env_file='.env', env_file_encoding='utf-8'", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "全局settings单例可正常import，settings.LLM_MODE返回'auto'", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": ".env.example包含所有配置项，按功能分组，有中文注释，敏感值留空", "verified_by": "code_review" },
+    { "id": "AC-005", "criterion": "cp .env.example .env后应用能正常启动", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "setup_logging配置控制台彩色输出+文件轮转输出，格式含时间/级别/模块:函数:行号/消息", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "日志文件按天轮转(rotation='00:00')，保留7天(retention='7 days')，压缩(compression='zip')", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "logs/目录在首次日志写入前自动创建", "verified_by": "automated_test" },
+    { "id": "AC-009", "criterion": "on_startup记录关键配置信息（LLM_MODE等），不记录API Key等敏感值", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "main.py的lifespan函数正确调用on_startup/on_shutdown", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "代码中无硬编码敏感信息，日志中无敏感信息输出", "verified_by": "code_review" }
+  ]
+}

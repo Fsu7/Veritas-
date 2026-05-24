@@ -1,0 +1,469 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / AM1：项目骨架与模型层就绪",
+    "requirement": "创建Python AI服务FastAPI项目骨架，包含完整目录结构（app/api/endpoints、app/core、app/agents、app/services、app/models、app/utils、prompts、data、tests、scripts）、requirements.txt（FastAPI 0.110+、Uvicorn 0.29+、LangGraph 0.0.50+、LangChain 0.1.0+、ChromaDB 0.5+、Transformers 4.40+、Sentence-Transformers 2.7+、Pydantic 2.7+、pydantic-settings 2.2+、OpenAI SDK 1.23+、httpx 0.27+、Loguru 0.7+、NumPy 1.26+、PyMuPDF 1.23+、arxiv 2.1+、sse-starlette 2.0+、python-multipart 0.0.9、python-dotenv 1.0+、pytest 8.1+、pytest-asyncio 0.23+）、main.py（FastAPI应用入口，含lifespan生命周期管理占位、/health健康检查、全局异常处理器占位、路由注册）、router.py（路由聚合）、以及所有__init__.py文件。项目根目录为Veritas/ai-service/。",
+    "requirement_ids": ["F3.5", "F3.5.1", "F3.5.2", "F3.5.3", "F3.5.4"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§3.1 目录结构、§4.2 FastAPI应用生命周期、§4.3 路由定义、§19.3 requirements.txt"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§3.2 AM1交付物清单（FastAPI项目骨架+requirements.txt）、§3.3 Week1 Day5任务"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§8 Python AI服务开发规范"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§5.1 技术栈版本、§6 项目目录结构"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app",
+        "description": "AI服务应用根包，包含API路由层、Agent协同引擎层、服务层、数据模型层"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/api",
+        "description": "API路由层，包含路由聚合和3个endpoint模块（agent/search/model）"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core",
+        "description": "核心配置层，包含config.py（Pydantic Settings）、events.py（生命周期事件）、logging.py（日志配置）"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L180-L260",
+        "description": "§3.1中已有完整目录结构定义，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L285-L334",
+        "description": "§4.2中已有FastAPI应用生命周期代码示例",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L2791-L2832",
+        "description": "§19.3中已有完整requirements.txt内容",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "FastAPI应用入口",
+      "path": "Veritas/ai-service/app/main.py",
+      "responsibility": "FastAPI应用创建、生命周期管理（lifespan）、健康检查、全局异常处理、路由注册",
+      "key_interfaces": [
+        {
+          "name": "lifespan",
+          "signature": "async def lifespan(app: FastAPI) -> AsyncGenerator",
+          "description": "应用生命周期管理：启动时加载模型，关闭时释放资源（当前仅占位，实际加载逻辑在后续任务实现）"
+        },
+        {
+          "name": "health",
+          "signature": "@app.get('/health') async def health() -> dict",
+          "description": "健康检查接口，返回服务状态和各组件状态"
+        }
+      ]
+    },
+    {
+      "name": "路由聚合",
+      "path": "Veritas/ai-service/app/api/router.py",
+      "responsibility": "汇总所有API endpoint路由，统一注册到FastAPI应用",
+      "key_interfaces": [
+        {
+          "name": "api_router",
+          "signature": "api_router = APIRouter()",
+          "description": "路由聚合器，包含agent/search/model三个子路由"
+        }
+      ]
+    },
+    {
+      "name": "requirements.txt",
+      "path": "Veritas/ai-service/requirements.txt",
+      "responsibility": "Python依赖管理，锁定所有必需包版本",
+      "key_interfaces": [
+        {
+          "name": "dependencies",
+          "signature": "N/A",
+          "description": "包含Web框架(FastAPI/Uvicorn)、AI/ML(LangGraph/LangChain/Transformers/torch/sentence-transformers)、向量库(ChromaDB)、LLM API(OpenAI/httpx)、数据处理(Pydantic/NumPy)、PDF处理(PyMuPDF)、工具(Loguru/python-dotenv)、测试(pytest)等全部依赖"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/requirements.txt",
+      "description": "Python依赖文件，包含全部必需依赖及锁定版本号",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/__init__.py",
+      "description": "应用根包初始化",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/main.py",
+      "description": "FastAPI应用入口，含lifespan生命周期管理占位、/health健康检查、全局异常处理器占位、路由注册",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/api/__init__.py",
+      "description": "API路由包初始化",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/api/router.py",
+      "description": "路由聚合器，汇总agent/search/model三个子路由",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/api/endpoints/__init__.py",
+      "description": "endpoints包初始化",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/api/endpoints/agent.py",
+      "description": "Agent调用接口占位（POST /api/agent/analyze），后续AM2实现",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/api/endpoints/search.py",
+      "description": "检索接口占位（POST /api/search），后续AM2实现",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/api/endpoints/model.py",
+      "description": "模型状态接口占位（GET /api/model/status），后续AM1实现",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/core/__init__.py",
+      "description": "核心配置包初始化",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/core/config.py",
+      "description": "占位文件，详细实现在任务5中完成",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "description": "占位文件，启动/关闭事件管理，后续任务实现",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/core/logging.py",
+      "description": "占位文件，日志配置在任务5中完成",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/agents/__init__.py",
+      "description": "Agent模块包初始化",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/services/__init__.py",
+      "description": "服务层包初始化",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/models/__init__.py",
+      "description": "数据模型包初始化",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/utils/__init__.py",
+      "description": "工具函数包初始化",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/prompts/.gitkeep",
+      "description": "Prompt模板目录占位（后续任务创建6个Agent Prompt模板文件）",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/data/papers/.gitkeep",
+      "description": "论文原始数据目录占位",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/data/vector_db/.gitkeep",
+      "description": "Chroma向量数据库文件目录占位",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/__init__.py",
+      "description": "测试包初始化",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/scripts/.gitkeep",
+      "description": "工具脚本目录占位（import_papers.py/build_vector_db.py/evaluate.py）",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/.gitignore",
+      "description": "Python项目gitignore（__pycache__/、*.pyc、.env、models/、data/vector_db/、.venv/、*.egg-info/）",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "requirements.txt包含全部必需依赖及锁定版本号：fastapi==0.110.0、uvicorn[standard]==0.29.0、python-multipart==0.0.9、sse-starlette==2.0.0、langgraph==0.0.50、langchain==0.1.16、langchain-community==0.0.34、transformers==4.40.0、torch==2.2.0、sentence-transformers==2.7.0、chromadb==0.5.0、openai==1.23.0、httpx==0.27.0、pydantic==2.7.0、pydantic-settings==2.2.1、numpy==1.26.0、pymupdf==1.23.0、arxiv==2.1.0、python-dotenv==1.0.0、loguru==0.7.0、pytest==8.1.0、pytest-asyncio==0.23.0。按功能分组并添加中文注释",
+        "priority": "P0",
+        "acceptance_condition": "pip install -r requirements.txt 成功，所有依赖安装完毕"
+      },
+      {
+        "id": "FR-002",
+        "description": "main.py创建FastAPI应用，title='Literature Assistant AI Service'，version='1.0.0'，使用lifespan参数管理生命周期。lifespan函数中yield前为启动阶段（仅logger.info占位），yield后为关闭阶段（仅logger.info占位），实际模型加载逻辑在后续任务实现",
+        "priority": "P0",
+        "acceptance_condition": "uvicorn app.main:app 启动成功，日志输出'Starting AI Service...'和'AI Service started successfully'"
+      },
+      {
+        "id": "FR-003",
+        "description": "main.py注册/health健康检查接口（GET），返回JSON：{status: 'UP', timestamp: ISO格式时间戳, llm: 'not_loaded', embedding: 'not_loaded', chroma: 'not_connected'}。当前各组件状态为占位值，后续任务替换为实际状态",
+        "priority": "P0",
+        "acceptance_condition": "curl http://localhost:8000/health 返回200和正确JSON"
+      },
+      {
+        "id": "FR-004",
+        "description": "main.py注册全局异常处理器占位：AIServiceException处理器和RequestValidationError处理器，返回统一格式{code, message, data: None, timestamp}。AIServiceException类在任务6中定义，此处先import占位或使用通用Exception",
+        "priority": "P0",
+        "acceptance_condition": "发送非法请求时返回422和统一格式JSON"
+      },
+      {
+        "id": "FR-005",
+        "description": "router.py创建api_router = APIRouter()，聚合3个子路由：agent_router(prefix='/agent', tags=['agent'])、search_router(prefix='/search', tags=['search'])、model_router(prefix='/model', tags=['model'])。main.py中app.include_router(api_router, prefix='/api')",
+        "priority": "P0",
+        "acceptance_condition": "FastAPI启动后/docs页面显示3个路由组"
+      },
+      {
+        "id": "FR-006",
+        "description": "创建完整目录结构：app/(api/endpoints/、core/、agents/、services/、models/、utils/)、prompts/、data/(papers/、vector_db/)、tests/、scripts/。每个Python包含__init__.py，空目录含.gitkeep",
+        "priority": "P0",
+        "acceptance_condition": "目录结构与AI服务架构文档§3.1完全一致"
+      },
+      {
+        "id": "FR-007",
+        "description": "3个endpoint文件创建占位路由：agent.py含POST /analyze占位（返回{message: 'Agent analyze endpoint - to be implemented'}）、search.py含POST /占位（返回{message: 'Search endpoint - to be implemented'}）、model.py含GET /status占位（返回{message: 'Model status endpoint - to be implemented'}）",
+        "priority": "P1",
+        "acceptance_condition": "curl各endpoint返回200和占位JSON"
+      },
+      {
+        "id": "FR-008",
+        "description": "core/config.py、core/events.py、core/logging.py创建占位文件（含基本import和空类/函数定义），详细实现在任务5中完成",
+        "priority": "P1",
+        "acceptance_condition": "Python import不报错"
+      },
+      {
+        "id": "FR-009",
+        "description": ".gitignore包含：__pycache__/、*.py[cod]、*$py.class、.env、.venv/、env/、*.egg-info/、dist/、build/、.pytest_cache/、data/vector_db/、models/、*.log、logs/、.DS_Store",
+        "priority": "P0",
+        "acceptance_condition": "git status不显示敏感文件和生成文件"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" },
+          { "java": "analysisType", "python": "analysis_type", "json": "analysis_type" },
+          { "java": "agentStates", "python": "agent_states", "json": "agent_states" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/agent/analyze",
+          "method": "POST",
+          "request_format": {
+            "topic": "string (1-500 chars)",
+            "paperIds": "string[]",
+            "userProfile": { "educationLevel": "enum", "researchField": "string", "knowledgeLevel": "enum", "preferredStyle": "enum" },
+            "analysisType": "enum: paper_analysis|compare|report",
+            "analysisId": "string"
+          },
+          "response_format": { "code": 200, "message": "success", "data": { "analysisId": "string", "status": "string" }, "timestamp": "int" }
+        },
+        {
+          "endpoint": "/api/search",
+          "method": "POST",
+          "request_format": { "query": "string (1-500 chars)", "topK": "int (1-50, default=10)", "filters": "object|null" },
+          "response_format": { "code": 200, "message": "success", "data": { "results": "array", "total": "int" }, "timestamp": "int" }
+        }
+      ],
+      "data_flow": "Java后端(WebClient) → HTTP POST → Python FastAPI路由 → Service/Agent处理 → JSON响应 → Java后端转发前端"
+    },
+    "degradation_requirements": null,
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "代码中禁止硬编码API Key、数据库密码、JWT Secret等敏感信息，所有敏感配置通过.env环境变量注入"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/health", "/api/model/status"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical" },
+    { "id": "FA-004", "action": "硬编码敏感配置（API Key、密码等）", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-005", "action": "requirements.txt使用模糊版本号（不指定版本）", "reason": "依赖管理规范要求锁定版本号", "severity": "high" },
+    { "id": "FA-006", "action": "省略__init__.py或.gitkeep占位文件", "reason": "Python包结构和Git追踪需要", "severity": "medium" },
+    { "id": "FA-007", "action": "在路由函数中编写业务逻辑", "reason": "分层规范：Router → Service → Agent", "severity": "high" },
+    { "id": "FA-008", "action": "目录结构与架构文档§3.1不一致", "reason": "架构约束", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "FastAPI应用启动测试",
+        "description": "验证FastAPI应用能正常启动，/health接口返回200",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "路由注册测试",
+        "description": "验证3个路由组（agent/search/model）正确注册",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && pip install -r requirements.txt",
+        "expected_result": "所有依赖安装成功，无报错"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.main import app; print(app.title)\"",
+        "expected_result": "输出 'Literature Assistant AI Service'"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && find app -type d | sort",
+        "expected_result": "列出所有包目录（api/endpoints、core、agents、services、models、utils）"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && uvicorn app.main:app --host 0.0.0.0 --port 8000 & sleep 3 && curl http://localhost:8000/health",
+        "expected_result": "返回JSON {status: 'UP', ...}"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "requirements.txt包含全部22个依赖及锁定版本号，按功能分组", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "pip install -r requirements.txt 成功，无依赖冲突", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "uvicorn app.main:app 启动成功，日志输出启动信息", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "curl http://localhost:8000/health 返回200和{status:'UP',...}JSON", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "curl http://localhost:8000/docs 返回Swagger UI页面，显示3个路由组", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "目录结构与AI服务架构文档§3.1完全一致（app/api/endpoints、app/core、app/agents、app/services、app/models、app/utils、prompts、data、tests、scripts）", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "所有Python包含__init__.py，空目录含.gitkeep", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "main.py使用lifespan参数管理生命周期，包含启动和关闭占位日志", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "router.py正确聚合3个子路由（agent/search/model），main.py注册api_router前缀/api", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": ".gitignore包含__pycache__/、.env、data/vector_db/、models/等关键条目", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "代码中无硬编码敏感信息", "verified_by": "code_review" }
+  ]
+}
