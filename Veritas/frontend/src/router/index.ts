@@ -1,0 +1,78 @@
+import { createRouter, createWebHistory } from 'vue-router'
+
+const routes = [
+  {
+    path: '/',
+    name: 'Home',
+    component: () => import('@/views/HomeView.vue'),
+    meta: { requiresAuth: false }
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { requiresAuth: false }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: () => import('@/views/RegisterView.vue'),
+    meta: { requiresAuth: false }
+  },
+  {
+    path: '/search',
+    name: 'Search',
+    component: () => import('@/views/SearchView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/paper/:paperId',
+    name: 'PaperDetail',
+    component: () => import('@/views/PaperDetailView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/compare',
+    name: 'Compare',
+    component: () => import('@/views/CompareView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/report/:analysisId',
+    name: 'Report',
+    component: () => import('@/views/ReportView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/agent-flow/:analysisId',
+    name: 'AgentFlow',
+    component: () => import('@/views/AgentFlowView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/user-center',
+    name: 'UserCenter',
+    component: () => import('@/views/UserCenterView.vue'),
+    meta: { requiresAuth: true }
+  }
+]
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes
+})
+
+router.beforeEach((to, _from, next) => {
+  const token = localStorage.getItem('token')
+  const isLoggedIn = !!token
+
+  if (to.meta.requiresAuth && !isLoggedIn) {
+    next({ name: 'Login', query: { redirect: to.fullPath } })
+  } else if ((to.name === 'Login' || to.name === 'Register') && isLoggedIn) {
+    next({ name: 'Home' })
+  } else {
+    next()
+  }
+})
+
+export default router

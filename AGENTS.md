@@ -324,11 +324,13 @@ Veritas(求真)/
 | `user:profile:{userId}` | 1小时 | String(JSON) | 用户画像缓存 |
 | `user:info:{userId}` | 1小时 | String(JSON) | 用户信息缓存 |
 | `paper:detail:{paperId}` | 30分钟 | String(JSON) | 论文详情缓存 |
+| `paper:list:{queryHash}` | 10分钟 | String(JSON) | 论文列表缓存 |
 | `search:result:{queryHash}` | 10分钟 | String(JSON) | 检索结果缓存 |
 | `analysis:result:{analysisId}` | 30分钟 | String(JSON) | 分析结果缓存 |
 | `session:state:{sessionId}` | 2小时 | String(JSON) | 会话状态缓存 |
 | `agent:state:{analysisId}` | 5分钟 | Hash | Agent执行状态 |
 | `auth:blacklist:{tokenHash}` | Token有效期 | String | JWT黑名单 |
+| `ai:provider:status` | 5分钟 | String | AI降级状态 |
 
 **缓存策略**: Cache-Aside模式 — 写操作先更新MySQL再删除Redis缓存；读操作先查Redis，未命中查MySQL后回填。
 
@@ -368,6 +370,7 @@ Veritas(求真)/
 /api/analysis/compare        POST   对比分析
 /api/analysis/report         POST   综述生成
 /api/analysis/{analysisId}   GET    分析结果
+/api/analysis/{analysisId}/status  GET    分析状态
 /api/analysis/{analysisId}/agent-stream  GET(SSE)  Agent状态流
 ```
 

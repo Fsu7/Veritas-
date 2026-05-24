@@ -59,7 +59,15 @@ json_prompt/
 │       ├── prompt.json
 │       └── prompt.md
 ├── frontend/
-│   └── （暂无，下一个任务从 task00 开始）
+│   ├── task00_vue3_vite_project/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task01_vite_tsconfig_env_config/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   └── task02_dockerfile_nginx_dockercompose/
+│       ├── prompt.json
+│       └── prompt.md
 └── ai-service/
     ├── task00_python_fastapi_skeleton/
     │   ├── prompt.json
@@ -103,7 +111,9 @@ json_prompt/
 
 | 序号 | 文件夹名 | 版本 | 里程碑 | 涉及层级 | 功能编号 |
 |------|---------|------|--------|---------|---------|
-| — | （暂无） | — | — | — | — |
+| 00 | task00_vue3_vite_project | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
+| 01 | task01_vite_tsconfig_env_config | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
+| 02 | task02_dockerfile_nginx_dockercompose | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend, infra | F1.1-F1.5 |
 
 > **维护说明**：每新增一个任务文件夹，必须同步更新对应模块目录的映射表。序号与里程碑对应关系参考 `docs/项目里程碑文档.md` 和 `docs/版本里程碑功能清单.md`。
 

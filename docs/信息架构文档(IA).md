@@ -3,8 +3,9 @@
 > **课题编号**：XH-202630  
 > **课题名称**：领域知识个性化生成与多智能体协同决策系统研究  
 > **发榜单位**：上海云之脑智能科技有限公司（科大讯飞全资子公司）  
-> **文档版本**：v1.0  
+> **文档版本**：v1.1  
 > **创建日期**：2026年5月23日  
+> **最后更新**：2026年5月24日  
 > **文档状态**：初稿
 
 ---
@@ -14,6 +15,7 @@
 | 版本 | 日期 | 修订人 | 修订内容 |
 |------|------|--------|---------|
 | v1.0 | 2026-05-23 | 项目组 | 初始版本 |
+| v1.1 | 2026-05-24 | 项目组 | 纳入Neo4j知识图谱（ADR-011）；RRF检索从双路升级为三路；修正Redis Key命名不一致（移除paper:list）；新增IC-2.5图谱信息类；新增文档生态中对ADR的引用 |
 
 ---
 
@@ -79,8 +81,9 @@
 | Java后端模块系统架构文档 | v1.0 | Java层信息模型与API结构 |
 | AI服务模块系统架构文档 | v1.0 | Agent信息流与Prompt架构 |
 | 前端模块系统架构文档 | v1.0 | 前端信息组织与状态管理 |
-| 数据库设计文档 | v1.0 | 数据实体、索引、缓存键设计 |
+| 数据库设计文档 | v1.0 | 数据实体、索引、缓存键、Neo4j图谱设计 |
 | 项目里程碑文档 | v1.0 | 交付信息节点 |
+| 架构决策记录(ADR) | v1.1 | ADR-011 知识图谱增强RRF三路融合 |
 
 ---
 
@@ -135,6 +138,11 @@
 │  │  ├── sessions表            ├── session:state:{id}                   │  │
 │  │  ├── analysis_results表    └── agent:state:{id}                    │  │
 │  │  └── paper_favorites表                                             │  │
+│  │                                                                      │  │
+│  │  Neo4j（图谱）                                                        │  │
+│  │  ├── Paper/Method/Concept/Author 节点                               │  │
+│  │  ├── USES/IMPROVES/CITES 关系                                       │  │
+│  │  └── 图谱推理增强检索（三路RRF融合第三路）                               │  │
 │  └────────────────────────────────────────────────────────────────────┘  │
 │                                                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐  │
@@ -221,7 +229,8 @@
 │  ├── IC-2.1 元数据（title, authors, year, venue, keywords）        │
 │  ├── IC-2.2 内容信息（abstract, sections, pdf_url）                │
 │  ├── IC-2.3 统计信息（citation_count, relevance_score）            │
-│  └── IC-2.4 向量信息（768维embedding, chunk_index, chunk_type）   │
+│  ├── IC-2.4 向量信息（768维embedding, chunk_index, chunk_type）   │
+│  └── IC-2.5 图谱信息（Paper/Method/Concept/Author节点及关系）      │
 │                                                                     │
 │  IC-3 分析信息类                                                    │
 │  ├── IC-3.1 论文分析（研究问题、核心方法、主要实验、               │
@@ -255,7 +264,7 @@
 | 信息类 | 关联功能编号 | 存储位置 | 生命周期 |
 |--------|------------|---------|---------|
 | IC-1 用户信息 | F1.1.x, F2.1.x | MySQL + Redis | 用户注册至注销 |
-| IC-2 论文信息 | F1.2.x, F2.2.x, F4.1.x, F4.3.x | MySQL + ChromaDB | 永久持久化 |
+| IC-2 论文信息 | F1.2.x, F2.2.x, F4.1.x, F4.3.x | MySQL + ChromaDB + Neo4j | 永久持久化 |
 | IC-3 分析信息 | F1.3.x, F1.4.x, F2.4.x, F3.1.x | MySQL + Redis | 创建后持久化，缓存30分钟 |
 | IC-4 会话信息 | F2.3.x | MySQL + Redis | 创建至过期 |
 | IC-5 Agent信息 | F1.5.x, F3.1.x | Redis | 分析期间，缓存5分钟 |
@@ -390,7 +399,8 @@ Java后端 API路由树：
     ├── POST   /compare             # 对比分析
     ├── POST   /report              # 综述生成
     ├── GET    /{analysisId}        # 分析结果
-    └── GET    /{analysisId}/status # 分析状态
+    ├── GET    /{analysisId}/status # 分析状态
+    └── GET    /{analysisId}/agent-stream  # Agent状态流(SSE)
 
 Python AI服务 API路由树：
 
@@ -880,6 +890,22 @@ L3: 详细结果级（可展开查看）
 │  │       year, venue, citation_count, │                            │
 │  │       chunk_index, chunk_type}     │                            │
 │  └────────────────────────────────────┘                            │
+│                                                                     │
+│  Neo4j (知识图谱空间)                                                │
+│  ┌────────────────────────────────────┐                            │
+│  │ 节点类型：                           │                            │
+│  │ ├── Paper (paper_id, title, year)  │                            │
+│  │ ├── Method (name, category)        │                            │
+│  │ ├── Concept (name, domain)         │                            │
+│  │ └── Author (name, affiliation)     │                            │
+│  │ 关系类型：                           │                            │
+│  │ ├── USES (Paper→Method)            │                            │
+│  │ ├── IMPROVES (Method→Method)       │                            │
+│  │ ├── CITES (Paper→Paper)            │                            │
+│  │ ├── RELATED_TO (Concept↔Concept)   │                            │
+│  │ └── AUTHORED_BY (Paper→Author)     │                            │
+│  │ 用途：图谱推理增强三路RRF融合          │                            │
+│  └────────────────────────────────────┘                            │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -914,11 +940,14 @@ L3: 详细结果级（可展开查看）
 │  │  Key模式                    │ TTL     │ 数据结构          │   │
 │  │  ──────────────────────────┼─────────┼─────────────────│   │
 │  │  user:profile:{userId}      │ 1小时   │ String(JSON)     │   │
+│  │  user:info:{userId}         │ 1小时   │ String(JSON)     │   │
+│  │  paper:detail:{paperId}     │ 30分钟  │ String(JSON)     │   │
 │  │  search:result:{queryHash}  │ 10分钟  │ String(JSON)     │   │
 │  │  analysis:result:{analysisId}│ 30分钟 │ String(JSON)     │   │
-│  │  session:state:{sessionId}  │ 会话期  │ String(JSON)     │   │
+│  │  session:state:{sessionId}  │ 2小时   │ String(JSON)     │   │
 │  │  agent:state:{analysisId}   │ 5分钟   │ Hash(字段级)     │   │
 │  │  auth:token:blacklist:{hash}│ Token期 │ String           │   │
+│  │  ai:provider:status         │ 5分钟   │ String           │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
@@ -1176,25 +1205,27 @@ Agent状态标签：
 │  │     文本 → 768维向量         │                                │
 │  └──────────┬──────────────────┘                                │
 │             │                                                    │
-│     ┌───────┴───────┐                                           │
-│     │               │                                           │
-│     ▼               ▼                                           │
-│  ┌──────────┐  ┌──────────┐    双路并行检索                     │
-│  │ 路径A:    │  │ 路径B:    │                                   │
-│  │ ChromaDB │  │ MySQL    │                                    │
-│  │ 语义检索  │  │ 全文索引  │                                    │
-│  │ Top20    │  │ Top20    │                                    │
-│  │ 相似度分  │  │ 相关度分  │                                    │
-│  └────┬─────┘  └────┬─────┘                                    │
-│       │              │                                          │
-│       └──────┬───────┘                                          │
-│              ▼                                                   │
+│     ┌───────┼───────┐                                           │
+│     │       │       │                                           │
+│     ▼       ▼       ▼                                           │
+│  ┌──────┐┌──────┐┌──────┐    三路并行检索（ADR-011）           │
+│  │路径A: ││路径B: ││路径C: │                                   │
+│  │Chroma││MySQL ││Neo4j │                                    │
+│  │语义  ││全文  ││图谱  │                                    │
+│  │检索  ││索引  ││推理  │                                    │
+│  │Top20││Top20││Top20│                                    │
+│  │相似度││相关度││图谱分│                                    │
+│  └──┬───┘└──┬───┘└──┬───┘                                    │
+│     │       │       │                                          │
+│     └───────┼───────┘                                          │
+│             ▼                                                   │
 │  ┌───────────────────────┐                                      │
-│  │  RRF融合               │                                      │
+│  │  三路RRF融合           │                                      │
 │  │  Reciprocal Rank       │                                      │
 │  │  Fusion                │                                      │
 │  │  score = Σ 1/(k+rank_i)│                                      │
 │  │  k=60                  │                                      │
+│  │  语义+关键词+图谱      │                                      │
 │  └──────────┬────────────┘                                      │
 │             │                                                    │
 │             ▼                                                    │

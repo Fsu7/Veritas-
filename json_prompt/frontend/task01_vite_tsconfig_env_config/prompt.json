@@ -1,0 +1,212 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1 / FM1：项目骨架与基础设施就绪",
+    "requirement": "配置Vite构建工具（vite.config.ts）、TypeScript编译选项（tsconfig.json + tsconfig.node.json）和环境变量（.env + .env.development + .env.production），实现Element Plus自动按需导入、ECharts按需导入、路径别名@/映射、manualChunks分包策略、TypeScript strict模式、环境变量VITE_API_BASE_URL配置",
+    "requirement_ids": ["F1.1", "F1.2", "F1.3", "F1.4", "F1.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "Vite配置规范、TypeScript配置、环境变量设计" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM1交付物清单中配置文件相关验收标准" },
+      { "path": "docs/开发规范文档.md", "purpose": "前端编码规范、配置规范" },
+      { "path": "docs/架构决策记录(ADR).md", "purpose": "ADR-001三层分离架构、ADR-009 SSE推送" },
+      { "path": "AGENTS.md", "purpose": "项目全景上下文、技术栈版本" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/vite.config.ts", "description": "Vite构建配置文件" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/tsconfig.json", "description": "TypeScript主配置文件" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/tsconfig.node.json", "description": "Node环境TypeScript配置" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/.env", "description": "公共环境变量" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/.env.development", "description": "开发环境变量" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/.env.production", "description": "生产环境变量" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/package.json", "description": "项目依赖已安装（task00完成），包含unplugin-auto-import、unplugin-vue-components", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/main.ts", "description": "应用入口文件已创建（task00完成）", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "vite.config.ts",
+      "path": "Veritas/frontend/vite.config.ts",
+      "responsibility": "Vite构建配置：插件注册、路径别名、构建优化、开发服务器代理",
+      "key_interfaces": [
+        { "name": "plugins", "signature": "vue() + AutoImport() + Components()", "description": "Vue3插件 + Element Plus自动按需导入" },
+        { "name": "resolve.alias", "signature": "'@': '/src'", "description": "路径别名@映射到src目录" },
+        { "name": "build.rollupOptions.output.manualChunks", "signature": "{ 'element-plus', 'echarts', 'vendor' }", "description": "分包策略：Element Plus/ECharts/Vendor独立chunk" },
+        { "name": "server.proxy", "signature": "'/api': { target: 'http://localhost:8080' }", "description": "开发环境API代理到Java后端" }
+      ]
+    },
+    {
+      "name": "tsconfig.json",
+      "path": "Veritas/frontend/tsconfig.json",
+      "responsibility": "TypeScript编译配置：strict模式、模块解析、路径别名、包含文件",
+      "key_interfaces": [
+        { "name": "compilerOptions.strict", "signature": "true", "description": "开启TypeScript严格模式" },
+        { "name": "compilerOptions.paths", "signature": "'@/*': ['./src/*']", "description": "TypeScript路径别名" },
+        { "name": "compilerOptions.moduleResolution", "signature": "'bundler'", "description": "模块解析策略" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/vite.config.ts", "description": "Vite构建配置：Vue3插件+Element Plus自动按需导入+ECharts按需导入+路径别名+manualChunks分包+开发代理", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/tsconfig.json", "description": "TypeScript主配置：strict模式+ESNext模块+bundler解析+路径别名+包含src目录", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/tsconfig.node.json", "description": "Node环境TypeScript配置：vite.config.ts专用", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/.env", "description": "公共环境变量：VITE_APP_TITLE", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/.env.development", "description": "开发环境变量：VITE_API_BASE_URL=http://localhost:8080/api", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/.env.production", "description": "生产环境变量：VITE_API_BASE_URL=/api", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "配置vite.config.ts：注册@vitejs/plugin-vue插件、unplugin-auto-import（Element Plus Resolver）实现自动按需导入、unplugin-vue-components（Element Plus Resolver）实现组件自动注册",
+        "priority": "P0",
+        "acceptance_condition": "Element Plus组件无需手动import即可使用，打包体积不含未使用组件"
+      },
+      {
+        "id": "FR-002",
+        "description": "配置vite.config.ts路径别名：resolve.alias设置'@'映射到'/src'，与tsconfig.json的paths保持一致",
+        "priority": "P0",
+        "acceptance_condition": "import { xxx } from '@/types/paper'可正常解析"
+      },
+      {
+        "id": "FR-003",
+        "description": "配置vite.config.ts构建优化：manualChunks分包策略，将element-plus、echarts、vendor（vue/vue-router/pinia/axios）拆分为独立chunk",
+        "priority": "P0",
+        "acceptance_condition": "构建产物包含element-plus.[hash].js、echarts.[hash].js、vendor.[hash].js独立chunk"
+      },
+      {
+        "id": "FR-004",
+        "description": "配置vite.config.ts开发服务器代理：/api路径代理到http://localhost:8080，changeOrigin为true，支持SSE（不缓存）",
+        "priority": "P0",
+        "acceptance_condition": "开发环境前端请求/api/*正确代理到Java后端8080端口"
+      },
+      {
+        "id": "FR-005",
+        "description": "配置tsconfig.json：target ES2020、module ESNext、moduleResolution bundler、strict true、jsx preserve、resolveJsonModule true、isolatedModules true、esModuleInterop true、lib ['ES2020','DOM','DOM.Iterable']、skipLibCheck true、noEmit true、paths {'@/*':['./src/*']}、include ['src/**/*.ts','src/**/*.vue']、references [{path:'./tsconfig.node.json'}]",
+        "priority": "P0",
+        "acceptance_condition": "npx vue-tsc --noEmit编译无错误"
+      },
+      {
+        "id": "FR-006",
+        "description": "配置tsconfig.node.json：target ES2022、module ESNext、moduleResolution bundler、allowSyntheticDefaultImports true、include ['vite.config.ts']",
+        "priority": "P0",
+        "acceptance_condition": "vite.config.ts的TypeScript类型检查通过"
+      },
+      {
+        "id": "FR-007",
+        "description": "创建.env公共环境变量：VITE_APP_TITLE=科研文献智能助手",
+        "priority": "P0",
+        "acceptance_condition": "import.meta.env.VITE_APP_TITLE可正确读取"
+      },
+      {
+        "id": "FR-008",
+        "description": "创建.env.development开发环境变量：VITE_API_BASE_URL=http://localhost:8080/api",
+        "priority": "P0",
+        "acceptance_condition": "开发环境Axios baseURL为http://localhost:8080/api"
+      },
+      {
+        "id": "FR-009",
+        "description": "创建.env.production生产环境变量：VITE_API_BASE_URL=/api",
+        "priority": "P0",
+        "acceptance_condition": "生产环境Axios baseURL为/api（通过Nginx代理）"
+      },
+      {
+        "id": "FR-010",
+        "description": "配置ECharts按需导入：在vite.config.ts中不配置全局导入，而是在使用ECharts的组件中按需import需要的图表类型（Graph、Bar、Tooltip等），减小打包体积",
+        "priority": "P1",
+        "acceptance_condition": "打包产物中只包含使用到的ECharts图表类型代码"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "环境变量使用VITE_前缀，Axios baseURL从VITE_API_BASE_URL读取，与Java后端API路径保持一致",
+        "mappings": []
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/*",
+          "method": "PROXY",
+          "request_format": { "description": "开发环境Vite代理配置" },
+          "response_format": { "description": "代理到http://localhost:8080/api/*" }
+        }
+      ],
+      "data_flow": "开发环境：前端Vite Dev Server → proxy /api → Java后端:8080；生产环境：前端Nginx → proxy /api → Java后端:8080"
+    },
+    "security_requirements": [
+      { "category": "sensitive_info", "requirement": "环境变量中不包含API Key、JWT Secret等敏感信息，仅包含VITE_前缀的非敏感配置" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "camelCase.ts（配置文件）/ PascalCase.vue（组件）"
+      },
+      "json": { "field_name": "snake_case" }
+    },
+    "layering": {
+      "frontend": { "rule": "配置文件位于项目根目录，不涉及分层调用" }
+    },
+    "error_handling": {
+      "frontend": { "approach": "Vite构建错误需明确提示，TypeScript编译错误需零容忍" }
+    },
+    "caching": {
+      "pattern": "Vite开发服务器使用文件系统缓存，生产构建使用content hash文件名",
+      "ttl_layers": []
+    },
+    "logging": {
+      "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息"]
+    },
+    "security": {
+      "auth_mechanism": "环境变量仅使用VITE_前缀（Vite要求），不暴露服务端密钥"
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "在环境变量中硬编码API Key或JWT Secret", "reason": "安全约束，敏感信息不进入前端代码", "severity": "critical" },
+    { "id": "FA-003", "action": "全局导入Element Plus（import ElementPlus from 'element-plus'）", "reason": "必须按需导入减小打包体积", "severity": "high" },
+    { "id": "FA-004", "action": "全局导入ECharts（import * as echarts from 'echarts'）", "reason": "必须按需导入减小打包体积", "severity": "high" },
+    { "id": "FA-005", "action": "关闭TypeScript strict模式", "reason": "项目规范要求strict模式", "severity": "high" },
+    { "id": "FA-006", "action": "修改task00已创建的文件（除非必要）", "reason": "避免引入无关变更", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "Vite配置验证",
+        "description": "验证vite.config.ts的plugins/alias/build配置正确",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "环境变量读取测试",
+        "description": "验证import.meta.env.VITE_API_BASE_URL在不同环境下正确读取",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "TypeScript编译无错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run build", "expected_result": "生产构建成功，dist/目录包含独立chunk" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run dev", "expected_result": "开发服务器启动成功，/api代理到8080" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "vite.config.ts Element Plus自动按需导入配置正确", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "vite.config.ts路径别名@/映射到src/目录", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "vite.config.ts manualChunks分包：element-plus/echarts/vendor独立chunk", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "vite.config.ts开发代理/api到localhost:8080配置正确", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "tsconfig.json strict模式开启，编译无错误", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "tsconfig.json路径别名@/*与vite.config.ts一致", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": ".env + .env.development + .env.production环境变量配置正确", "verified_by": "manual_test" },
+    { "id": "AC-008", "criterion": "VITE_API_BASE_URL在开发环境为http://localhost:8080/api，生产环境为/api", "verified_by": "manual_test" },
+    { "id": "AC-009", "criterion": "npm run build构建成功，dist/目录包含独立chunk文件", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "Element Plus组件无需手动import即可使用", "verified_by": "manual_test" }
+  ]
+}
