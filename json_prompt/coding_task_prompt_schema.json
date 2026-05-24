@@ -3,21 +3,62 @@
   "title": "XH-202630 Coding Task Prompt",
   "description": "科研文献智能助手项目的Coding Task Prompt JSON模板，供下游Coding Agent使用",
   "file_naming_convention": {
-    "rule": "每一份JSON Prompt文件必须以序号开头，格式为 task{NN}_{descriptive_name}.json",
-    "pattern": "^task\\d{2}_[a-z][a-z0-9_]*\\.json$",
+    "rule": "每一份Coding Task Prompt由两个文件组成：prompt.json（供AI读取）和prompt.md（供人阅读），归档在同一个任务文件夹内",
+    "folder_pattern": "^task\\d{2}_[a-z][a-z0-9_]*$",
+    "file_structure": {
+      "prompt_json": {
+        "filename": "prompt.json",
+        "audience": "AI Coding Agent",
+        "description": "结构化的JSON格式任务Prompt，符合本schema定义，供下游Coding Agent直接消费",
+        "content": "完整的context、current_architecture、implementation_requirements、constraints、forbidden_actions、test_requirements、acceptance_criteria"
+      },
+      "prompt_md": {
+        "filename": "prompt.md",
+        "audience": "人类开发者",
+        "description": "可读的Markdown格式任务说明，供人类快速理解任务内容、范围和验收标准",
+        "content": "从prompt.json提取核心信息，以人类友好的Markdown格式呈现，包含任务概述、影响范围、实现要求、验收标准等"
+      }
+    },
     "examples": [
-      "task00_example_db_creation.json",
-      "task01_springboot_maven.json",
-      "task02_springboot_config.json",
-      "task03_python_fastapi_skeleton.json"
+      "backend/task00_example_db_creation/prompt.json + prompt.md",
+      "backend/task01_springboot_maven/prompt.json + prompt.md",
+      "ai-service/task00_python_fastapi_skeleton/prompt.json + prompt.md",
+      "frontend/task00_user_login_view/prompt.json + prompt.md"
     ],
-    "numbering": "从00开始递增，序号反映任务执行顺序",
+    "numbering": "各模块目录内从00开始独立递增，序号反映该目录下任务执行顺序",
     "descriptive_name": "使用snake_case，简明概括任务内容（层级+功能），如 springboot_maven、python_fastapi_skeleton",
-    "location": "/json_prompt/",
+    "archiving": {
+      "description": "每份Prompt以任务文件夹形式归档，文件夹按所属层级放入对应模块目录",
+      "directory_mapping": {
+        "backend": {
+          "path": "/json_prompt/backend/",
+          "target_layers": ["java_backend", "data_layer", "infra"],
+          "description": "Java后端任务、数据库任务、基础设施任务"
+        },
+        "frontend": {
+          "path": "/json_prompt/frontend/",
+          "target_layers": ["frontend"],
+          "description": "Vue3前端任务"
+        },
+        "ai-service": {
+          "path": "/json_prompt/ai-service/",
+          "target_layers": ["python_ai_service"],
+          "description": "Python AI服务任务（Agent、RAG、LLM等）"
+        }
+      },
+      "folder_structure_template": "/json_prompt/{backend|frontend|ai-service}/task{NN}_{descriptive_name}/\n├── prompt.json    # AI读取的结构化任务Prompt\n└── prompt.md      # 人类阅读的Markdown任务说明",
+      "classification_rule": "根据 context.involved_layers 或 current_architecture.involved_layers 判断主层级，归入对应模块目录。跨层任务归入主要变更所在的模块目录",
+      "numbering_rule": "新增Prompt时，先检查目标模块目录中已有任务文件夹的最大序号，递增分配。各模块目录序号独立，互不影响"
+    },
+    "location": "/json_prompt/{backend|frontend|ai-service}/task{NN}_{descriptive_name}/",
     "notes": [
-      "schema文件（coding_task_prompt_schema.json）和说明文件（Coding.md）不受此命名规则约束",
+      "schema文件（coding_task_prompt_schema.json）和说明文件（Coding.md）保留在 /json_prompt/ 根目录，不受此归档规则约束",
       "序号应与项目里程碑中的任务顺序保持一致",
-      "同一里程碑内的任务按依赖关系排序编号"
+      "同一里程碑内的任务按依赖关系排序编号",
+      "各模块目录序号独立递增，backend/task00 与 ai-service/task00 可同时存在",
+      "跨层任务（如涉及 java_backend + python_ai_service）归入主要变更所在模块目录",
+      "prompt.json 与 prompt.md 内容必须保持同步，json为主文件，md从json提取核心信息",
+      "任务文件夹内只允许存在 prompt.json 和 prompt.md 两个文件"
     ]
   },
   "project_structure": {

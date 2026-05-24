@@ -7,37 +7,105 @@
 2. 分析需求影响范围与跨系统一致性
 3. 生成高质量 Coding Task Prompt 给下游 Coding Agent 使用
 
-# JSON Prompt 文件命名规则
+# JSON Prompt 文件命名与归档规则
 
-每一份生成的 Coding Task Prompt JSON 文件必须遵循以下命名规则：
+每一份生成的 Coding Task Prompt 由两个文件组成，归档在同一个任务文件夹内。
+
+## 双文件结构
+
+| 文件 | 读者 | 说明 |
+|------|------|------|
+| `prompt.json` | AI Coding Agent | 结构化JSON格式，符合 `coding_task_prompt_schema.json` 定义，供下游Coding Agent直接消费 |
+| `prompt.md` | 人类开发者 | 可读Markdown格式，从prompt.json提取核心信息，供人类快速理解任务内容、范围和验收标准 |
+
+**同步要求**：prompt.json 为主文件，prompt.md 从中提取核心信息，两者内容必须保持一致。
+
+## 命名规则
 
 | 规则 | 说明 |
 |------|------|
-| **格式** | `task{NN}_{descriptive_name}.json` |
-| **正则** | `^task\d{2}_[a-z][a-z0-9_]*\.json$` |
-| **序号** | 从 `00` 开始递增，反映任务执行顺序 |
+| **文件夹格式** | `task{NN}_{descriptive_name}/` |
+| **文件夹正则** | `^task\d{2}_[a-z][a-z0-9_]*$` |
+| **序号** | 各模块目录内从 `00` 开始独立递增，反映该目录下任务执行顺序 |
 | **描述名** | snake_case，简明概括任务内容（层级+功能） |
-| **存放目录** | `/json_prompt/` |
-| **豁免文件** | `coding_task_prompt_schema.json` 和 `Coding.md` 不受此规则约束 |
+| **文件夹内文件** | 仅允许 `prompt.json` 和 `prompt.md` 两个文件 |
+| **豁免文件** | `coding_task_prompt_schema.json` 和 `Coding.md` 保留在 `/json_prompt/` 根目录，不受此规则约束 |
 
-命名示例：
-- `task00_example_db_creation.json` — 数据库创建与种子数据
-- `task01_springboot_maven.json` — Spring Boot项目骨架与Maven配置
-- `task02_application_yml.json` — Spring Boot三层配置文件
-- `task03_dockerfile_dockercompose.json` — Dockerfile与Docker Compose编排
+## 归档目录
 
-新增 Prompt 时，先检查 `/json_prompt/` 目录中已有文件的最大序号，递增分配。
+| 模块目录 | 路径 | 目标层级 | 说明 |
+|----------|------|---------|------|
+| **backend** | `/json_prompt/backend/` | java_backend, data_layer, infra | Java后端任务、数据库任务、基础设施任务 |
+| **frontend** | `/json_prompt/frontend/` | frontend | Vue3前端任务 |
+| **ai-service** | `/json_prompt/ai-service/` | python_ai_service | Python AI服务任务（Agent、RAG、LLM等） |
+
+## 文件夹结构示例
+
+```
+json_prompt/
+├── coding_task_prompt_schema.json
+├── Coding.md
+├── backend/
+│   ├── task00_example_db_creation/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task01_springboot_maven/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task02_application_yml/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   └── task03_dockerfile_dockercompose/
+│       ├── prompt.json
+│       └── prompt.md
+├── frontend/
+│   └── （暂无，下一个任务从 task00 开始）
+└── ai-service/
+    ├── task00_python_fastapi_skeleton/
+    │   ├── prompt.json
+    │   └── prompt.md
+    ├── task01_python_config_env_logging/
+    │   ├── prompt.json
+    │   └── prompt.md
+    └── task02_python_schemas_enums_exception/
+        ├── prompt.json
+        └── prompt.md
+```
+
+## 分类规则
+
+- 根据 `context.involved_layers` 或 `current_architecture.involved_layers` 判断主层级，归入对应模块目录
+- 跨层任务归入**主要变更**所在的模块目录
+- 各模块目录序号独立递增，`backend/task00` 与 `ai-service/task00` 可同时存在
+
+新增 Prompt 时，先检查目标模块目录中已有任务文件夹的最大序号，递增分配。
 
 ## 序号与里程碑映射表
 
-| 序号 | 文件名 | 版本 | 里程碑 | 涉及层级 | 功能编号 |
-|------|--------|------|--------|---------|---------|
-| 00 | task00_example_db_creation.json | v0.1 | M1：基础设施就绪 | data_layer | F4.1.1, F4.1.2, F4.1.3, F4.1.4 |
-| 01 | task01_springboot_maven.json | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend | F2.1-F2.6 |
-| 02 | task02_application_yml.json | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend | F2.1-F2.6 |
-| 03 | task03_dockerfile_dockercompose.json | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend, infra | F2.1-F2.6 |
+### backend/
 
-> **维护说明**：每新增一个 JSON Prompt 文件，必须同步更新此映射表。序号与里程碑对应关系参考 `docs/项目里程碑文档.md` 和 `docs/版本里程碑功能清单.md`。
+| 序号 | 文件夹名 | 版本 | 里程碑 | 涉及层级 | 功能编号 |
+|------|---------|------|--------|---------|---------|
+| 00 | task00_example_db_creation | v0.1 | M1：基础设施就绪 | data_layer | F4.1.1, F4.1.2, F4.1.3, F4.1.4 |
+| 01 | task01_springboot_maven | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend | F2.1-F2.6 |
+| 02 | task02_application_yml | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend | F2.1-F2.6 |
+| 03 | task03_dockerfile_dockercompose | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend, infra | F2.1-F2.6 |
+
+### ai-service/
+
+| 序号 | 文件夹名 | 版本 | 里程碑 | 涉及层级 | 功能编号 |
+|------|---------|------|--------|---------|---------|
+| 00 | task00_python_fastapi_skeleton | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.5, F3.5.1-F3.5.4 |
+| 01 | task01_python_config_env_logging | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.5, F3.3, F5.2, F4.3 |
+| 02 | task02_python_schemas_enums_exception | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.5, F3.1, F3.2, F3.3, F3.4 |
+
+### frontend/
+
+| 序号 | 文件夹名 | 版本 | 里程碑 | 涉及层级 | 功能编号 |
+|------|---------|------|--------|---------|---------|
+| — | （暂无） | — | — | — | — |
+
+> **维护说明**：每新增一个任务文件夹，必须同步更新对应模块目录的映射表。序号与里程碑对应关系参考 `docs/项目里程碑文档.md` 和 `docs/版本里程碑功能清单.md`。
 
 # 当前任务
 
