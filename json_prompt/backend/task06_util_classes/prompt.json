@@ -1,0 +1,382 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / JM1：项目骨架与数据层就绪",
+    "requirement": "创建3个工具类：JwtUtil（JWT Token生成/验证/解析工具，使用jjwt 0.12+库，支持generateToken生成含userId/username/jti的24h有效期Token、parseToken解析Token获取Claims、validateToken验证Token有效性、isTokenBlacklisted检查Redis黑名单、getUserIdFromToken/getUsernameFromToken提取载荷信息）、RedisKeyUtil（Redis Key生成工具，按{域}:{操作}:{标识符}格式生成Key，提供userProfileKey/userInfoKey/paperDetailKey/paperListKey/searchResultKey/analysisResultKey/sessionStateKey/agentStateKey/authBlacklistKey等静态方法）、DateTimeUtil（日期时间工具，提供formatDateTime格式化LocalDateTime、parseDateTime解析字符串为LocalDateTime、getCurrentTimestamp获取当前时间戳、isExpired判断时间是否过期等方法）。所有工具类使用final类+private构造方法，禁止实例化。",
+    "requirement_ids": ["F2.1", "F2.2", "F2.3", "F2.4", "F2.5", "F2.6"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§13 安全架构（JWT鉴权流程、Token Payload定义）、§9 缓存管理模块（Redis Key命名规范）"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.3 详细任务分解（Week 2 Day 6: JwtUtil + RedisKeyUtil + DateTimeUtil）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7.2 Redis缓存Key（Key模式/TTL/数据结构完整定义）、§10 安全规范（JWT Token 24h有效期、载荷sub(userId)+username+iat/exp+jti）"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§7.4 配置规范（JWT Secret通过环境变量注入）、Redis Key命名规范"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.util",
+        "description": "工具类包，提供JWT/RedisKey/DateTime等通用工具方法"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.config",
+        "description": "配置类包，JwtUtil依赖application.yml中的jwt.secret和jwt.expiration配置"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L1625-L1670",
+        "description": "§13.1中已有JWT鉴权流程完整设计，包含Token生成/验证/黑名单检查流程",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "AGENTS.md#L7.2",
+        "description": "Redis缓存Key完整定义：Key模式、TTL、数据结构",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "JwtUtil",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/JwtUtil.java",
+      "responsibility": "JWT Token生成/验证/解析工具，使用jjwt库",
+      "key_interfaces": [
+        {
+          "name": "generateToken",
+          "signature": "public String generateToken(String userId, String username)",
+          "description": "生成JWT Token，Payload含sub(userId)/username/jti(UUID)/iat/exp(24h)"
+        },
+        {
+          "name": "parseToken",
+          "signature": "public Claims parseToken(String token)",
+          "description": "解析Token返回Claims，Token无效时返回null"
+        },
+        {
+          "name": "validateToken",
+          "signature": "public boolean validateToken(String token)",
+          "description": "验证Token有效性（签名+过期时间）"
+        },
+        {
+          "name": "isTokenBlacklisted",
+          "signature": "public boolean isTokenBlacklisted(String token)",
+          "description": "检查Token是否在Redis黑名单中"
+        },
+        {
+          "name": "getUserIdFromToken",
+          "signature": "public String getUserIdFromToken(String token)",
+          "description": "从Token提取userId（sub字段）"
+        },
+        {
+          "name": "getUsernameFromToken",
+          "signature": "public String getUsernameFromToken(String token)",
+          "description": "从Token提取username"
+        },
+        {
+          "name": "getTokenJti",
+          "signature": "public String getTokenJti(String token)",
+          "description": "从Token提取jti（Token唯一ID）"
+        },
+        {
+          "name": "getTokenRemainingTime",
+          "signature": "public long getTokenRemainingTime(String token)",
+          "description": "获取Token剩余有效期（毫秒），用于Redis黑名单TTL"
+        }
+      ]
+    },
+    {
+      "name": "RedisKeyUtil",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+      "responsibility": "Redis Key生成工具，统一Key命名格式",
+      "key_interfaces": [
+        {
+          "name": "userProfileKey",
+          "signature": "public static String userProfileKey(String userId)",
+          "description": "user:profile:{userId}"
+        },
+        {
+          "name": "userInfoKey",
+          "signature": "public static String userInfoKey(String userId)",
+          "description": "user:info:{userId}"
+        },
+        {
+          "name": "paperDetailKey",
+          "signature": "public static String paperDetailKey(String paperId)",
+          "description": "paper:detail:{paperId}"
+        },
+        {
+          "name": "paperListKey",
+          "signature": "public static String paperListKey(String queryHash)",
+          "description": "paper:list:{queryHash}"
+        },
+        {
+          "name": "searchResultKey",
+          "signature": "public static String searchResultKey(String queryHash)",
+          "description": "search:result:{queryHash}"
+        },
+        {
+          "name": "analysisResultKey",
+          "signature": "public static String analysisResultKey(String analysisId)",
+          "description": "analysis:result:{analysisId}"
+        },
+        {
+          "name": "sessionStateKey",
+          "signature": "public static String sessionStateKey(String sessionId)",
+          "description": "session:state:{sessionId}"
+        },
+        {
+          "name": "agentStateKey",
+          "signature": "public static String agentStateKey(String analysisId)",
+          "description": "agent:state:{analysisId}"
+        },
+        {
+          "name": "authBlacklistKey",
+          "signature": "public static String authBlacklistKey(String tokenHash)",
+          "description": "auth:blacklist:{tokenHash}"
+        }
+      ]
+    },
+    {
+      "name": "DateTimeUtil",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/DateTimeUtil.java",
+      "responsibility": "日期时间工具类，提供格式化/解析/判断方法",
+      "key_interfaces": [
+        {
+          "name": "formatDateTime",
+          "signature": "public static String formatDateTime(LocalDateTime dateTime)",
+          "description": "格式化为yyyy-MM-dd HH:mm:ss"
+        },
+        {
+          "name": "parseDateTime",
+          "signature": "public static LocalDateTime parseDateTime(String dateTimeStr)",
+          "description": "解析yyyy-MM-dd HH:mm:ss字符串"
+        },
+        {
+          "name": "getCurrentTimestamp",
+          "signature": "public static long getCurrentTimestamp()",
+          "description": "获取当前时间戳（毫秒）"
+        },
+        {
+          "name": "isExpired",
+          "signature": "public static boolean isExpired(LocalDateTime dateTime)",
+          "description": "判断给定时间是否已过期（早于当前时间）"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/JwtUtil.java",
+      "description": "JWT工具类，Token生成/验证/解析/黑名单检查，@Component注入jwt.secret和jwt.expiration",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+      "description": "Redis Key生成工具，final类+private构造，9个静态方法",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/DateTimeUtil.java",
+      "description": "日期时间工具类，final类+private构造，4个静态方法",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "JwtUtil使用@Component注解，通过@Value注入jwt.secret和jwt.expiration。generateToken方法：使用Jwts.builder()设置subject(userId)、claim('username', username)、id(UUID.randomUUID().toString())、issuedAt(new Date())、expiration(new Date(System.currentTimeMillis() + expiration))、signWith(Keys.hmacShaKeyFor(secret.getBytes()), SignatureAlgorithm.HS256)。parseToken方法：使用Jwts.parserBuilder().setSigningKey(Keys.hmacShaKeyFor(secret.getBytes())).build().parseClaimsJws(token).getBody()，捕获ExpiredJwtException/UnsupportedJwtException/MalformedJwtException/SignatureException/IllegalArgumentException返回null。validateToken方法：调用parseToken != null。isTokenBlacklisted方法：注入RedisTemplate，使用authBlacklistKey(jti)查询Redis是否存在。getUserIdFromToken/getUsernameFromToken/getTokenJti：从parseToken返回的Claims中提取。getTokenRemainingTime：计算exp - 当前时间的毫秒差。",
+        "priority": "P0",
+        "acceptance_condition": "generateToken生成有效Token，parseToken正确解析，validateToken验证通过，isTokenBlacklisted检查Redis黑名单"
+      },
+      {
+        "id": "FR-002",
+        "description": "RedisKeyUtil为final类，private构造方法。9个静态方法按{域}:{操作}:{标识符}格式生成Key：userProfileKey('user:profile:' + userId)、userInfoKey('user:info:' + userId)、paperDetailKey('paper:detail:' + paperId)、paperListKey('paper:list:' + queryHash)、searchResultKey('search:result:' + queryHash)、analysisResultKey('analysis:result:' + analysisId)、sessionStateKey('session:state:' + sessionId)、agentStateKey('agent:state:' + analysisId)、authBlacklistKey('auth:blacklist:' + tokenHash)。",
+        "priority": "P0",
+        "acceptance_condition": "RedisKeyUtil.userProfileKey('usr_001')返回'user:profile:usr_001'"
+      },
+      {
+        "id": "FR-003",
+        "description": "DateTimeUtil为final类，private构造方法。4个静态方法：formatDateTime使用DateTimeFormatter.ofPattern('yyyy-MM-dd HH:mm:ss')格式化、parseDateTime使用相同formatter解析、getCurrentTimestamp返回System.currentTimeMillis()、isExpired判断dateTime.isBefore(LocalDateTime.now())。线程安全：DateTimeFormatter作为private static final常量。",
+        "priority": "P0",
+        "acceptance_condition": "formatDateTime/parseDateTime互为逆运算，isExpired对过去时间返回true"
+      },
+      {
+        "id": "FR-004",
+        "description": "JwtUtil的jwt.secret必须满足HMAC-SHA256最小密钥长度要求（256位=32字节）。如果配置的secret长度不足32字节，generateToken时应抛出IllegalStateException提示'JWT secret must be at least 32 characters'。jwt.secret通过@Value('${jwt.secret}')注入，不硬编码。",
+        "priority": "P1",
+        "acceptance_condition": "secret长度不足时启动报错，不静默使用弱密钥"
+      },
+      {
+        "id": "FR-005",
+        "description": "JwtUtil中parseToken捕获异常时使用log.debug记录（非log.error），因为Token无效是常见的业务场景（未登录/Token过期），不是系统错误。validateToken返回false而非抛出异常。",
+        "priority": "P1",
+        "acceptance_condition": "无效Token时日志级别为DEBUG，validateToken返回false"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "userId", "python": "user_id", "json": "user_id" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "JwtUtil生成Token → 前端存储 → 请求Header携带Bearer Token → JwtAuthFilter调用JwtUtil验证 → 注入SecurityContext。RedisKeyUtil生成Key → Service层/Filter层使用Key操作Redis缓存。"
+    },
+    "security_requirements": [
+      {
+        "category": "jwt_auth",
+        "requirement": "JWT Secret通过@Value('${jwt.secret}')注入，不硬编码。生产环境通过环境变量JWT_SECRET覆盖"
+      },
+      {
+        "category": "jwt_auth",
+        "requirement": "Token过期时间24小时（86400000毫秒），通过@Value('${jwt.expiration:86400000}')注入"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "JwtUtil中禁止在日志中输出完整Token内容，最多输出Token前8位+省略号"
+      },
+      {
+        "category": "jwt_auth",
+        "requirement": "isTokenBlacklisted检查Redis黑名单，退出登录时将Token jti写入黑名单（TTL=Token剩余有效期）"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"],
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行Java代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-006", "action": "硬编码JWT Secret", "reason": "安全约束：必须通过@Value注入", "severity": "critical" },
+    { "id": "FA-UT1", "action": "在日志中输出完整Token内容", "reason": "安全约束：Token为敏感信息，最多输出前8位", "severity": "critical" },
+    { "id": "FA-UT2", "action": "JwtUtil中parseToken抛出异常而非返回null", "reason": "Token无效是常见业务场景，不应抛出异常中断流程", "severity": "high" },
+    { "id": "FA-UT3", "action": "RedisKeyUtil/DateTimeUtil可被实例化", "reason": "工具类应为final+private构造，禁止实例化", "severity": "high" },
+    { "id": "FA-UT4", "action": "DateTimeFormatter作为局部变量每次创建", "reason": "性能约束：DateTimeFormatter应作为static final常量", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "JwtUtilTest",
+        "description": "测试Token生成/解析/验证/黑名单检查/字段提取/过期处理",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "RedisKeyUtilTest",
+        "description": "测试9个Key生成方法的格式正确性",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "DateTimeUtilTest",
+        "description": "测试格式化/解析/时间戳/过期判断",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=JwtUtilTest,RedisKeyUtilTest,DateTimeUtilTest",
+        "expected_result": "所有单元测试通过"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，无错误"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "JwtUtil.generateToken生成包含userId/username/jti的24h有效期Token", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "JwtUtil.parseToken正确解析Token获取Claims，无效Token返回null", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "JwtUtil.validateToken验证Token有效性", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "JwtUtil.isTokenBlacklisted检查Redis黑名单", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "JwtUtil.getTokenRemainingTime返回Token剩余有效期毫秒数", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "RedisKeyUtil 9个方法生成符合{域}:{操作}:{标识符}格式的Key", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "DateTimeUtil formatDateTime/parseDateTime互为逆运算", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "RedisKeyUtil和DateTimeUtil为final类+private构造方法", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "JWT Secret通过@Value注入，不硬编码", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "JwtUtil中parseToken捕获异常时日志级别为DEBUG", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "单元测试全部通过", "verified_by": "automated_test" }
+  ]
+}

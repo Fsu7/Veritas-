@@ -1,0 +1,235 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1 / FM1：项目骨架与基础设施就绪",
+    "requirement": "创建4个Pinia Store基础结构骨架（userStore、paperStore、sessionStore、agentStore），使用Composition API setup store风格，定义State/Getters/Actions基础框架，userStore实现Token管理（localStorage持久化）和登录/登出Action，paperStore实现搜索和论文选择Action，sessionStore实现会话创建Action，agentStore实现Agent状态更新Action",
+    "requirement_ids": ["F1.1", "F1.2", "F1.3", "F1.4", "F1.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第9章状态管理规范：4个Pinia Store完整设计、State/Getters/Actions定义" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM1交付物清单第8项：Pinia Store骨架验收标准" },
+      { "path": "docs/开发规范文档.md", "purpose": "第6.2节状态管理规范：setup store风格、按业务域划分" },
+      { "path": "AGENTS.md", "purpose": "Store设计、用户画像4维度、Agent状态定义" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/userStore.ts", "description": "用户状态管理Store" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "论文数据管理Store" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "会话状态管理Store" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "Agent状态管理Store" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/package.json", "description": "项目依赖已安装（task00完成），包含pinia 2.1+", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/main.ts", "description": "应用入口文件已创建（task00完成），需注册pinia插件", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/api/index.ts", "description": "Axios实例已创建（task03完成），Store中调用API方法", "reuse_type": "reference" },
+      { "file_path": "Veritas/frontend/src/api/user.ts", "description": "用户API已封装（task03完成），userStore调用userApi", "reuse_type": "reference" },
+      { "file_path": "Veritas/frontend/src/api/paper.ts", "description": "论文API已封装（task03完成），paperStore调用paperApi", "reuse_type": "reference" },
+      { "file_path": "Veritas/frontend/src/api/analysis.ts", "description": "分析API已封装（task03完成），sessionStore调用analysisApi", "reuse_type": "reference" },
+      { "file_path": "Veritas/frontend/src/api/session.ts", "description": "会话API已封装（task03完成），sessionStore调用sessionApi", "reuse_type": "reference" },
+      { "file_path": "docs/frontend/前端模块系统架构文档.md", "description": "第9章定义了4个Store的完整State/Getters/Actions设计", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "stores/userStore.ts",
+      "path": "Veritas/frontend/src/stores/userStore.ts",
+      "responsibility": "用户状态管理：Token持久化、登录/登出、用户画像管理",
+      "key_interfaces": [
+        { "name": "State", "signature": "{ token, userId, username, profile }", "description": "Token从localStorage初始化，profile为UserProfile|null" },
+        { "name": "isLoggedIn", "signature": "computed(() => !!token.value)", "description": "是否已登录" },
+        { "name": "hasProfile", "signature": "computed(() => !!profile.value)", "description": "是否已设置画像" },
+        { "name": "login", "signature": "async (username, password) => void", "description": "登录：调用userApi.login，存储Token到state和localStorage" },
+        { "name": "logout", "signature": "() => void", "description": "登出：清除state和localStorage" },
+        { "name": "fetchProfile", "signature": "async () => void", "description": "获取画像：调用userApi.getProfile" },
+        { "name": "saveProfile", "signature": "async (data: UserProfile) => void", "description": "保存画像：根据hasProfile调用create或update" }
+      ]
+    },
+    {
+      "name": "stores/paperStore.ts",
+      "path": "Veritas/frontend/src/stores/paperStore.ts",
+      "responsibility": "论文数据管理：搜索结果、论文选择、收藏",
+      "key_interfaces": [
+        { "name": "State", "signature": "{ searchResults, selectedPapers, favorites, filters, currentQuery, totalResults, currentPage, pageSize }", "description": "搜索结果列表、已选论文、收藏列表、筛选条件" },
+        { "name": "selectedPaperIds", "signature": "computed(() => selectedPapers.map(p => p.paperId))", "description": "已选论文ID列表" },
+        { "name": "searchPapers", "signature": "async (query, page?) => void", "description": "搜索论文：调用paperApi.search" },
+        { "name": "togglePaperSelection", "signature": "(paper: Paper) => void", "description": "切换论文选择（最多5篇）" },
+        { "name": "toggleFavorite", "signature": "async (paperId: string) => void", "description": "切换收藏" }
+      ]
+    },
+    {
+      "name": "stores/sessionStore.ts",
+      "path": "Veritas/frontend/src/stores/sessionStore.ts",
+      "responsibility": "会话状态管理：当前会话、分析结果",
+      "key_interfaces": [
+        { "name": "State", "signature": "{ currentSessionId, currentAnalysisId, analysisResults }", "description": "当前会话ID、当前分析ID、分析结果Map" },
+        { "name": "createSession", "signature": "async (topic: string) => SessionResponse", "description": "创建会话：调用sessionApi.create" },
+        { "name": "fetchAnalysisResult", "signature": "async (analysisId: string) => AnalysisResult", "description": "获取分析结果：调用analysisApi.getResult" }
+      ]
+    },
+    {
+      "name": "stores/agentStore.ts",
+      "path": "Veritas/frontend/src/stores/agentStore.ts",
+      "responsibility": "Agent状态管理：6个Agent执行状态、进度、中间结果",
+      "key_interfaces": [
+        { "name": "State", "signature": "{ agentStates, flowData, isConnected, currentAnalysisId }", "description": "Agent状态字典、流程图数据、SSE连接状态" },
+        { "name": "agentStatesList", "signature": "computed(() => Object.values(agentStates))", "description": "Agent状态列表" },
+        { "name": "activeAgents", "signature": "computed(() => agentStatesList.filter(s => s.status==='running'))", "description": "正在执行的Agent" },
+        { "name": "progress", "signature": "computed(() => completed/total)", "description": "总体进度" },
+        { "name": "getAgentState", "signature": "(agentName: string) => AgentState | undefined", "description": "获取单个Agent状态" },
+        { "name": "updateAgentState", "signature": "(agentName, state: Partial<AgentState>) => void", "description": "更新Agent状态（SSE事件触发）" },
+        { "name": "resetStates", "signature": "() => void", "description": "重置所有Agent状态" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/stores/userStore.ts", "description": "用户Store：Token管理(localStorage持久化)+login/logout/fetchProfile/saveProfile", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/stores/paperStore.ts", "description": "论文Store：searchPapers/togglePaperSelection(最多5篇)/toggleFavorite", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "会话Store：createSession/fetchAnalysisResult", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/stores/agentStore.ts", "description": "Agent Store：agentStates/updateAgentState/getAgentState/resetStates/progress", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/main.ts", "description": "注册pinia插件：app.use(createPinia())", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "创建userStore（defineStore('user', () => {...})）：State包含token(从localStorage初始化)、userId(从localStorage初始化)、username(从localStorage初始化)、profile(UserProfile|null)；Getters包含isLoggedIn(!!token)、hasProfile(!!profile)；Actions包含login(调用userApi.login，存储token/userId/username到state和localStorage)、logout(清除state和localStorage)、fetchProfile(调用userApi.getProfile)、saveProfile(根据hasProfile调用create或update)",
+        "priority": "P0",
+        "acceptance_condition": "userStore可正常创建，login后token存入state和localStorage，logout后清除"
+      },
+      {
+        "id": "FR-002",
+        "description": "创建paperStore（defineStore('paper', () => {...})）：State包含searchResults(Paper[])、selectedPapers(Paper[])、favorites(string[])、filters(FilterParams)、currentQuery(string)、totalResults(number)、currentPage(number)、pageSize(number默认10)；Getters包含selectedPaperIds、filteredResults；Actions包含searchPapers(调用paperApi.search)、togglePaperSelection(最多5篇，超限不添加)、toggleFavorite(调用paperApi.addFavorite/removeFavorite)",
+        "priority": "P0",
+        "acceptance_condition": "paperStore可正常创建，searchPapers调用API更新searchResults，togglePaperSelection限制5篇"
+      },
+      {
+        "id": "FR-003",
+        "description": "创建sessionStore（defineStore('session', () => {...})）：State包含currentSessionId(string|null)、currentAnalysisId(string|null)、analysisResults(Map<string, AnalysisResult>)；Actions包含createSession(调用sessionApi.create)、fetchAnalysisResult(调用analysisApi.getResult，存入analysisResults Map)",
+        "priority": "P0",
+        "acceptance_condition": "sessionStore可正常创建，createSession调用API更新currentSessionId"
+      },
+      {
+        "id": "FR-004",
+        "description": "创建agentStore（defineStore('agent', () => {...})）：State包含agentStates(Record<string, AgentState>)、flowData(FlowData|null)、isConnected(boolean)、currentAnalysisId(string|null)；Getters包含agentStatesList(Object.values)、activeAgents(filter running)、progress(completed/total)；方法包含getAgentState(agentName)、updateAgentState(agentName, partial state)、resetStates()",
+        "priority": "P0",
+        "acceptance_condition": "agentStore可正常创建，updateAgentState可更新Agent状态，progress计算正确"
+      },
+      {
+        "id": "FR-005",
+        "description": "在main.ts中注册Pinia插件：import { createPinia } from 'pinia' + const pinia = createPinia() + app.use(pinia)，确保在app.mount('#app')之前注册",
+        "priority": "P0",
+        "acceptance_condition": "app.use(pinia)在main.ts中正确调用，Store可正常创建和使用"
+      },
+      {
+        "id": "FR-006",
+        "description": "所有Store使用Composition API setup store风格（defineStore('name', () => {...})），不使用Options API风格（defineStore('name', { state, getters, actions })）",
+        "priority": "P0",
+        "acceptance_condition": "4个Store全部使用setup store风格，使用ref/computed/函数定义State/Getters/Actions"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Store内部使用camelCase（TypeScript规范），API请求/响应使用snake_case（JSON规范），Store调用API时自动适配",
+        "mappings": [
+          { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "View组件 → Store Action → API调用 → Java后端 → 响应 → Store State更新 → 组件响应式更新"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "userStore的Token存储在localStorage，logout时清除localStorage和state" },
+      { "category": "sensitive_info", "requirement": "禁止在Store中console.log Token内容" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "camelCase.ts（Store文件：userStore.ts）"
+      },
+      "json": { "field_name": "snake_case" },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "frontend": { "rule": "View → Store → API，异步操作在Store Actions中，不在组件内" }
+    },
+    "error_handling": {
+      "frontend": { "approach": "Store Actions中try-catch处理API错误，Axios拦截器已统一处理HTTP错误" }
+    },
+    "caching": {
+      "pattern": "Store State作为前端内存缓存，页面刷新后需重新获取（Token除外，持久化到localStorage）",
+      "ttl_layers": []
+    },
+    "logging": {
+      "prohibited": ["在Store中console.log Token内容", "在循环中打印INFO级别日志"]
+    },
+    "security": {
+      "auth_mechanism": "Token持久化到localStorage，logout时清除"
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "使用Options API风格定义Store", "reason": "项目规范要求Composition API setup store风格", "severity": "high" },
+    { "id": "FA-003", "action": "创建全局大Store", "reason": "按业务域划分Store，禁止全局大Store", "severity": "high" },
+    { "id": "FA-004", "action": "在Store中直接操作Repository或调用Python API", "reason": "分层架构约束，Store只能调用api/层", "severity": "critical" },
+    { "id": "FA-005", "action": "在Store中console.log Token", "reason": "安全约束，禁止日志输出敏感信息", "severity": "critical" },
+    { "id": "FA-006", "action": "修改task00-04已创建的文件（main.ts除外）", "reason": "避免引入无关变更", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "userStore测试",
+        "description": "验证login/logout/fetchProfile/saveProfile逻辑，Token持久化到localStorage",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "paperStore测试",
+        "description": "验证searchPapers/togglePaperSelection(最多5篇)/toggleFavorite逻辑",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "sessionStore测试",
+        "description": "验证createSession/fetchAnalysisResult逻辑",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "agentStore测试",
+        "description": "验证updateAgentState/getAgentState/resetStates/progress计算逻辑",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "TypeScript编译无错误（types文件补齐后）" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run dev", "expected_result": "开发服务器启动成功，4个Store可正常创建" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "userStore：Token管理+login/logout/fetchProfile/saveProfile功能完整", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "paperStore：searchPapers/togglePaperSelection(最多5篇)/toggleFavorite功能完整", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "sessionStore：createSession/fetchAnalysisResult功能完整", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "agentStore：updateAgentState/getAgentState/resetStates/progress计算完整", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "4个Store全部使用Composition API setup store风格", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "userStore Token持久化到localStorage，logout时清除", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "main.ts注册pinia插件", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "Store按业务域划分，无全局大Store", "verified_by": "code_review" }
+  ]
+}

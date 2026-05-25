@@ -1,8 +1,6 @@
 import axios from 'axios'
 import type { ApiResponse } from '@/types/common'
-import { useUserStore } from '@/stores/userStore'
 import { ElMessage } from 'element-plus'
-import router from '@/router'
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
@@ -13,7 +11,8 @@ const http = axios.create({
 })
 
 http.interceptors.request.use(
-  (config) => {
+  async (config) => {
+    const { useUserStore } = await import('@/stores/userStore')
     const userStore = useUserStore()
     if (userStore.token) {
       config.headers.Authorization = `Bearer ${userStore.token}`
@@ -32,8 +31,10 @@ http.interceptors.response.use(
     ElMessage.error(data.message || '请求失败')
     return Promise.reject(new Error(data.message))
   },
-  (error) => {
+  async (error) => {
     if (error.response?.status === 401) {
+      const { useUserStore } = await import('@/stores/userStore')
+      const { default: router } = await import('@/router')
       const userStore = useUserStore()
       userStore.logout()
       router.push('/login')

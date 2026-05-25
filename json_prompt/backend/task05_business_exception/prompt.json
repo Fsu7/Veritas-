@@ -1,0 +1,375 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / JM1：项目骨架与数据层就绪",
+    "requirement": "创建BusinessException异常体系 + GlobalExceptionHandler全局异常处理器。BusinessException为业务异常基类，包含code(int)/message(String)/errorKey(String)三个字段，提供多种构造方法。子类包括：AuthenticationException（401认证异常）、ResourceNotFoundException（404资源不存在异常，含resource和id字段）、AIServiceException（503 AI服务调用异常，含cause）。GlobalExceptionHandler使用@RestControllerAdvice注解，统一处理MethodArgumentNotValidException（400参数校验）、AuthenticationException（401）、ResourceNotFoundException（404）、AIServiceException（503）、BusinessException（通用业务异常）、Exception（500兜底），所有异常返回ApiResponse<Void>统一格式。",
+    "requirement_ids": ["F2.1", "F2.2", "F2.3", "F2.4", "F2.5", "F2.6"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§12.3-12.4 异常体系设计（BusinessException/AuthenticationException/ResourceNotFoundException/AIServiceException类设计、GlobalExceptionHandler完整实现）"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.3 详细任务分解（Week 2 Day 5: BusinessException体系 + GlobalExceptionHandler）"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§7.5 异常处理规范（BusinessException体系、全局异常处理器、禁止Controller直接try-catch）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§9.2 Java后端规范（异常处理：全局@RestControllerAdvice + BusinessException体系）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.exception",
+        "description": "异常定义包，包含BusinessException体系4个异常类和GlobalExceptionHandler"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.common",
+        "description": "通用DTO包，GlobalExceptionHandler依赖ApiResponse和ErrorCode（task04产出）"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L1546-L1619",
+        "description": "§12.3-12.4中已有完整的异常类设计和GlobalExceptionHandler实现，可直接复用",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "BusinessException",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/BusinessException.java",
+      "responsibility": "业务异常基类，包含code/message/errorKey，所有业务异常继承此类",
+      "key_interfaces": [
+        {
+          "name": "BusinessException",
+          "signature": "public BusinessException(int code, String message)",
+          "description": "基础构造方法"
+        },
+        {
+          "name": "BusinessException",
+          "signature": "public BusinessException(int code, String message, String errorKey)",
+          "description": "含errorKey的构造方法"
+        },
+        {
+          "name": "BusinessException",
+          "signature": "public BusinessException(int code, String message, Throwable cause)",
+          "description": "含cause的构造方法，用于异常链"
+        }
+      ]
+    },
+    {
+      "name": "AuthenticationException",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/AuthenticationException.java",
+      "responsibility": "认证异常（401），JWT验证失败、Token过期、黑名单等场景",
+      "key_interfaces": [
+        {
+          "name": "AuthenticationException",
+          "signature": "public AuthenticationException(String message)",
+          "description": "构造方法，code=401"
+        }
+      ]
+    },
+    {
+      "name": "ResourceNotFoundException",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/ResourceNotFoundException.java",
+      "responsibility": "资源不存在异常（404），查询用户/论文/会话等不存在时抛出",
+      "key_interfaces": [
+        {
+          "name": "ResourceNotFoundException",
+          "signature": "public ResourceNotFoundException(String resource, String id)",
+          "description": "构造方法，code=404, message='{resource} not found: {id}'"
+        }
+      ]
+    },
+    {
+      "name": "AIServiceException",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/AIServiceException.java",
+      "responsibility": "AI服务调用异常（503），Python服务不可用/超时/返回错误时抛出",
+      "key_interfaces": [
+        {
+          "name": "AIServiceException",
+          "signature": "public AIServiceException(String message, Throwable cause)",
+          "description": "构造方法，code=503，保留原始异常链"
+        }
+      ]
+    },
+    {
+      "name": "GlobalExceptionHandler",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/GlobalExceptionHandler.java",
+      "responsibility": "全局异常处理器，@RestControllerAdvice，统一处理所有异常返回ApiResponse<Void>",
+      "key_interfaces": [
+        {
+          "name": "handleValidation",
+          "signature": "@ExceptionHandler(MethodArgumentNotValidException.class) public ApiResponse<Void> handleValidation(MethodArgumentNotValidException e)",
+          "description": "参数校验异常，提取所有字段错误拼接为message，返回code=400"
+        },
+        {
+          "name": "handleAuth",
+          "signature": "@ExceptionHandler(AuthenticationException.class) public ApiResponse<Void> handleAuth(AuthenticationException e)",
+          "description": "认证异常，返回code=401"
+        },
+        {
+          "name": "handleNotFound",
+          "signature": "@ExceptionHandler(ResourceNotFoundException.class) public ApiResponse<Void> handleNotFound(ResourceNotFoundException e)",
+          "description": "资源不存在异常，返回code=404"
+        },
+        {
+          "name": "handleAIService",
+          "signature": "@ExceptionHandler(AIServiceException.class) public ApiResponse<Void> handleAIService(AIServiceException e)",
+          "description": "AI服务异常，返回code=503，message='AI服务暂时不可用，请稍后重试'"
+        },
+        {
+          "name": "handleBusiness",
+          "signature": "@ExceptionHandler(BusinessException.class) public ApiResponse<Void> handleBusiness(BusinessException e)",
+          "description": "通用业务异常，返回e.getCode()和e.getMessage()"
+        },
+        {
+          "name": "handleGeneral",
+          "signature": "@ExceptionHandler(Exception.class) public ApiResponse<Void> handleGeneral(Exception e)",
+          "description": "兜底异常，log.error记录，返回code=500, message='服务器内部错误'"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/BusinessException.java",
+      "description": "业务异常基类，包含code/message/errorKey三个字段，继承RuntimeException",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/AuthenticationException.java",
+      "description": "认证异常，code=401，继承BusinessException",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/ResourceNotFoundException.java",
+      "description": "资源不存在异常，code=404，含resource和id字段",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/AIServiceException.java",
+      "description": "AI服务调用异常，code=503，保留cause异常链",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/GlobalExceptionHandler.java",
+      "description": "全局异常处理器，@RestControllerAdvice，统一处理6种异常类型",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "BusinessException继承RuntimeException，包含3个final字段：code(int)、message(String)、errorKey(String)。提供3个构造方法：(int code, String message)、(int code, String message, String errorKey)、(int code, String message, Throwable cause)。errorKey用于前端国际化，默认为空字符串。getter方法使用Lombok @Getter注解。",
+        "priority": "P0",
+        "acceptance_condition": "new BusinessException(400, '参数错误')可正常创建，getCode()返回400"
+      },
+      {
+        "id": "FR-002",
+        "description": "AuthenticationException继承BusinessException，构造方法AuthenticationException(String message)中调用super(401, message, 'AUTHENTICATION_FAILED')。errorKey固定为AUTHENTICATION_FAILED。",
+        "priority": "P0",
+        "acceptance_condition": "new AuthenticationException('Token已过期').getCode()返回401"
+      },
+      {
+        "id": "FR-003",
+        "description": "ResourceNotFoundException继承BusinessException，构造方法ResourceNotFoundException(String resource, String id)中调用super(404, resource + ' not found: ' + id, 'RESOURCE_NOT_FOUND')。errorKey固定为RESOURCE_NOT_FOUND。",
+        "priority": "P0",
+        "acceptance_condition": "new ResourceNotFoundException('User', 'usr_001').getMessage()返回'User not found: usr_001'"
+      },
+      {
+        "id": "FR-004",
+        "description": "AIServiceException继承BusinessException，构造方法AIServiceException(String message, Throwable cause)中调用super(503, message, cause, 'AI_SERVICE_ERROR')。errorKey固定为AI_SERVICE_ERROR。保留原始异常链（cause）。",
+        "priority": "P0",
+        "acceptance_condition": "AIServiceException可保留原始IOException等cause"
+      },
+      {
+        "id": "FR-005",
+        "description": "GlobalExceptionHandler使用@RestControllerAdvice注解，注入Logger（SLF4J）。处理6种异常：(1) MethodArgumentNotValidException → code=400, message拼接所有字段错误（field: defaultMessage，分号分隔）；(2) AuthenticationException → code=e.getCode(), message=e.getMessage()；(3) ResourceNotFoundException → code=404, message=e.getMessage()；(4) AIServiceException → code=503, message='AI服务暂时不可用，请稍后重试'（不暴露内部错误细节）；(5) BusinessException → code=e.getCode(), message=e.getMessage()；(6) Exception → log.error('Unexpected error', e), code=500, message='服务器内部错误'。",
+        "priority": "P0",
+        "acceptance_condition": "抛出BusinessException时返回ApiResponse.error(code, message)格式"
+      },
+      {
+        "id": "FR-006",
+        "description": "GlobalExceptionHandler中AIServiceException的handleAIService方法必须使用log.warn记录（非log.error），因为AI服务不可用是预期内的降级场景。Exception兜底处理使用log.error记录完整异常栈。",
+        "priority": "P1",
+        "acceptance_condition": "AI服务异常日志级别为WARN，未知异常日志级别为ERROR"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "errorKey", "python": "error_key", "json": "error_key" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "所有API错误响应",
+          "method": "GET/POST/PUT/DELETE",
+          "request_format": {},
+          "response_format": {
+            "code": 400,
+            "message": "username: 用户名不能为空; email: 邮箱格式不正确",
+            "timestamp": 1716451200000
+          }
+        }
+      ],
+      "data_flow": "Service层抛出BusinessException → GlobalExceptionHandler捕获 → 转为ApiResponse<Void> → 前端Axios响应拦截器根据code判断错误类型"
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "AIServiceException处理时message返回'AI服务暂时不可用，请稍后重试'，不暴露Python服务内部错误细节（如堆栈信息、IP地址等）"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "Exception兜底处理返回'服务器内部错误'，不暴露内部异常类名和堆栈信息给前端"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" }
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行Java代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-004", "action": "破坏分层调用规范（Controller直接try-catch返回错误）", "reason": "异常统一由GlobalExceptionHandler处理，Controller/Service直接throw", "severity": "critical" },
+    { "id": "FA-EX1", "action": "AIServiceException处理时暴露Python服务内部错误细节", "reason": "安全约束：不向前端暴露内部服务信息", "severity": "critical" },
+    { "id": "FA-EX2", "action": "Exception兜底处理返回异常类名或堆栈信息给前端", "reason": "安全约束：内部错误信息不外泄", "severity": "critical" },
+    { "id": "FA-EX3", "action": "BusinessException使用checked exception（继承Exception）", "reason": "业务异常应为unchecked（继承RuntimeException），避免强制try-catch", "severity": "high" },
+    { "id": "FA-EX4", "action": "GlobalExceptionHandler中遗漏Exception兜底处理", "reason": "必须有兜底处理防止未捕获异常导致500空白响应", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "BusinessExceptionTest",
+        "description": "测试BusinessException的3个构造方法、字段赋值、异常链",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "AuthenticationExceptionTest",
+        "description": "测试AuthenticationException的code=401和errorKey=AUTHENTICATION_FAILED",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "ResourceNotFoundExceptionTest",
+        "description": "测试ResourceNotFoundException的message格式和code=404",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "AIServiceExceptionTest",
+        "description": "测试AIServiceException的code=503和cause保留",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "GlobalExceptionHandlerTest",
+        "description": "测试6种异常处理：参数校验(400)、认证(401)、资源不存在(404)、AI服务(503)、业务异常(自定义code)、兜底(500)",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=BusinessExceptionTest,AuthenticationExceptionTest,ResourceNotFoundExceptionTest,AIServiceExceptionTest,GlobalExceptionHandlerTest",
+        "expected_result": "所有单元测试通过"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，无错误"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "BusinessException包含code/message/errorKey三个字段，继承RuntimeException", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "AuthenticationException的code=401, errorKey=AUTHENTICATION_FAILED", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "ResourceNotFoundException的message格式为'{resource} not found: {id}', code=404", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "AIServiceException的code=503，保留cause异常链", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "GlobalExceptionHandler处理6种异常类型，全部返回ApiResponse<Void>格式", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "参数校验异常message拼接所有字段错误（field: defaultMessage，分号分隔）", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "AIServiceException处理返回'AI服务暂时不可用，请稍后重试'，不暴露内部细节", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "Exception兜底处理返回'服务器内部错误'，不暴露堆栈信息", "verified_by": "automated_test" },
+    { "id": "AC-009", "criterion": "AIServiceException日志级别为WARN，Exception兜底日志级别为ERROR", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "单元测试全部通过", "verified_by": "automated_test" }
+  ]
+}

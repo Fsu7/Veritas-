@@ -1,0 +1,316 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1 / FM1：项目骨架与基础设施就绪",
+    "requirement": "创建Axios HTTP客户端实例，配置请求拦截器（自动注入JWT Token）和响应拦截器（统一错误处理：401跳转登录/403无权限/404资源不存在/超时提示/网络错误），并创建4个API模块骨架（user.ts、paper.ts、analysis.ts、session.ts）封装所有后端API调用，同时创建TypeScript通用类型定义（ApiResponse、PageResponse等）",
+    "requirement_ids": ["F1.1", "F1.2", "F1.3", "F1.4", "F1.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第10章API通信层规范：Axios实例配置、拦截器设计、API模块封装" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM1交付物清单第6项：Axios实例+拦截器验收标准" },
+      { "path": "docs/开发规范文档.md", "purpose": "第6.3节API调用规范、第13章安全规范JWT Token" },
+      { "path": "docs/架构决策记录(ADR).md", "purpose": "ADR-008 JWT认证、ADR-009 SSE实时推送" },
+      { "path": "AGENTS.md", "purpose": "API契约、统一响应格式、SSE事件格式" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/index.ts", "description": "Axios实例和拦截器配置" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/user.ts", "description": "用户相关API封装" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/paper.ts", "description": "论文相关API封装" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/analysis.ts", "description": "分析相关API封装" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/session.ts", "description": "会话相关API封装" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/common.ts", "description": "通用TypeScript类型定义" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/package.json", "description": "项目依赖已安装（task00完成），包含axios 1.6+", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/vite.config.ts", "description": "Vite配置已创建（task01完成），含/api代理到localhost:8080", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/.env.development", "description": "开发环境变量已配置VITE_API_BASE_URL=http://localhost:8080/api", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/.env.production", "description": "生产环境变量已配置VITE_API_BASE_URL=/api", "reuse_type": "direct_reuse" },
+      { "file_path": "docs/frontend/前端模块系统架构文档.md", "description": "第10章定义了完整的Axios实例配置、拦截器逻辑、API模块封装规范", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "api/index.ts",
+      "path": "Veritas/frontend/src/api/index.ts",
+      "responsibility": "Axios实例创建、请求拦截器（JWT Token注入）、响应拦截器（统一错误处理）、导出http实例",
+      "key_interfaces": [
+        { "name": "http", "signature": "axios.create({ baseURL, timeout, headers })", "description": "Axios实例，baseURL从VITE_API_BASE_URL读取，timeout 30000ms" },
+        { "name": "request interceptor", "signature": "http.interceptors.request.use(config => ...)", "description": "请求拦截：从userStore获取Token，注入Authorization: Bearer {token}" },
+        { "name": "response interceptor (success)", "signature": "http.interceptors.response.use(response => ...)", "description": "响应拦截：解包ApiResponse，code===200返回data，否则ElMessage.error提示" },
+        { "name": "response interceptor (error)", "signature": "http.interceptors.response.use(null, error => ...)", "description": "错误拦截：401跳转登录+清除Token、403无权限、404不存在、ECONNABORTED超时、其他网络错误" }
+      ]
+    },
+    {
+      "name": "api/user.ts",
+      "path": "Veritas/frontend/src/api/user.ts",
+      "responsibility": "用户管理API封装：注册、登录、查询用户信息、画像CRUD",
+      "key_interfaces": [
+        { "name": "userApi.register", "signature": "(data: { username, email, password }) => http.post('/users/register', data)", "description": "用户注册" },
+        { "name": "userApi.login", "signature": "(data: { username, password }) => Promise<LoginResponse>", "description": "用户登录，返回Token+userId+username+hasProfile" },
+        { "name": "userApi.getUserInfo", "signature": "(userId: string) => http.get(`/users/${userId}`)", "description": "查询用户信息" },
+        { "name": "userApi.getProfile", "signature": "(userId: string) => Promise<ProfileResponse>", "description": "获取用户画像" },
+        { "name": "userApi.createProfile", "signature": "(userId: string, data: UserProfile) => Promise<ProfileResponse>", "description": "创建用户画像" },
+        { "name": "userApi.updateProfile", "signature": "(userId: string, data: UserProfile) => Promise<ProfileResponse>", "description": "更新用户画像" }
+      ]
+    },
+    {
+      "name": "api/paper.ts",
+      "path": "Veritas/frontend/src/api/paper.ts",
+      "responsibility": "论文管理API封装：列表、详情、搜索、收藏",
+      "key_interfaces": [
+        { "name": "paperApi.list", "signature": "(params: { page, size }) => http.get('/papers', { params })", "description": "论文列表（分页）" },
+        { "name": "paperApi.getDetail", "signature": "(paperId: string) => http.get(`/papers/${paperId}`)", "description": "论文详情" },
+        { "name": "paperApi.search", "signature": "(params: SearchParams) => http.get('/papers/search', { params })", "description": "论文搜索" },
+        { "name": "paperApi.addFavorite", "signature": "(paperId: string) => http.post(`/papers/${paperId}/favorite`)", "description": "收藏论文" },
+        { "name": "paperApi.removeFavorite", "signature": "(paperId: string) => http.delete(`/papers/${paperId}/favorite`)", "description": "取消收藏" }
+      ]
+    },
+    {
+      "name": "api/analysis.ts",
+      "path": "Veritas/frontend/src/api/analysis.ts",
+      "responsibility": "分析服务API封装：论文分析、对比分析、综述生成、结果查询、SSE流地址",
+      "key_interfaces": [
+        { "name": "analysisApi.analyzePaper", "signature": "(data: { paperId }) => http.post('/analysis/paper', data)", "description": "论文分析请求" },
+        { "name": "analysisApi.comparePapers", "signature": "(data: { paperIds }) => http.post('/analysis/compare', data)", "description": "对比分析请求" },
+        { "name": "analysisApi.generateReport", "signature": "(data: { topic, paperIds }) => http.post('/analysis/report', data)", "description": "综述生成请求" },
+        { "name": "analysisApi.getResult", "signature": "(analysisId: string) => http.get(`/analysis/${analysisId}`)", "description": "获取分析结果" },
+        { "name": "analysisApi.getStatus", "signature": "(analysisId: string) => http.get(`/analysis/${analysisId}/status`)", "description": "获取分析状态" },
+        { "name": "analysisApi.getAgentStreamUrl", "signature": "(analysisId: string) => string", "description": "返回SSE流式地址（非HTTP调用）" }
+      ]
+    },
+    {
+      "name": "api/session.ts",
+      "path": "Veritas/frontend/src/api/session.ts",
+      "responsibility": "会话管理API封装：创建、列表、详情、删除",
+      "key_interfaces": [
+        { "name": "sessionApi.create", "signature": "(data: { topic }) => http.post('/sessions', data)", "description": "创建会话" },
+        { "name": "sessionApi.list", "signature": "(params: { page, size }) => http.get('/sessions', { params })", "description": "会话列表" },
+        { "name": "sessionApi.getDetail", "signature": "(sessionId: string) => http.get(`/sessions/${sessionId}`)", "description": "会话详情" },
+        { "name": "sessionApi.delete", "signature": "(sessionId: string) => http.delete(`/sessions/${sessionId}`)", "description": "删除会话" }
+      ]
+    },
+    {
+      "name": "types/common.ts",
+      "path": "Veritas/frontend/src/types/common.ts",
+      "responsibility": "通用TypeScript类型定义：ApiResponse、PageResponse等",
+      "key_interfaces": [
+        { "name": "ApiResponse<T>", "signature": "interface { code: number; message: string; data: T; timestamp: number }", "description": "统一API响应格式" },
+        { "name": "PageResponse<T>", "signature": "interface { items: T[]; total: number; page: number; size: number; totalPages: number }", "description": "分页响应格式" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/types/common.ts", "description": "通用TypeScript类型：ApiResponse<T>统一响应、PageResponse<T>分页响应", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/api/index.ts", "description": "Axios实例+请求拦截器(JWT Token注入)+响应拦截器(401/403/404/超时/网络错误处理)+导出http实例", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/api/user.ts", "description": "用户管理API：register/login/getUserInfo/getProfile/createProfile/updateProfile", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/api/paper.ts", "description": "论文管理API：list/getDetail/search/addFavorite/removeFavorite", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/api/analysis.ts", "description": "分析服务API：analyzePaper/comparePapers/generateReport/getResult/getStatus/getAgentStreamUrl", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/api/session.ts", "description": "会话管理API：create/list/getDetail/delete", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "创建types/common.ts：定义ApiResponse<T>接口（code: number, message: string, data: T, timestamp: number）和PageResponse<T>接口（items: T[], total: number, page: number, size: number, totalPages: number），与Java后端统一响应格式保持一致",
+        "priority": "P0",
+        "acceptance_condition": "ApiResponse和PageResponse类型定义完整，TypeScript编译无错误"
+      },
+      {
+        "id": "FR-002",
+        "description": "创建api/index.ts Axios实例：使用axios.create创建http实例，baseURL从import.meta.env.VITE_API_BASE_URL读取（默认'/api'），timeout 30000ms，headers Content-Type为'application/json'",
+        "priority": "P0",
+        "acceptance_condition": "http实例创建成功，baseURL和timeout配置正确"
+      },
+      {
+        "id": "FR-003",
+        "description": "创建请求拦截器：在http.interceptors.request.use中，函数式调用useUserStore()获取token，若token存在则设置config.headers.Authorization为'Bearer {token}'，避免在模块顶层导入Store导致循环依赖",
+        "priority": "P0",
+        "acceptance_condition": "登录后所有请求自动携带Authorization头，未登录请求不携带"
+      },
+      {
+        "id": "FR-004",
+        "description": "创建响应拦截器（成功分支）：解包ApiResponse，当data.code===200时返回data.data（直接返回业务数据），否则ElMessage.error(data.message)提示业务错误并reject",
+        "priority": "P0",
+        "acceptance_condition": "API调用成功时直接获得业务数据（无需再.data.data），业务错误时ElMessage提示"
+      },
+      {
+        "id": "FR-005",
+        "description": "创建响应拦截器（错误分支）：401状态码→userStore.logout()+router.push('/login')+ElMessage.error('登录已过期')；403→ElMessage.error('无权限访问')；404→ElMessage.error('请求的资源不存在')；ECONNABORTED→ElMessage.error('请求超时')；其他→ElMessage.error(后端message或'网络错误')",
+        "priority": "P0",
+        "acceptance_condition": "各种HTTP错误状态码有对应的友好提示，401自动跳转登录页"
+      },
+      {
+        "id": "FR-006",
+        "description": "创建api/user.ts：导出userApi对象，包含register(POST /users/register)、login(POST /users/login返回LoginResponse)、getUserInfo(GET /users/{userId})、getProfile(GET /users/{userId}/profile返回ProfileResponse)、createProfile(POST /users/{userId}/profile)、updateProfile(PUT /users/{userId}/profile)方法",
+        "priority": "P0",
+        "acceptance_condition": "6个用户API方法定义完整，参数和返回类型正确"
+      },
+      {
+        "id": "FR-007",
+        "description": "创建api/paper.ts：导出paperApi对象，包含list(GET /papers分页)、getDetail(GET /papers/{paperId})、search(GET /papers/search带q/page/size/yearFrom/yearTo/venue/sort参数)、addFavorite(POST /papers/{paperId}/favorite)、removeFavorite(DELETE /papers/{paperId}/favorite)方法",
+        "priority": "P0",
+        "acceptance_condition": "5个论文API方法定义完整，search参数包含筛选和排序"
+      },
+      {
+        "id": "FR-008",
+        "description": "创建api/analysis.ts：导出analysisApi对象，包含analyzePaper(POST /analysis/paper)、comparePapers(POST /analysis/compare)、generateReport(POST /analysis/report)、getResult(GET /analysis/{analysisId})、getStatus(GET /analysis/{analysisId}/status)、getAgentStreamUrl(返回SSE URL字符串'/api/analysis/{analysisId}/agent-stream')方法",
+        "priority": "P0",
+        "acceptance_condition": "6个分析API方法定义完整，getAgentStreamUrl返回SSE地址而非HTTP调用"
+      },
+      {
+        "id": "FR-009",
+        "description": "创建api/session.ts：导出sessionApi对象，包含create(POST /sessions)、list(GET /sessions分页)、getDetail(GET /sessions/{sessionId})、delete(DELETE /sessions/{sessionId})方法",
+        "priority": "P0",
+        "acceptance_condition": "4个会话API方法定义完整"
+      },
+      {
+        "id": "FR-010",
+        "description": "所有API模块的TypeScript类型必须完整：user.ts依赖types/user.ts的LoginResponse/ProfileResponse/UserProfile；paper.ts依赖types/paper.ts的Paper/FilterParams；analysis.ts依赖types/analysis.ts的AnalysisResult/CompareResult；session.ts的请求/响应类型。由于types文件将在后续task中创建，本task中API文件可使用import type引用（允许暂时编译错误，后续task补齐类型文件后解决）",
+        "priority": "P1",
+        "acceptance_condition": "API文件中import type语句正确，类型引用路径@/types/xxx正确"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case，前端API层使用snake_case与JSON保持一致",
+        "mappings": [
+          { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/users/register",
+          "method": "POST",
+          "request_format": { "username": "string", "email": "string", "password": "string" },
+          "response_format": { "code": 201, "data": { "userId": "string", "username": "string" } }
+        },
+        {
+          "endpoint": "/api/users/login",
+          "method": "POST",
+          "request_format": { "username": "string", "password": "string" },
+          "response_format": { "code": 200, "data": { "token": "string", "userId": "string", "username": "string", "hasProfile": "boolean" } }
+        },
+        {
+          "endpoint": "/api/papers/search",
+          "method": "GET",
+          "request_format": { "q": "string", "page": "number", "size": "number", "yearFrom": "number?", "yearTo": "number?", "venue": "string?", "sort": "string?" },
+          "response_format": { "code": 200, "data": { "items": "Paper[]", "total": "number", "page": "number", "size": "number" } }
+        },
+        {
+          "endpoint": "/api/analysis/report",
+          "method": "POST",
+          "request_format": { "topic": "string", "paperIds": "string[]" },
+          "response_format": { "code": 200, "data": { "analysisId": "string", "status": "string" } }
+        }
+      ],
+      "data_flow": "前端Axios → Vite proxy /api → Java后端:8080 → WebClient → Python AI服务:8000；响应原路返回，Axios拦截器解包ApiResponse"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "请求拦截器自动注入JWT Token到Authorization头，401响应自动清除Token并跳转登录页" },
+      { "category": "sensitive_info", "requirement": "禁止在拦截器日志中输出Token内容，禁止在错误提示中暴露后端内部错误详情" },
+      { "category": "data_isolation", "requirement": "API请求中userId由后端从Token中提取，前端不自行传递userId进行数据隔离" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "camelCase.ts（API模块）/ PascalCase.vue（组件）"
+      },
+      "json": { "field_name": "snake_case" },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "frontend": { "rule": "View → Store → API，API层仅封装HTTP调用，不含业务逻辑" }
+    },
+    "error_handling": {
+      "frontend": { "approach": "Axios响应拦截器统一错误处理，401自动跳转登录，其他错误ElMessage提示" }
+    },
+    "caching": {
+      "pattern": "API层不直接管理缓存，缓存由Pinia Store层和Java后端Redis管理",
+      "ttl_layers": []
+    },
+    "logging": {
+      "prohibited": ["在拦截器中console.log完整Token内容", "在错误提示中暴露后端堆栈信息"]
+    },
+    "security": {
+      "auth_mechanism": "JWT Token (24h有效期) + 请求拦截器自动注入 + 401自动跳转登录",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "在模块顶层导入useUserStore（导致循环依赖）", "reason": "Pinia Store可能尚未初始化，必须在拦截器回调内函数式获取", "severity": "critical" },
+    { "id": "FA-003", "action": "在API模块中编写业务逻辑", "reason": "API层仅封装HTTP调用，业务逻辑在Store中", "severity": "high" },
+    { "id": "FA-004", "action": "硬编码API baseURL", "reason": "必须从import.meta.env.VITE_API_BASE_URL读取", "severity": "high" },
+    { "id": "FA-005", "action": "在拦截器中console.log完整Token", "reason": "安全约束，禁止日志输出敏感信息", "severity": "critical" },
+    { "id": "FA-006", "action": "忽略401错误不跳转登录页", "reason": "JWT过期必须自动跳转登录页并清除Token", "severity": "high" },
+    { "id": "FA-007", "action": "修改task00-01已创建的文件", "reason": "避免引入无关变更", "severity": "medium" },
+    { "id": "FA-008", "action": "前端直接调用Python AI服务API", "reason": "三层分离架构约束，前端只能调用Java后端API", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "Axios实例配置测试",
+        "description": "验证http实例的baseURL、timeout、headers配置正确",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "请求拦截器测试",
+        "description": "验证有Token时注入Authorization头，无Token时不注入",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "响应拦截器成功分支测试",
+        "description": "验证code===200时返回data，非200时ElMessage.error提示",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "响应拦截器错误分支测试",
+        "description": "验证401/403/404/超时/网络错误的处理逻辑",
+        "framework": "vitest",
+        "coverage": ["error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "API模块方法测试",
+        "description": "验证4个API模块的所有方法参数和URL路径正确",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "TypeScript编译无错误（types文件补齐后）" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run dev", "expected_result": "开发服务器启动成功，API模块可正常导入" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "Axios实例baseURL从VITE_API_BASE_URL读取，timeout 30000ms", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "请求拦截器：登录后请求自动携带Authorization: Bearer {token}", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "响应拦截器成功分支：code===200返回data，业务错误ElMessage提示", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "响应拦截器错误分支：401跳转登录+清除Token，403/404/超时有友好提示", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "userApi包含6个方法：register/login/getUserInfo/getProfile/createProfile/updateProfile", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "paperApi包含5个方法：list/getDetail/search/addFavorite/removeFavorite", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "analysisApi包含6个方法：analyzePaper/comparePapers/generateReport/getResult/getStatus/getAgentStreamUrl", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "sessionApi包含4个方法：create/list/getDetail/delete", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "types/common.ts定义ApiResponse<T>和PageResponse<T>，与Java后端统一响应格式一致", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "请求拦截器在回调内函数式获取userStore，无循环依赖", "verified_by": "code_review" }
+  ]
+}

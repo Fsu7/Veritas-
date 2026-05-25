@@ -1,0 +1,430 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / JM1：项目骨架与数据层就绪",
+    "requirement": "创建6个Spring Data JPA Repository接口（UserRepository、UserProfileRepository、PaperRepository、SessionRepository、AnalysisResultRepository、PaperFavoriteRepository），每个Repository继承JpaRepository<Entity, Long>，并定义自定义查询方法。关键自定义查询包括：PaperRepository的MySQL全文索引检索（MATCH...AGAINST + 条件过滤 + 排序 + 分页）、按paperId批量查询；UserRepository的按username查询；UserProfileRepository的按userId查询；SessionRepository的按userId分页查询（按创建时间倒序）；AnalysisResultRepository的按sessionId和status查询；PaperFavoriteRepository的按userId分页查询和重复收藏检查。所有查询必须使用参数化查询（禁止SQL拼接），涉及用户数据的查询必须强制加入userId条件实现数据隔离。",
+    "requirement_ids": ["F2.1", "F2.2", "F2.3", "F2.4", "F4.1"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§5.2.3 PaperRepository自定义查询（全文检索SQL）、§11.2 Entity-Repository映射表"
+      },
+      {
+        "path": "docs/database/数据库设计文档.md",
+        "purpose": "§3.5.5 全文检索查询方式（NATURAL LANGUAGE MODE/BOOLEAN MODE）、§3.9 Entity-Repository映射汇总"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.3 详细任务分解（Week 2 Day 2: 6个Repository接口 + 自定义查询）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7.1 MySQL核心表（索引设计）、§9.2 Java后端规范（分层架构、数据隔离）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.repository",
+        "description": "数据访问层，定义6个Repository接口，提供JPA CRUD和自定义查询"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L609-L633",
+        "description": "PaperRepository完整设计，含searchByKeyword原生查询SQL，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/database/数据库设计文档.md#L493-L510",
+        "description": "MySQL全文检索查询方式（NATURAL LANGUAGE MODE + 条件过滤 + 排序），可直接复用",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "UserRepository",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/UserRepository.java",
+      "responsibility": "用户数据访问，提供按username查询、按userId查询",
+      "key_interfaces": [
+        {
+          "name": "findByUserId",
+          "signature": "Optional<User> findByUserId(String userId)",
+          "description": "按用户唯一ID查询"
+        },
+        {
+          "name": "findByUsername",
+          "signature": "Optional<User> findByUsername(String username)",
+          "description": "按用户名查询（登录时使用）"
+        },
+        {
+          "name": "existsByUsername",
+          "signature": "boolean existsByUsername(String username)",
+          "description": "检查用户名是否已存在（注册时唯一性校验）"
+        },
+        {
+          "name": "existsByEmail",
+          "signature": "boolean existsByEmail(String email)",
+          "description": "检查邮箱是否已存在"
+        }
+      ]
+    },
+    {
+      "name": "UserProfileRepository",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/UserProfileRepository.java",
+      "responsibility": "用户画像数据访问，提供按userId查询",
+      "key_interfaces": [
+        {
+          "name": "findByUserId",
+          "signature": "Optional<UserProfile> findByUserId(String userId)",
+          "description": "按用户ID查询画像"
+        },
+        {
+          "name": "existsByUserId",
+          "signature": "boolean existsByUserId(String userId)",
+          "description": "检查用户画像是否已存在（防止重复创建）"
+        }
+      ]
+    },
+    {
+      "name": "PaperRepository",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepository.java",
+      "responsibility": "论文数据访问，提供全文检索、条件过滤、排序、分页查询",
+      "key_interfaces": [
+        {
+          "name": "findByPaperId",
+          "signature": "Optional<Paper> findByPaperId(String paperId)",
+          "description": "按论文唯一ID查询"
+        },
+        {
+          "name": "searchByKeyword",
+          "signature": "Page<Paper> searchByKeyword(@Param('keyword') String keyword, @Param('yearFrom') Integer yearFrom, @Param('yearTo') Integer yearTo, @Param('venue') String venue, @Param('sort') String sort, Pageable pageable)",
+          "description": "MySQL全文索引检索 + 条件过滤 + 排序 + 分页（原生SQL）"
+        },
+        {
+          "name": "findByPaperIdIn",
+          "signature": "List<Paper> findByPaperIdIn(List<String> paperIds)",
+          "description": "按paperId列表批量查询"
+        }
+      ]
+    },
+    {
+      "name": "SessionRepository",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/SessionRepository.java",
+      "responsibility": "会话数据访问，提供按userId分页查询、按sessionId查询",
+      "key_interfaces": [
+        {
+          "name": "findBySessionId",
+          "signature": "Optional<Session> findBySessionId(String sessionId)",
+          "description": "按会话唯一ID查询"
+        },
+        {
+          "name": "findByUserIdOrderByCreatedAtDesc",
+          "signature": "Page<Session> findByUserIdOrderByCreatedAtDesc(String userId, Pageable pageable)",
+          "description": "按用户ID查询会话列表，按创建时间倒序分页（数据隔离）"
+        }
+      ]
+    },
+    {
+      "name": "AnalysisResultRepository",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/AnalysisResultRepository.java",
+      "responsibility": "分析结果数据访问，提供按sessionId和status查询",
+      "key_interfaces": [
+        {
+          "name": "findByAnalysisId",
+          "signature": "Optional<AnalysisResult> findByAnalysisId(String analysisId)",
+          "description": "按分析唯一ID查询"
+        },
+        {
+          "name": "findBySessionId",
+          "signature": "List<AnalysisResult> findBySessionId(String sessionId)",
+          "description": "按会话ID查询所有分析结果"
+        },
+        {
+          "name": "findBySessionIdAndStatus",
+          "signature": "List<AnalysisResult> findBySessionIdAndStatus(String sessionId, AnalysisStatus status)",
+          "description": "按会话ID和状态查询分析结果"
+        }
+      ]
+    },
+    {
+      "name": "PaperFavoriteRepository",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperFavoriteRepository.java",
+      "responsibility": "论文收藏数据访问，提供按userId分页查询和重复收藏检查",
+      "key_interfaces": [
+        {
+          "name": "findByUserIdOrderByCreatedAtDesc",
+          "signature": "Page<PaperFavorite> findByUserIdOrderByCreatedAtDesc(String userId, Pageable pageable)",
+          "description": "按用户ID查询收藏列表，按收藏时间倒序分页（数据隔离）"
+        },
+        {
+          "name": "existsByUserIdAndPaperId",
+          "signature": "boolean existsByUserIdAndPaperId(String userId, String paperId)",
+          "description": "检查是否已收藏（防止重复收藏）"
+        },
+        {
+          "name": "deleteByUserIdAndPaperId",
+          "signature": "void deleteByUserIdAndPaperId(String userId, String paperId)",
+          "description": "取消收藏"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/UserRepository.java",
+      "description": "用户Repository，继承JpaRepository<User, Long>，含findByUserId/findByUsername/existsByUsername/existsByEmail",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/UserProfileRepository.java",
+      "description": "用户画像Repository，继承JpaRepository<UserProfile, Long>，含findByUserId/existsByUserId",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepository.java",
+      "description": "论文Repository，继承JpaRepository<Paper, Long>和JpaSpecificationExecutor<Paper>，含全文检索searchByKeyword原生查询",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/SessionRepository.java",
+      "description": "会话Repository，继承JpaRepository<Session, Long>，含findByUserId分页查询（数据隔离）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/AnalysisResultRepository.java",
+      "description": "分析结果Repository，继承JpaRepository<AnalysisResult, Long>，含findBySessionId/findBySessionIdAndStatus",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperFavoriteRepository.java",
+      "description": "论文收藏Repository，继承JpaRepository<PaperFavorite, Long>，含existsByUserIdAndPaperId/deleteByUserIdAndPaperId",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "UserRepository：继承JpaRepository<User, Long>。方法：findByUserId(String userId) → Optional<User>、findByUsername(String username) → Optional<User>、existsByUsername(String username) → boolean、existsByEmail(String email) → boolean。findByUsername用于登录查询，existsByUsername/existsByEmail用于注册唯一性校验。",
+        "priority": "P0",
+        "acceptance_condition": "findByUsername正确查询，existsByUsername返回true/false"
+      },
+      {
+        "id": "FR-002",
+        "description": "UserProfileRepository：继承JpaRepository<UserProfile, Long>。方法：findByUserId(String userId) → Optional<UserProfile>、existsByUserId(String userId) → boolean。existsByUserId用于防止重复创建画像。",
+        "priority": "P0",
+        "acceptance_condition": "findByUserId正确查询画像，existsByUserId返回true/false"
+      },
+      {
+        "id": "FR-003",
+        "description": "PaperRepository：继承JpaRepository<Paper, Long>和JpaSpecificationExecutor<Paper>。方法：(1) findByPaperId(String paperId) → Optional<Paper>；(2) findByPaperIdIn(List<String> paperIds) → List<Paper>；(3) searchByKeyword原生查询：@Query(value='SELECT * FROM papers WHERE MATCH(title, abstract) AGAINST(:keyword IN NATURAL LANGUAGE MODE) AND (:yearFrom IS NULL OR year >= :yearFrom) AND (:yearTo IS NULL OR year <= :yearTo) AND (:venue IS NULL OR venue = :venue) ORDER BY CASE WHEN :sort = \\'relevance\\' THEN MATCH(title, abstract) AGAINST(:keyword IN NATURAL LANGUAGE MODE) WHEN :sort = \\'year\\' THEN year WHEN :sort = \\'citations\\' THEN citation_count END DESC', nativeQuery=true)，返回Page<Paper>，参数含keyword/yearFrom/yearTo/venue/sort/Pageable。",
+        "priority": "P0",
+        "acceptance_condition": "searchByKeyword支持全文检索+条件过滤+排序+分页，findByPaperIdIn批量查询正确"
+      },
+      {
+        "id": "FR-004",
+        "description": "SessionRepository：继承JpaRepository<Session, Long>。方法：findBySessionId(String sessionId) → Optional<Session>、findByUserIdOrderByCreatedAtDesc(String userId, Pageable pageable) → Page<Session>。findByUserIdOrderByCreatedAtDesc强制按userId过滤实现数据隔离。",
+        "priority": "P0",
+        "acceptance_condition": "findByUserIdOrderByCreatedAtDesc只返回指定用户的会话，按创建时间倒序"
+      },
+      {
+        "id": "FR-005",
+        "description": "AnalysisResultRepository：继承JpaRepository<AnalysisResult, Long>。方法：findByAnalysisId(String analysisId) → Optional<AnalysisResult>、findBySessionId(String sessionId) → List<AnalysisResult>、findBySessionIdAndStatus(String sessionId, AnalysisStatus status) → List<AnalysisResult>。",
+        "priority": "P0",
+        "acceptance_condition": "findBySessionIdAndStatus正确过滤sessionId和status"
+      },
+      {
+        "id": "FR-006",
+        "description": "PaperFavoriteRepository：继承JpaRepository<PaperFavorite, Long>。方法：findByUserIdOrderByCreatedAtDesc(String userId, Pageable pageable) → Page<PaperFavorite>、existsByUserIdAndPaperId(String userId, String paperId) → boolean、deleteByUserIdAndPaperId(String userId, String paperId) → void。existsByUserIdAndPaperId用于防止重复收藏，deleteByUserIdAndPaperId用于取消收藏。findByUserIdOrderByCreatedAtDesc强制按userId过滤实现数据隔离。",
+        "priority": "P0",
+        "acceptance_condition": "existsByUserIdAndPaperId正确判断是否已收藏，deleteByUserIdAndPaperId正确删除"
+      },
+      {
+        "id": "FR-007",
+        "description": "所有Repository接口必须添加@Transactional(readOnly=true)类级别注解（查询方法默认只读），写操作方法（如deleteByUserIdAndPaperId）添加@Transactional注解覆盖。",
+        "priority": "P1",
+        "acceptance_condition": "Repository类级别有@Transactional(readOnly=true)"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "userId", "python": "user_id", "json": "user_id" },
+          { "java": "sessionId", "python": "session_id", "json": "session_id" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "Repository为Service层提供数据访问能力，Service通过Repository操作Entity，Controller不直接访问Repository。数据隔离通过Repository查询方法中的userId条件实现。"
+    },
+    "security_requirements": [
+      {
+        "category": "data_isolation",
+        "requirement": "SessionRepository.findByUserIdOrderByCreatedAtDesc和PaperFavoriteRepository.findByUserIdOrderByCreatedAtDesc必须强制按userId过滤，确保用户只能访问自己的数据"
+      },
+      {
+        "category": "sql_injection",
+        "requirement": "所有自定义查询使用@Param参数化绑定，searchByKeyword原生查询的keyword参数必须参数化，禁止SQL拼接"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE",
+        "config_key": "kebab-case"
+      },
+      "database": {
+        "table_name": "snake_case, 复数形式",
+        "column_name": "snake_case",
+        "index_name": "idx_/uk_/ft_ + 字段名"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层。Controller禁止直接操作Repository",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" }
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "primary_key": "id BIGINT AUTO_INCREMENT",
+      "business_id": "xxx_id VARCHAR(100) UNIQUE NOT NULL",
+      "comment_required": true,
+      "json_fields_only_for_dynamic": true,
+      "fulltext_parser": "ngram",
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行Java代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "Controller直接操作Repository", "reason": "分层架构约束，Controller只能调用Service", "severity": "critical" },
+    { "id": "FA-004", "action": "使用SQL拼接构建查询", "reason": "SQL注入防护，必须使用@Param参数化查询", "severity": "critical" },
+    { "id": "FA-005", "action": "省略数据隔离条件（userId过滤）", "reason": "安全约束，用户只能访问自己的数据", "severity": "critical" },
+    { "id": "FA-006", "action": "Repository方法返回Entity给前端", "reason": "Entity必须通过DTO转换后返回", "severity": "high" },
+    { "id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high" },
+    { "id": "FA-008", "action": "searchByKeyword查询不加LIMIT分页", "reason": "大表查询必须分页，避免全量加载", "severity": "high" },
+    { "id": "FA-009", "action": "硬编码敏感配置", "reason": "安全约束", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "UserRepositoryTest",
+        "description": "测试findByUserId、findByUsername、existsByUsername、existsByEmail方法，使用@DataJpaTest + H2内存数据库",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "PaperRepositoryTest",
+        "description": "测试findByPaperId、findByPaperIdIn、searchByKeyword全文检索（注意：H2不支持MATCH...AGAINST，需使用@AutoConfigureTestDatabase替换为MySQL TestContainer或mock测试）",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "SessionRepositoryTest",
+        "description": "测试findByUserIdOrderByCreatedAtDesc分页查询、数据隔离验证",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "PaperFavoriteRepositoryTest",
+        "description": "测试existsByUserIdAndPaperId、deleteByUserIdAndPaperId、findByUserIdOrderByCreatedAtDesc",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "PaperSearchIntegrationTest",
+        "description": "使用MySQL TestContainer验证searchByKeyword全文检索（MATCH...AGAINST）在真实MySQL上正确执行",
+        "layers_involved": ["java_backend", "data_layer"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，6个Repository接口无错误"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=UserRepositoryTest,SessionRepositoryTest,PaperFavoriteRepositoryTest",
+        "expected_result": "所有单元测试通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "6个Repository接口编译通过，继承JpaRepository<Entity, Long>", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "PaperRepository.searchByKeyword支持全文检索+条件过滤+排序+分页", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "SessionRepository和PaperFavoriteRepository的查询强制按userId过滤", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "所有自定义查询使用@Param参数化绑定，无SQL拼接", "verified_by": "code_review" },
+    { "id": "AC-005", "criterion": "PaperRepository同时继承JpaSpecificationExecutor支持动态条件查询", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "Repository类级别有@Transactional(readOnly=true)注解", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "UserRepository.existsByUsername/existsByEmail用于注册唯一性校验", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "PaperFavoriteRepository.existsByUserIdAndPaperId防止重复收藏", "verified_by": "automated_test" },
+    { "id": "AC-009", "criterion": "分页查询方法正确使用Pageable参数", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "单元测试全部通过", "verified_by": "automated_test" }
+  ]
+}

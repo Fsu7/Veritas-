@@ -1,0 +1,238 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / JM1：项目骨架与数据层就绪",
+    "requirement": "创建HealthController健康检查控制器 + 集成测试验证。HealthController提供GET /health端点，返回系统健康状态，包含status(UP/DOWN)、timestamp、mysql(UP/DOWN)、redis(UP/DOWN)三个组件状态。MySQL健康检查通过DataSource连接验证（执行SELECT 1），Redis健康检查通过RedisTemplate的ping命令验证。该端点无需JWT鉴权（加入SecurityConfig白名单）。同时创建集成测试验证：Spring Boot启动成功、/health返回200、MySQL连接正常、Redis连接正常、统一响应格式正确（ApiResponse包装）。",
+    "requirement_ids": ["F2.1", "F2.2", "F2.3", "F2.4", "F2.5", "F2.6"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§16.3 健康检查（HealthController完整设计）、§17 部署架构（Docker healthcheck配置）"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.3 详细任务分解（Week 2 Day 7: HealthController + 集成测试验证）、§3.4 验收检查点"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§15.2 服务配置（Java Backend healthcheck: curl -f http://localhost:8080/health）、§10 安全规范（/health无需鉴权）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.controller",
+        "description": "API控制器层，HealthController为第一个Controller"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.common",
+        "description": "通用DTO包，HealthController依赖ApiResponse（task04产出）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.config",
+        "description": "配置类包，SecurityConfig需将/health加入白名单"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L1850-L1875",
+        "description": "§16.3中已有HealthController完整实现代码，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/backend/Java后端模块项目里程碑文档.md#L176-L186",
+        "description": "§3.4 验收检查点：Spring Boot启动、/health返回200、MySQL/Redis连接正常",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "HealthController",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/HealthController.java",
+      "responsibility": "健康检查控制器，GET /health返回系统各组件状态",
+      "key_interfaces": [
+        {
+          "name": "health",
+          "signature": "@GetMapping('/health') public ApiResponse<Map<String, Object>> health()",
+          "description": "返回系统健康状态，包含status/mysql/redis/timestamp"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/HealthController.java",
+      "description": "健康检查控制器，GET /health返回MySQL/Redis连接状态",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/controller/HealthControllerTest.java",
+      "description": "HealthController集成测试，验证/health端点和组件状态检查",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "HealthController使用@RestController注解，提供GET /health端点。返回ApiResponse<Map<String, Object>>，data中包含：status（整体状态，任一组件DOWN则为DOWN，否则UP）、timestamp（System.currentTimeMillis()）、mysql（通过DataSource执行SELECT 1验证，成功为UP，失败为DOWN）、redis（通过RedisTemplate.execute((RedisCallback<String>) connection -> connection.ping())验证，返回PONG为UP，否则为DOWN）。MySQL检查使用try-with-resources获取Connection执行简单查询，捕获异常时标记DOWN。Redis检查捕获RedisConnectionFailureException时标记DOWN。",
+        "priority": "P0",
+        "acceptance_condition": "GET /health返回200，包含status/mysql/redis/timestamp字段"
+      },
+      {
+        "id": "FR-002",
+        "description": "HealthController注入DataSource和RedisTemplate。MySQL健康检查：dataSource.getConnection() → createStatement() → executeQuery('SELECT 1') → 成功则UP。Redis健康检查：redisTemplate.execute((RedisCallback<String>) connection -> connection.ping()) → 返回PONG则UP。所有检查捕获Exception，不抛出，标记为DOWN并记录WARN日志。",
+        "priority": "P0",
+        "acceptance_condition": "MySQL/Redis不可用时/health仍返回200，对应组件标记DOWN"
+      },
+      {
+        "id": "FR-003",
+        "description": "HealthController的/health端点无需JWT鉴权。后续SecurityConfig配置时需将/health加入白名单路径（当前task仅创建Controller，SecurityConfig在后续task中配置）。",
+        "priority": "P0",
+        "acceptance_condition": "/health端点不经过JWT验证即可访问"
+      },
+      {
+        "id": "FR-004",
+        "description": "集成测试HealthControllerTest使用@SpringBootTest和@AutoConfigureMockMvc。测试用例：(1) testHealthEndpointReturns200——验证/health返回200状态码和ApiResponse格式（code=200）；(2) testHealthEndpointContainsRequiredFields——验证响应包含status/mysql/redis/timestamp字段；(3) testHealthEndpointStatusUpWhenServicesAvailable——MySQL和Redis可用时status=UP。测试需跳过Redis/MySQL不可用的场景（使用@Disabled或条件注解）。",
+        "priority": "P0",
+        "acceptance_condition": "集成测试在MySQL和Redis可用时通过"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": []
+      },
+      "api_contracts": [
+        {
+          "endpoint": "GET /health",
+          "method": "GET",
+          "request_format": {},
+          "response_format": {
+            "code": 200,
+            "message": "success",
+            "data": {
+              "status": "UP",
+              "timestamp": 1716451200000,
+              "mysql": "UP",
+              "redis": "UP"
+            }
+          }
+        }
+      ],
+      "data_flow": "Docker healthcheck: curl -f http://localhost:8080/health → HealthController → 检查MySQL/Redis → 返回状态"
+    },
+    "security_requirements": [
+      {
+        "category": "other",
+        "requirement": "/health端点无需JWT鉴权，任何人可访问（用于Docker healthcheck和监控）"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" }
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login", "/health"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行Java代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-HC1", "action": "HealthController中健康检查抛出异常导致/health返回500", "reason": "健康检查端点必须始终返回200，组件异常标记DOWN而非抛出", "severity": "critical" },
+    { "id": "FA-HC2", "action": "/health端点要求JWT鉴权", "reason": "健康检查端点必须公开访问，用于Docker healthcheck", "severity": "high" },
+    { "id": "FA-HC3", "action": "MySQL健康检查使用JPA Repository查询", "reason": "健康检查应使用最底层的DataSource连接验证，不依赖JPA层", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [],
+    "integration_tests": [
+      {
+        "test_name": "HealthControllerTest",
+        "description": "集成测试：验证/health端点返回200、ApiResponse格式正确、包含status/mysql/redis/timestamp字段、MySQL和Redis可用时status=UP",
+        "layers_involved": ["java_backend", "data_layer"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=HealthControllerTest",
+        "expected_result": "集成测试通过（需MySQL和Redis运行中）"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn spring-boot:run -Dspring-boot.run.profiles=dev & sleep 15 && curl -s http://localhost:8080/health",
+        "expected_result": "返回JSON：{code:200, message:'success', data:{status:'UP', mysql:'UP', redis:'UP', timestamp:...}}"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "GET /health返回200和ApiResponse格式", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "/health响应包含status/mysql/redis/timestamp字段", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "MySQL和Redis可用时status=UP，mysql=UP，redis=UP", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "MySQL不可用时mysql=DOWN，整体status=DOWN，/health仍返回200", "verified_by": "code_review" },
+    { "id": "AC-005", "criterion": "Redis不可用时redis=DOWN，整体status=DOWN，/health仍返回200", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "/health端点无需JWT鉴权即可访问", "verified_by": "manual_test" },
+    { "id": "AC-007", "criterion": "MySQL健康检查使用DataSource连接验证（SELECT 1）", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "Redis健康检查使用RedisTemplate ping命令", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "集成测试通过（需MySQL和Redis运行中）", "verified_by": "automated_test" }
+  ]
+}

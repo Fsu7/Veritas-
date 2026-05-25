@@ -1,0 +1,544 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / JM1：项目骨架与数据层就绪",
+    "requirement": "创建6个JPA Entity类（User、UserProfile、Paper、Session、AnalysisResult、PaperFavorite）和6个枚举类（EducationLevel、KnowledgeLevel、PreferredStyle、SessionStatus、AnalysisType、AnalysisStatus）。Entity类严格对应数据库DDL定义，使用@Data @NoArgsConstructor @AllArgsConstructor @Builder注解，枚举字段使用@Enumerated(EnumType.STRING)，JSON字段使用columnDefinition='JSON'，时间字段使用@PrePersist/@PreUpdate自动填充。枚举类包含code和label字段（SessionStatus/AnalysisStatus/AnalysisType除外，仅含枚举值），提供fromCode静态方法。所有Entity的@Column注解必须与DDL字段名、类型、长度、约束完全一致。",
+    "requirement_ids": ["F2.1", "F2.2", "F2.3", "F2.4", "F4.1"],
+    "reference_docs": [
+      {
+        "path": "docs/database/数据库设计文档.md",
+        "purpose": "§3 MySQL关系数据库设计（6张表的完整DDL、字段定义、索引设计、JPA Entity定义）"
+      },
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§11 数据模型规范（Entity类设计规范、枚举类型定义、Entity-Repository映射）"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.3 详细任务分解（Week 2 Day 1: 6个Entity类 + 枚举类）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7 数据库设计（6张MySQL核心表、枚举值定义）、§9.2 Java后端规范（Entity注解规范）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.entity",
+        "description": "JPA实体类包，定义6个与MySQL表一一对应的Entity类"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.enums",
+        "description": "枚举定义包，定义6个业务枚举类型"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/database/数据库设计文档.md#L280-L313",
+        "description": "User Entity完整JPA定义，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/database/数据库设计文档.md#L393-L435",
+        "description": "UserProfile Entity完整JPA定义，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/database/数据库设计文档.md#L515-L571",
+        "description": "Paper Entity完整JPA定义，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/database/数据库设计文档.md#L632-L665",
+        "description": "Session Entity完整JPA定义，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/database/数据库设计文档.md#L794-L831",
+        "description": "AnalysisResult Entity完整JPA定义，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/database/数据库设计文档.md#L865-L891",
+        "description": "PaperFavorite Entity完整JPA定义，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L1456-L1496",
+        "description": "6个枚举类完整定义（EducationLevel含code/label、KnowledgeLevel、PreferredStyle、SessionStatus、AnalysisType、AnalysisStatus）",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "User",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/User.java",
+      "responsibility": "用户基础信息实体，对应users表，含userId/username/email/passwordHash/createdAt",
+      "key_interfaces": [
+        {
+          "name": "onCreate",
+          "signature": "@PrePersist protected void onCreate()",
+          "description": "自动填充createdAt为LocalDateTime.now()"
+        }
+      ]
+    },
+    {
+      "name": "UserProfile",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/UserProfile.java",
+      "responsibility": "用户画像实体，对应user_profiles表，含educationLevel/researchField/knowledgeLevel/preferredStyle/profileData/updatedAt",
+      "key_interfaces": [
+        {
+          "name": "onUpdate",
+          "signature": "@PrePersist @PreUpdate protected void onUpdate()",
+          "description": "自动填充updatedAt为LocalDateTime.now()"
+        }
+      ]
+    },
+    {
+      "name": "Paper",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/Paper.java",
+      "responsibility": "论文元数据实体，对应papers表，含paperId/title/authors(JSON)/abstractText/year/venue/keywords(JSON)/citationCount/pdfUrl/createdAt/updatedAt",
+      "key_interfaces": [
+        {
+          "name": "onCreate",
+          "signature": "@PrePersist protected void onCreate()",
+          "description": "自动填充createdAt和updatedAt为LocalDateTime.now()"
+        },
+        {
+          "name": "onUpdate",
+          "signature": "@PreUpdate protected void onUpdate()",
+          "description": "自动填充updatedAt为LocalDateTime.now()"
+        }
+      ]
+    },
+    {
+      "name": "Session",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/Session.java",
+      "responsibility": "分析会话实体，对应sessions表，含sessionId/userId/topic/status/createdAt",
+      "key_interfaces": [
+        {
+          "name": "onCreate",
+          "signature": "@PrePersist protected void onCreate()",
+          "description": "自动填充createdAt为LocalDateTime.now()"
+        }
+      ]
+    },
+    {
+      "name": "AnalysisResult",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/AnalysisResult.java",
+      "responsibility": "分析结果实体，对应analysis_results表，含analysisId/sessionId/type/result(JSON)/status/createdAt",
+      "key_interfaces": [
+        {
+          "name": "onCreate",
+          "signature": "@PrePersist protected void onCreate()",
+          "description": "自动填充createdAt为LocalDateTime.now()"
+        }
+      ]
+    },
+    {
+      "name": "PaperFavorite",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/PaperFavorite.java",
+      "responsibility": "论文收藏实体，对应paper_favorites表，含userId/paperId/createdAt",
+      "key_interfaces": [
+        {
+          "name": "onCreate",
+          "signature": "@PrePersist protected void onCreate()",
+          "description": "自动填充createdAt为LocalDateTime.now()"
+        }
+      ]
+    },
+    {
+      "name": "EducationLevel",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/EducationLevel.java",
+      "responsibility": "学历层次枚举：UNDERGRADUATE/MASTER/PHD/FACULTY，含code和label字段",
+      "key_interfaces": [
+        {
+          "name": "fromCode",
+          "signature": "public static EducationLevel fromCode(String code)",
+          "description": "根据code值获取枚举实例"
+        }
+      ]
+    },
+    {
+      "name": "KnowledgeLevel",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/KnowledgeLevel.java",
+      "responsibility": "知识水平枚举：BEGINNER/INTERMEDIATE/ADVANCED/EXPERT，含code和label字段",
+      "key_interfaces": [
+        {
+          "name": "fromCode",
+          "signature": "public static KnowledgeLevel fromCode(String code)",
+          "description": "根据code值获取枚举实例"
+        }
+      ]
+    },
+    {
+      "name": "PreferredStyle",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/PreferredStyle.java",
+      "responsibility": "偏好风格枚举：SIMPLE/BALANCED/TECHNICAL，含code和label字段",
+      "key_interfaces": [
+        {
+          "name": "fromCode",
+          "signature": "public static PreferredStyle fromCode(String code)",
+          "description": "根据code值获取枚举实例"
+        }
+      ]
+    },
+    {
+      "name": "SessionStatus",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/SessionStatus.java",
+      "responsibility": "会话状态枚举：ACTIVE/COMPLETED/EXPIRED",
+      "key_interfaces": []
+    },
+    {
+      "name": "AnalysisType",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/AnalysisType.java",
+      "responsibility": "分析类型枚举：PAPER_ANALYSIS/COMPARE/REPORT",
+      "key_interfaces": []
+    },
+    {
+      "name": "AnalysisStatus",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/AnalysisStatus.java",
+      "responsibility": "分析状态枚举：PENDING/PROCESSING/COMPLETED/FAILED",
+      "key_interfaces": []
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/User.java",
+      "description": "用户实体类，对应users表，含id/userId/username/email/passwordHash/createdAt",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/UserProfile.java",
+      "description": "用户画像实体类，对应user_profiles表，含枚举字段和JSON字段",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/Paper.java",
+      "description": "论文实体类，对应papers表，含JSON字段(authors/keywords)和全文索引字段",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/Session.java",
+      "description": "会话实体类，对应sessions表，含SessionStatus枚举字段",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/AnalysisResult.java",
+      "description": "分析结果实体类，对应analysis_results表，含AnalysisType/AnalysisStatus枚举和JSON result字段",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/PaperFavorite.java",
+      "description": "论文收藏实体类，对应paper_favorites表",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/EducationLevel.java",
+      "description": "学历层次枚举：UNDERGRADUATE/MASTER/PHD/FACULTY，含code和label",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/KnowledgeLevel.java",
+      "description": "知识水平枚举：BEGINNER/INTERMEDIATE/ADVANCED/EXPERT，含code和label",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/PreferredStyle.java",
+      "description": "偏好风格枚举：SIMPLE/BALANCED/TECHNICAL，含code和label",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/SessionStatus.java",
+      "description": "会话状态枚举：ACTIVE/COMPLETED/EXPIRED",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/AnalysisType.java",
+      "description": "分析类型枚举：PAPER_ANALYSIS/COMPARE/REPORT",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/AnalysisStatus.java",
+      "description": "分析状态枚举：PENDING/PROCESSING/COMPLETED/FAILED",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "User实体类：@Entity @Table(name='users') @Data @NoArgsConstructor @AllArgsConstructor @Builder。字段：id(Long, @Id @GeneratedValue(IDENTITY))、userId(String, @Column(name='user_id', unique=true, nullable=false, length=100))、username(String, @Column(nullable=false, length=100))、email(String, @Column(length=200))、passwordHash(String, @Column(name='password_hash', nullable=false, length=200))、createdAt(LocalDateTime, @Column(name='created_at', updatable=false))。@PrePersist onCreate()设置createdAt=LocalDateTime.now()。",
+        "priority": "P0",
+        "acceptance_condition": "User实体编译通过，@Column注解与DDL字段完全一致，启动时自动创建users表"
+      },
+      {
+        "id": "FR-002",
+        "description": "UserProfile实体类：@Entity @Table(name='user_profiles') @Data @NoArgsConstructor @AllArgsConstructor @Builder。字段：id(Long)、userId(String, @Column(name='user_id', nullable=false, length=100))、educationLevel(EducationLevel, @Enumerated(STRING) @Column(name='education_level', length=20))、researchField(String, @Column(name='research_field', length=200))、knowledgeLevel(KnowledgeLevel, @Enumerated(STRING) @Column(name='knowledge_level', length=20))、preferredStyle(PreferredStyle, @Enumerated(STRING) @Column(name='preferred_style', length=20))、profileData(String, @Column(name='profile_data', columnDefinition='JSON'))、updatedAt(LocalDateTime, @Column(name='updated_at'))。@PrePersist @PreUpdate onUpdate()设置updatedAt=LocalDateTime.now()。",
+        "priority": "P0",
+        "acceptance_condition": "UserProfile实体编译通过，枚举字段使用@Enumerated(STRING)，JSON字段使用columnDefinition='JSON'"
+      },
+      {
+        "id": "FR-003",
+        "description": "Paper实体类：@Entity @Table(name='papers') @Data @NoArgsConstructor @AllArgsConstructor @Builder。字段：id(Long)、paperId(String, @Column(name='paper_id', unique=true, nullable=false, length=100))、title(String, @Column(nullable=false, length=500))、authors(String, @Column(columnDefinition='JSON'))、abstractText(String, @Column(columnDefinition='TEXT'))、year(Integer)、venue(String, @Column(length=200))、keywords(String, @Column(columnDefinition='JSON'))、citationCount(Integer, @Column(name='citation_count'))、pdfUrl(String, @Column(name='pdf_url', length=500))、createdAt(LocalDateTime, @Column(name='created_at', updatable=false))、updatedAt(LocalDateTime, @Column(name='updated_at'))。注意：abstract是Java关键字，字段名使用abstractText，@Column映射到abstract列。@PrePersist onCreate()设置createdAt和updatedAt。@PreUpdate onUpdate()设置updatedAt。",
+        "priority": "P0",
+        "acceptance_condition": "Paper实体编译通过，abstractText字段正确映射到abstract列，JSON字段使用columnDefinition='JSON'"
+      },
+      {
+        "id": "FR-004",
+        "description": "Session实体类：@Entity @Table(name='sessions') @Data @NoArgsConstructor @AllArgsConstructor @Builder。字段：id(Long)、sessionId(String, @Column(name='session_id', unique=true, nullable=false, length=100))、userId(String, @Column(name='user_id', nullable=false, length=100))、topic(String, @Column(length=500))、status(SessionStatus, @Enumerated(STRING) @Column(nullable=false, length=20))、createdAt(LocalDateTime, @Column(name='created_at', updatable=false))。@PrePersist onCreate()设置createdAt=LocalDateTime.now()。",
+        "priority": "P0",
+        "acceptance_condition": "Session实体编译通过，SessionStatus枚举字段使用@Enumerated(STRING)"
+      },
+      {
+        "id": "FR-005",
+        "description": "AnalysisResult实体类：@Entity @Table(name='analysis_results') @Data @NoArgsConstructor @AllArgsConstructor @Builder。字段：id(Long)、analysisId(String, @Column(name='analysis_id', unique=true, nullable=false, length=100))、sessionId(String, @Column(name='session_id', nullable=false, length=100))、type(AnalysisType, @Enumerated(STRING) @Column(nullable=false, length=20))、result(String, @Column(nullable=false, columnDefinition='JSON'))、status(AnalysisStatus, @Enumerated(STRING) @Column(nullable=false, length=20))、createdAt(LocalDateTime, @Column(name='created_at', updatable=false))。@PrePersist onCreate()设置createdAt=LocalDateTime.now()。",
+        "priority": "P0",
+        "acceptance_condition": "AnalysisResult实体编译通过，两个枚举字段和JSON result字段正确"
+      },
+      {
+        "id": "FR-006",
+        "description": "PaperFavorite实体类：@Entity @Table(name='paper_favorites') @Data @NoArgsConstructor @AllArgsConstructor @Builder。字段：id(Long)、userId(String, @Column(name='user_id', nullable=false, length=100))、paperId(String, @Column(name='paper_id', nullable=false, length=100))、createdAt(LocalDateTime, @Column(name='created_at', updatable=false))。@PrePersist onCreate()设置createdAt=LocalDateTime.now()。",
+        "priority": "P0",
+        "acceptance_condition": "PaperFavorite实体编译通过，字段与DDL一致"
+      },
+      {
+        "id": "FR-007",
+        "description": "EducationLevel枚举：UNDERGRADUATE('undergraduate','本科')、MASTER('master','硕士')、PHD('phd','博士')、FACULTY('faculty','教师')。包含code(String)和label(String)字段，提供getter方法。提供fromCode(String code)静态方法，根据code值查找枚举，未找到返回null。",
+        "priority": "P0",
+        "acceptance_condition": "EducationLevel.fromCode('master')返回MASTER，fromCode('invalid')返回null"
+      },
+      {
+        "id": "FR-008",
+        "description": "KnowledgeLevel枚举：BEGINNER('beginner','初级')、INTERMEDIATE('intermediate','中级')、ADVANCED('advanced','高级')、EXPERT('expert','专家')。包含code和label字段，提供fromCode静态方法。",
+        "priority": "P0",
+        "acceptance_condition": "KnowledgeLevel.fromCode('intermediate')返回INTERMEDIATE"
+      },
+      {
+        "id": "FR-009",
+        "description": "PreferredStyle枚举：SIMPLE('simple','通俗')、BALANCED('balanced','均衡')、TECHNICAL('technical','专业')。包含code和label字段，提供fromCode静态方法。",
+        "priority": "P0",
+        "acceptance_condition": "PreferredStyle.fromCode('balanced')返回BALANCED"
+      },
+      {
+        "id": "FR-010",
+        "description": "SessionStatus枚举：ACTIVE、COMPLETED、EXPIRED。无code/label字段，纯枚举值。",
+        "priority": "P0",
+        "acceptance_condition": "SessionStatus.ACTIVE等3个枚举值存在"
+      },
+      {
+        "id": "FR-011",
+        "description": "AnalysisType枚举：PAPER_ANALYSIS、COMPARE、REPORT。无code/label字段，纯枚举值。",
+        "priority": "P0",
+        "acceptance_condition": "AnalysisType.PAPER_ANALYSIS等3个枚举值存在"
+      },
+      {
+        "id": "FR-012",
+        "description": "AnalysisStatus枚举：PENDING、PROCESSING、COMPLETED、FAILED。无code/label字段，纯枚举值。",
+        "priority": "P0",
+        "acceptance_condition": "AnalysisStatus.PENDING等4个枚举值存在"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" },
+          { "java": "sessionId", "python": "session_id", "json": "session_id" },
+          { "java": "userId", "python": "user_id", "json": "user_id" },
+          { "java": "passwordHash", "python": "password_hash", "json": "password_hash" },
+          { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+          { "java": "pdfUrl", "python": "pdf_url", "json": "pdf_url" },
+          { "java": "abstractText", "python": "abstract", "json": "abstract" },
+          { "java": "profileData", "python": "profile_data", "json": "profile_data" },
+          { "java": "researchField", "python": "research_field", "json": "research_field" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "Entity类为数据层基础，Service层通过Repository操作Entity，Controller层通过DTO与Entity互转。枚举值在Java端为UPPER_SNAKE_CASE，在Python/JSON端为lower_case（通过枚举的code字段映射）。"
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "User实体的passwordHash字段存储BCrypt哈希，禁止在toString()或日志中输出passwordHash字段"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE",
+        "config_key": "kebab-case"
+      },
+      "database": {
+        "table_name": "snake_case, 复数形式",
+        "column_name": "snake_case",
+        "index_name": "idx_/uk_/ft_ + 字段名"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" }
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "primary_key": "id BIGINT AUTO_INCREMENT",
+      "business_id": "xxx_id VARCHAR(100) UNIQUE NOT NULL",
+      "timestamp_fields": {
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+      },
+      "comment_required": true,
+      "json_fields_only_for_dynamic": true,
+      "fulltext_parser": "ngram",
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行Java代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "Entity字段与DDL定义不一致", "reason": "Entity必须严格对应数据库DDL", "severity": "critical" },
+    { "id": "FA-004", "action": "枚举字段不使用@Enumerated(EnumType.STRING)", "reason": "必须使用STRING存储，避免ORDINAL导致的兼容性问题", "severity": "critical" },
+    { "id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high" },
+    { "id": "FA-006", "action": "硬编码敏感配置", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high" },
+    { "id": "FA-008", "action": "使用abstract作为Java字段名", "reason": "abstract是Java关键字，字段名使用abstractText", "severity": "critical" },
+    { "id": "FA-009", "action": "省略@Column的name属性", "reason": "必须显式指定@Column(name=...)确保与DDL列名一致", "severity": "high" },
+    { "id": "FA-010", "action": "在Entity的toString()中输出passwordHash", "reason": "安全约束，密码哈希不可出现在日志中", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "UserEntityTest",
+        "description": "测试User实体的@PrePersist自动填充createdAt、Builder模式创建、字段赋值",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "UserProfileEntityTest",
+        "description": "测试UserProfile实体的枚举字段赋值、@PrePersist/@PreUpdate自动填充updatedAt",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "PaperEntityTest",
+        "description": "测试Paper实体的abstractText字段、JSON字段(authors/keywords)、@PrePersist/@PreUpdate",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "EnumTest",
+        "description": "测试6个枚举类的枚举值完整性、EducationLevel/KnowledgeLevel/PreferredStyle的fromCode方法、code/label字段正确性",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "EntityTableCreationTest",
+        "description": "验证Spring Boot启动时6张表自动创建（ddl-auto=update），字段类型和约束与DDL一致",
+        "layers_involved": ["java_backend", "data_layer"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，12个新文件无错误"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=UserEntityTest,UserProfileEntityTest,PaperEntityTest,EnumTest",
+        "expected_result": "所有单元测试通过"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn spring-boot:run",
+        "expected_result": "启动成功，Hibernate自动创建6张表，无SQL错误"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "6个Entity类编译通过，@Table/@Column注解与DDL完全一致", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "6个枚举类编译通过，枚举值完整正确", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "所有Entity使用@Data @NoArgsConstructor @AllArgsConstructor @Builder注解", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "枚举字段使用@Enumerated(EnumType.STRING)，JSON字段使用columnDefinition='JSON'", "verified_by": "code_review" },
+    { "id": "AC-005", "criterion": "Paper实体的abstractText字段正确映射到abstract列", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "EducationLevel/KnowledgeLevel/PreferredStyle的fromCode方法正确", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "@PrePersist/@PreUpdate自动填充时间字段", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "Spring Boot启动时自动创建6张表，字段类型与DDL一致", "verified_by": "manual_test" },
+    { "id": "AC-009", "criterion": "User实体的passwordHash不在toString()中输出", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "单元测试全部通过", "verified_by": "automated_test" }
+  ]
+}

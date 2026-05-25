@@ -149,9 +149,9 @@
 │  │                      模型服务信息层                                  │  │
 │  │                                                                    │  │
 │  │  LLM推理信息               Embedding信息                           │  │
-│  │  ├── 方案A:软件方模型       ├── bge-large-zh-v1.5                   │  │
+│  │  ├── 方案A:软件方模型       ├── text-embedding-v4(阿里云百炼)      │  │
 │  │  ├── 方案B:外接API          ├── 768维输出                           │  │
-│  │  └── 方案C:用户本地模型     └── Embedding API备选                   │  │
+│  │  └── 方案C:用户本地模型     └── 本地模型备选                        │  │
 │  └────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -613,7 +613,7 @@ L3: 详细结果级（可展开查看）
 ────────┼───────────────────┼───────────────────────────────────────────────┼──────────────────────
 1       │ 输入研究主题       │ 前端→Java: POST /api/papers/search            │ {q, yearFrom, sort}
 2       │ 等待检索结果       │ Java→Python: POST /api/search                 │ {query, top_k, filters}
-3       │ -                 │ Python: bge向量化 → Chroma检索 → RRF融合       │ 768维向量→Top10
+3       │ -                 │ Python: text-embedding-v4向量化 → Chroma检索 → RRF融合       │ 768维向量→Top10
 4       │ -                 │ Python→Java: 检索结果JSON                      │ [{paper_id, score, ...}]
 5       │ -                 │ Java: 补充论文元数据 → Redis缓存               │ PaperDTO[]
 6       │ 查看论文列表       │ Java→前端: 论文卡片数据                        │ {total, items[]}
@@ -765,7 +765,7 @@ L3: 详细结果级（可展开查看）
 │  EmbeddingService            │  ChromaDB                          │
 │  ├── encode(text) → vector   │  ├── papers collection             │
 │  ├── encode_batch(texts)     │  ├── 768维向量                     │
-│  └── 支持本地/API双模式      │  └── cosine similarity             │
+│  └── 优先API/备选本地模型    │  └── cosine similarity             │
 │                                                                  │
 │  VectorStoreService          │  ChromaDB                          │
 │  ├── add_documents(docs)     │  ├── collection.add(embeddings,   │
@@ -954,7 +954,7 @@ L3: 详细结果级（可展开查看）
 │  │  ChromaDB 0.5+ — 向量检索                                 │   │
 │  │                                                          │   │
 │  │  Collection: papers                                        │   │
-│  │  ├── 向量维度：768（bge-large-zh-v1.5）                    │   │
+│  │  ├── 向量维度：768（text-embedding-v4）                    │   │
 │  │  ├── 相似度：cosine                                        │   │
 │  │  ├── HNSW参数：M=16, construction_ef=200                  │   │
 │  │  ├── 初始文档：200+篇论文分块                              │   │
@@ -1201,8 +1201,8 @@ Agent状态标签：
 │       │                                                          │
 │       ▼                                                          │
 │  ┌─────────────────────────────┐                                │
-│  │     bge-large-zh-v1.5       │                                │
-│  │     文本 → 768维向量         │                                │
+│  │     text-embedding-v4       │                                │
+│  │     文本 → 768维向量(阿里云百炼API) │                                │
 │  └──────────┬──────────────────┘                                │
 │             │                                                    │
 │     ┌───────┼───────┐                                           │

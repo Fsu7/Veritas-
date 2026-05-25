@@ -1,5 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+declare module 'vue-router' {
+  interface RouteMeta {
+    requiresAuth?: boolean
+  }
+}
+
 const routes = [
   {
     path: '/',
@@ -62,13 +68,13 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to, _from, next) => {
-  const token = localStorage.getItem('token')
-  const isLoggedIn = !!token
+router.beforeEach(async (to, _from, next) => {
+  const { useUserStore } = await import('@/stores/userStore')
+  const userStore = useUserStore()
 
-  if (to.meta.requiresAuth && !isLoggedIn) {
+  if (to.meta.requiresAuth && !userStore.isLoggedIn) {
     next({ name: 'Login', query: { redirect: to.fullPath } })
-  } else if ((to.name === 'Login' || to.name === 'Register') && isLoggedIn) {
+  } else if ((to.name === 'Login' || to.name === 'Register') && userStore.isLoggedIn) {
     next({ name: 'Home' })
   } else {
     next()

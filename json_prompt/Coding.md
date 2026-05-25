@@ -55,7 +55,28 @@ json_prompt/
 │   ├── task02_application_yml/
 │   │   ├── prompt.json
 │   │   └── prompt.md
-│   └── task03_dockerfile_dockercompose/
+│   ├── task03_dockerfile_dockercompose/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task04_api_response_dto/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task05_business_exception/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task06_util_classes/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task07_health_controller/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task08_entity_enum/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task09_repository/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   └── task10_config_classes/
 │       ├── prompt.json
 │       └── prompt.md
 ├── frontend/
@@ -65,7 +86,16 @@ json_prompt/
 │   ├── task01_vite_tsconfig_env_config/
 │   │   ├── prompt.json
 │   │   └── prompt.md
-│   └── task02_dockerfile_nginx_dockercompose/
+│   ├── task02_dockerfile_nginx_dockercompose/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task03_axios_interceptor_api_skeleton/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task04_vue_router_guards_routes/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   └── task05_pinia_stores_skeleton/
 │       ├── prompt.json
 │       └── prompt.md
 └── ai-service/
@@ -98,6 +128,13 @@ json_prompt/
 | 01 | task01_springboot_maven | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend | F2.1-F2.6 |
 | 02 | task02_application_yml | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend | F2.1-F2.6 |
 | 03 | task03_dockerfile_dockercompose | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend, infra | F2.1-F2.6 |
+| 04 | task04_api_response_dto | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend | F2.1-F2.6 |
+| 05 | task05_business_exception | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend | F2.1-F2.6 |
+| 06 | task06_util_classes | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend | F2.1-F2.6 |
+| 07 | task07_health_controller | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend | F2.1-F2.6 |
+| 08 | task08_entity_enum | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend, data_layer | F2.1-F2.4, F4.1 |
+| 09 | task09_repository | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend, data_layer | F2.1-F2.4, F4.1 |
+| 10 | task10_config_classes | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend, data_layer | F2.1, F2.5, F2.6 |
 
 ### ai-service/
 
@@ -114,6 +151,9 @@ json_prompt/
 | 00 | task00_vue3_vite_project | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
 | 01 | task01_vite_tsconfig_env_config | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
 | 02 | task02_dockerfile_nginx_dockercompose | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend, infra | F1.1-F1.5 |
+| 03 | task03_axios_interceptor_api_skeleton | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
+| 04 | task04_vue_router_guards_routes | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
+| 05 | task05_pinia_stores_skeleton | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
 
 > **维护说明**：每新增一个任务文件夹，必须同步更新对应模块目录的映射表。序号与里程碑对应关系参考 `docs/项目里程碑文档.md` 和 `docs/版本里程碑功能清单.md`。
 

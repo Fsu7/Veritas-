@@ -1,0 +1,330 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / JM1：项目骨架与数据层就绪",
+    "requirement": "创建3个核心配置类：RedisConfig（Redis缓存管理器+RedisTemplate+TTL分层配置+序列化配置）、WebClientConfig（WebClient Bean配置+连接池+超时30s+重试1次+SSE支持）、SecurityConfig（Spring Security过滤器链+JWT鉴权过滤器+白名单路径+CORS配置）。RedisConfig需配置6个缓存空间的自定义TTL（userProfile:1h, userInfo:1h, paperDetail:30min, paperSearch:10min, analysisResult:30min, sessionState:2h），使用GenericJackson2JsonRedisSerializer序列化Value。WebClientConfig配置连接池(maxConnections=50)、响应超时30s、SSE流超时120s。SecurityConfig配置JWT过滤器链、白名单路径（/api/users/register、/api/users/login、/health、/actuator/**）、CORS允许前端域名。",
+    "requirement_ids": ["F2.1", "F2.5", "F2.6"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§9.2 RedisConfig完整配置（CacheManager+RedisTemplate+TTL分层）、§8.2.1 PythonAIClient（WebClient超时30s+重试1次）、§13 安全架构（JWT鉴权流程+SecurityConfig）"
+      },
+      {
+        "path": "docs/database/数据库设计文档.md",
+        "purpose": "§4.3 缓存空间详情（6个缓存空间的Key格式、TTL、数据结构）、§4.5 RedisConfig配置代码"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.3 详细任务分解（Week 2 Day 3: RedisConfig + WebClientConfig + SecurityConfig）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7.2 Redis缓存Key（TTL分层）、§10 安全规范（JWT+Redis黑名单+CORS）、§9.2 Java后端规范"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.config",
+        "description": "配置类包，定义Redis/WebClient/Security三大核心配置"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L1213-L1251",
+        "description": "RedisConfig完整代码（CacheManager+RedisTemplate+6个缓存空间TTL配置），可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/database/数据库设计文档.md#L1057-L1088",
+        "description": "RedisConfig完整代码（与架构文档一致），可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L1627-L1670",
+        "description": "JWT鉴权流程完整设计（7步流程），SecurityConfig需按此实现",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "RedisConfig",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java",
+      "responsibility": "Redis缓存配置，定义CacheManager（6个缓存空间+TTL分层）和RedisTemplate",
+      "key_interfaces": [
+        {
+          "name": "cacheManager",
+          "signature": "@Bean public RedisCacheManager cacheManager(RedisConnectionFactory factory)",
+          "description": "创建CacheManager，默认TTL 30min，6个缓存空间自定义TTL"
+        },
+        {
+          "name": "redisTemplate",
+          "signature": "@Bean public RedisTemplate<String, String> redisTemplate(RedisConnectionFactory factory)",
+          "description": "创建RedisTemplate，Key和Value均使用StringRedisSerializer"
+        }
+      ]
+    },
+    {
+      "name": "WebClientConfig",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/WebClientConfig.java",
+      "responsibility": "WebClient配置，用于调用Python AI服务，配置连接池+超时+重试",
+      "key_interfaces": [
+        {
+          "name": "webClient",
+          "signature": "@Bean public WebClient webClient()",
+          "description": "创建WebClient Bean，配置连接池(maxConnections=50)+响应超时30s+SSE流超时120s"
+        }
+      ]
+    },
+    {
+      "name": "SecurityConfig",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/SecurityConfig.java",
+      "responsibility": "Spring Security配置，JWT过滤器链+白名单路径+CORS配置",
+      "key_interfaces": [
+        {
+          "name": "securityFilterChain",
+          "signature": "@Bean public SecurityFilterChain securityFilterChain(HttpSecurity http)",
+          "description": "配置Security过滤器链：白名单路径放行+JWT过滤器+CSRF禁用+CORS"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java",
+      "description": "Redis配置类：@EnableCaching + CacheManager(6个缓存空间TTL) + RedisTemplate(String序列化)",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/WebClientConfig.java",
+      "description": "WebClient配置类：连接池(maxConnections=50) + 响应超时30s + SSE流超时120s + 重试1次",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/SecurityConfig.java",
+      "description": "Spring Security配置类：JWT过滤器链 + 白名单路径 + CORS + CSRF禁用",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "RedisConfig：@Configuration @EnableCaching。cacheManager Bean：默认RedisCacheConfiguration使用StringRedisSerializer序列化Key、GenericJackson2JsonRedisSerializer序列化Value、默认TTL 30分钟。6个缓存空间自定义TTL：userProfile(1h)、userInfo(1h)、paperDetail(30min)、paperSearch(10min)、analysisResult(30min)、sessionState(2h)。使用RedisCacheManager.builder(factory).cacheDefaults(defaultConfig).withInitialCacheConfigurations(cacheConfigurations).build()构建。redisTemplate Bean：Key使用StringRedisSerializer，Value使用StringRedisSerializer（用于手动操作Redis，如JWT黑名单、Agent状态Hash）。",
+        "priority": "P0",
+        "acceptance_condition": "CacheManager配置6个缓存空间，TTL正确；RedisTemplate SET/GET测试通过"
+      },
+      {
+        "id": "FR-002",
+        "description": "WebClientConfig：@Configuration。webClient Bean：使用WebClient.builder()构建。连接池配置：HttpClient.create().option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000).responseTimeout(Duration.ofSeconds(30)).doOnConnected(conn -> conn.addHandlerLast(new ReadTimeoutHandler(30)).addHandlerLast(new WriteTimeoutHandler(30)))。SSE流超时：通过ExchangeStrategies配置maxInMemorySize(16MB)避免大响应缓冲区溢出。基础URL从配置读取：@Value('${ai-service.url}') private String aiServiceUrl。注意：重试逻辑在PythonAIClient中实现，WebClientConfig仅配置连接和超时。",
+        "priority": "P0",
+        "acceptance_condition": "WebClient连接超时5s、响应超时30s、SSE流可正常接收"
+      },
+      {
+        "id": "FR-003",
+        "description": "SecurityConfig：@Configuration @EnableWebSecurity。securityFilterChain Bean：(1) CSRF禁用（csrf().disable()），因为使用JWT无状态认证；(2) CORS配置：allowedOrigins从配置读取（默认http://localhost:5173开发端口），allowedMethods(GET/POST/PUT/DELETE)，allowCredentials(true)；(3) Session管理：sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)；(4) 白名单路径放行：/api/users/register、/api/users/login、/health、/actuator/**、/error；(5) 其余请求需认证：anyRequest().authenticated()；(6) 在UsernamePasswordAuthenticationFilter之前添加JwtAuthFilter（注意：JwtAuthFilter在task12中实现，此处仅预留addFilterBefore位置，使用@ConditionalOnBean或try-catch确保JwtAuthFilter不存在时不报错）；(7) 禁用默认登录页：formLogin().disable()；(8) 禁用默认登出：logout().disable()（使用自定义logout接口）。",
+        "priority": "P0",
+        "acceptance_condition": "白名单路径无需Token可访问，其余路径未携带Token返回401"
+      },
+      {
+        "id": "FR-004",
+        "description": "RedisConfig的CacheManager配置缓存穿透防护：查询结果为空时缓存空值（TTL=60s），通过在defaultConfig中添加.nullValueHandling(RedisCacheConfiguration.NullValueHandling.PASS_THROUGH)或自定义空值序列化实现。缓存雪崩防护：TTL添加随机偏移（±10%），通过自定义TTL计算逻辑实现。",
+        "priority": "P1",
+        "acceptance_condition": "空值缓存TTL=60s，TTL有随机偏移"
+      },
+      {
+        "id": "FR-005",
+        "description": "SecurityConfig的CORS配置使用CorsConfigurationSource Bean方式定义，而非内联cors()配置，便于集中管理允许的Origin列表。allowedOrigins从application.yml读取（cors.allowed-origins配置项），支持多个Origin（逗号分隔）。",
+        "priority": "P1",
+        "acceptance_condition": "CORS配置从yml读取，支持多Origin"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": []
+      },
+      "api_contracts": [],
+      "data_flow": "RedisConfig为Service层提供@Cacheable/@CacheEvict注解支持，WebClientConfig为PythonAIClient提供HTTP调用能力，SecurityConfig为所有API提供JWT鉴权拦截。三者共同构成Java后端的基础设施层。"
+    },
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          { "priority": 1, "name": "BuiltinLLMProvider", "description": "软件方模型" },
+          { "priority": 2, "name": "APILLMProvider", "description": "外接API" },
+          { "priority": 3, "name": "LocalLLMProvider", "description": "本地Qwen2" }
+        ],
+        "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "跳过该Agent，继续后续流程",
+        "multi_agent_failure": "降级为单Agent模式（仅Retriever+Generator）",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "jwt_auth",
+        "requirement": "SecurityConfig必须配置JWT过滤器链，白名单路径外的所有请求需验证Token"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "JWT Secret通过环境变量注入（${JWT_SECRET}），禁止硬编码"
+      },
+      {
+        "category": "other",
+        "requirement": "CORS配置限制允许的Origin，禁止使用allowedOrigins('*')（生产环境）"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE",
+        "config_key": "kebab-case"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"],
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行Java代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "硬编码JWT Secret或AI服务URL", "reason": "敏感配置必须通过环境变量注入", "severity": "critical" },
+    { "id": "FA-004", "action": "CORS使用allowedOrigins('*')", "reason": "生产环境安全约束，必须限制Origin", "severity": "high" },
+    { "id": "FA-005", "action": "SecurityConfig不配置白名单路径", "reason": "注册和登录接口必须无需Token", "severity": "critical" },
+    { "id": "FA-006", "action": "Redis序列化使用JDK默认序列化", "reason": "必须使用GenericJackson2JsonRedisSerializer确保可读性", "severity": "high" },
+    { "id": "FA-007", "action": "WebClient不配置超时", "reason": "必须配置连接超时和响应超时，避免请求阻塞", "severity": "critical" },
+    { "id": "FA-008", "action": "SecurityConfig启用CSRF", "reason": "JWT无状态认证不需要CSRF保护", "severity": "high" },
+    { "id": "FA-009", "action": "在日志中输出JWT Secret或Redis密码", "reason": "安全约束", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "RedisConfigTest",
+        "description": "测试CacheManager的6个缓存空间TTL配置正确、RedisTemplate序列化配置正确",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "WebClientConfigTest",
+        "description": "测试WebClient Bean创建成功、超时配置正确、基础URL正确",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "SecurityConfigTest",
+        "description": "测试白名单路径无需认证可访问、非白名单路径未携带Token返回401、CORS配置正确",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "RedisConnectionTest",
+        "description": "验证Redis连接正常、CacheManager可写入和读取缓存、RedisTemplate SET/GET测试",
+        "layers_involved": ["java_backend", "data_layer"]
+      },
+      {
+        "test_name": "SecurityIntegrationTest",
+        "description": "验证完整请求链路：未携带Token→401、携带有效Token→200、携带黑名单Token→401",
+        "layers_involved": ["java_backend"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，3个配置类无错误"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=RedisConfigTest,WebClientConfigTest,SecurityConfigTest",
+        "expected_result": "所有单元测试通过"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn spring-boot:run",
+        "expected_result": "启动成功，Redis连接正常，CacheManager初始化6个缓存空间，SecurityFilterChain配置生效"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "RedisConfig配置6个缓存空间，TTL分层正确（userProfile:1h, paperSearch:10min等）", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "RedisTemplate使用StringRedisSerializer序列化Key和Value", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "CacheManager使用GenericJackson2JsonRedisSerializer序列化Value", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "WebClient配置连接超时5s、响应超时30s、SSE流超时120s", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "WebClient基础URL从配置读取（${ai-service.url}）", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "SecurityConfig白名单路径（/api/users/register、/api/users/login、/health）无需Token", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "非白名单路径未携带Token返回401", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "CSRF禁用、Session管理为STATELESS、formLogin禁用", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "CORS配置从yml读取allowed-origins，禁止硬编码Origin", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "JWT Secret通过环境变量注入，不硬编码", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "单元测试全部通过", "verified_by": "automated_test" }
+  ]
+}

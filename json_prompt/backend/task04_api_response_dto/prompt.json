@@ -1,0 +1,312 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / JM1：项目骨架与数据层就绪",
+    "requirement": "创建统一响应DTO体系，包含ApiResponse<T>（统一响应包装，含code/message/data/timestamp字段，提供success/error静态工厂方法）、PageResponse<T>（分页响应，含items/total/page/size/totalPages字段，提供fromPage静态工厂方法从Spring Data Page对象转换）、ErrorCode（业务错误码枚举，定义200/400/401/403/404/500/503等标准错误码及对应message）。所有DTO使用Lombok @Data @Builder @NoArgsConstructor @AllArgsConstructor注解，JSON字段统一使用snake_case（通过@JsonProperty注解）。ApiResponse为全系统所有Controller的统一返回类型。",
+    "requirement_ids": ["F2.1", "F2.2", "F2.3", "F2.4", "F2.5", "F2.6"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§12 统一响应与异常处理（ApiResponse/PageResponse完整类设计、错误码定义）"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.3 详细任务分解（Week 2 Day 4: ApiResponse + PageResponse + 统一响应）"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§7.3 API规范（统一响应格式、分页规范、字段命名规范）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§8.3 统一响应格式 {code, message, data, timestamp}、§9.1 命名规范（DTO命名XxxRequest/XxxResponse）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.common",
+        "description": "通用DTO包，定义全系统共用的响应包装类和错误码"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/backend/Java后端模块系统架构文档.md#L1500-L1544",
+        "description": "§12.1-12.2中已有ApiResponse和PageResponse的完整类设计，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "AGENTS.md#L8.3",
+        "description": "统一响应格式定义：{code: 200, message: 'success', data: {...}, timestamp: '...'}",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "ApiResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/ApiResponse.java",
+      "responsibility": "统一响应包装类，所有Controller方法返回此类型，包含code/message/data/timestamp",
+      "key_interfaces": [
+        {
+          "name": "success",
+          "signature": "public static <T> ApiResponse<T> success(T data)",
+          "description": "成功响应工厂方法，code=200, message='success'"
+        },
+        {
+          "name": "error",
+          "signature": "public static <T> ApiResponse<T> error(int code, String message)",
+          "description": "错误响应工厂方法，data=null"
+        },
+        {
+          "name": "error",
+          "signature": "public static <T> ApiResponse<T> error(ErrorCode errorCode)",
+          "description": "错误响应工厂方法，从ErrorCode枚举获取code和message"
+        }
+      ]
+    },
+    {
+      "name": "PageResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/PageResponse.java",
+      "responsibility": "分页响应DTO，包装分页查询结果，含items/total/page/size/totalPages",
+      "key_interfaces": [
+        {
+          "name": "fromPage",
+          "signature": "public static <T> PageResponse<T> fromPage(Page<T> page)",
+          "description": "从Spring Data Page对象转换，自动提取分页元数据"
+        },
+        {
+          "name": "fromPage",
+          "signature": "public static <T, R> PageResponse<R> fromPage(Page<T> page, List<R> items)",
+          "description": "从Spring Data Page对象转换，使用转换后的items列表（Entity→DTO后）"
+        }
+      ]
+    },
+    {
+      "name": "ErrorCode",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/ErrorCode.java",
+      "responsibility": "业务错误码枚举，定义标准错误码和对应message",
+      "key_interfaces": [
+        {
+          "name": "getCode",
+          "signature": "public int getCode()",
+          "description": "获取错误码数值"
+        },
+        {
+          "name": "getMessage",
+          "signature": "public String getMessage()",
+          "description": "获取错误描述"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/ApiResponse.java",
+      "description": "统一响应包装类，泛型T，含code/message/data/timestamp，提供success/error静态工厂方法",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/PageResponse.java",
+      "description": "分页响应DTO，含items/total/page/size/totalPages，提供fromPage静态工厂方法",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/ErrorCode.java",
+      "description": "业务错误码枚举，定义SUCCESS(200)/BAD_REQUEST(400)/UNAUTHORIZED(401)/FORBIDDEN(403)/NOT_FOUND(404)/INTERNAL_ERROR(500)/SERVICE_UNAVAILABLE(503)等",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "ApiResponse<T>泛型类，包含4个字段：code(int)、message(String)、data(T泛型)、timestamp(long)。使用@Data @Builder @NoArgsConstructor @AllArgsConstructor注解。提供success(T data)静态工厂方法（code=200, message='success', data=入参, timestamp=System.currentTimeMillis()）。提供error(int code, String message)静态工厂方法（data=null）。提供error(ErrorCode errorCode)静态工厂方法（从枚举获取code和message）。",
+        "priority": "P0",
+        "acceptance_condition": "ApiResponse.success(data)返回code=200的响应，ApiResponse.error(400,'参数错误')返回code=400的响应"
+      },
+      {
+        "id": "FR-002",
+        "description": "PageResponse<T>泛型类，包含5个字段：items(List<T>)、total(long)、page(int)、size(int)、totalPages(int)。使用@Data @Builder @NoArgsConstructor @AllArgsConstructor注解。提供fromPage(Page<T> page)静态工厂方法，从Spring Data Page对象提取getContent/getTotalElements/getNumber/getSize/getTotalPages。提供fromPage(Page<T> page, List<R> items)重载方法，支持Entity→DTO转换后的items列表，分页元数据从原始Page获取。",
+        "priority": "P0",
+        "acceptance_condition": "PageResponse.fromPage(page)正确提取分页元数据，PageResponse.fromPage(page, dtoList)使用转换后的列表"
+      },
+      {
+        "id": "FR-003",
+        "description": "ErrorCode枚举，定义7个标准错误码：SUCCESS(200,'success')、BAD_REQUEST(400,'请求参数错误')、UNAUTHORIZED(401,'未认证，请先登录')、FORBIDDEN(403,'无权限访问')、NOT_FOUND(404,'资源不存在')、INTERNAL_ERROR(500,'服务器内部错误')、SERVICE_UNAVAILABLE(503,'服务暂时不可用')。枚举包含code(int)和message(String)字段，提供getter方法。",
+        "priority": "P0",
+        "acceptance_condition": "ErrorCode.BAD_REQUEST.getCode()返回400，ErrorCode.UNAUTHORIZED.getMessage()返回'未认证，请先登录'"
+      },
+      {
+        "id": "FR-004",
+        "description": "ApiResponse的timestamp字段使用@JsonProperty('timestamp')确保JSON序列化时字段名为snake_case兼容格式。data字段为null时JSON序列化不输出data字段（通过@JsonInclude(JsonInclude.Include.NON_NULL)注解在data字段上）。",
+        "priority": "P1",
+        "acceptance_condition": "error响应JSON中不包含data字段"
+      },
+      {
+        "id": "FR-005",
+        "description": "PageResponse的page字段从0-based转为1-based（Spring Data Page.getNumber()返回0-based，PageResponse.page应为1-based，即page.getNumber()+1）。",
+        "priority": "P0",
+        "acceptance_condition": "传入Spring Data Page(pageNumber=0)时，PageResponse.page=1"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "totalPages", "python": "total_pages", "json": "total_pages" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "所有API响应",
+          "method": "GET/POST/PUT/DELETE",
+          "request_format": {},
+          "response_format": {
+            "code": 200,
+            "message": "success",
+            "data": {},
+            "timestamp": 1716451200000
+          }
+        }
+      ],
+      "data_flow": "所有Controller返回ApiResponse<T>，前端Axios响应拦截器根据code字段判断成功/失败。分页接口返回ApiResponse<PageResponse<XxxResponse>>。"
+    },
+    "security_requirements": []
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE",
+        "config_key": "kebab-case"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "primary_key": "id BIGINT AUTO_INCREMENT",
+      "business_id": "xxx_id VARCHAR(100) UNIQUE NOT NULL",
+      "comment_required": true,
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行Java代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-004", "action": "破坏分层调用规范", "reason": "DTO属于dto层，不应包含业务逻辑", "severity": "critical" },
+    { "id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high" },
+    { "id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "JSON字段必须snake_case", "severity": "high" },
+    { "id": "FA-DTO1", "action": "ApiResponse中添加业务逻辑方法", "reason": "DTO仅承载数据，不含业务逻辑", "severity": "high" },
+    { "id": "FA-DTO2", "action": "PageResponse中page使用0-based索引", "reason": "前端分页组件使用1-based，API契约约定page从1开始", "severity": "high" },
+    { "id": "FA-DTO3", "action": "省略@JsonProperty注解", "reason": "totalPages等camelCase字段在JSON中必须为total_pages", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "ApiResponseTest",
+        "description": "测试ApiResponse的success/error工厂方法、字段赋值、JSON序列化格式",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "PageResponseTest",
+        "description": "测试PageResponse的fromPage工厂方法、0-based到1-based转换、空页处理",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "ErrorCodeTest",
+        "description": "测试ErrorCode枚举的code和message值正确性",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=ApiResponseTest,PageResponseTest,ErrorCodeTest",
+        "expected_result": "所有单元测试通过"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，无错误"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "ApiResponse<T>包含code/message/data/timestamp四个字段，提供success和error静态工厂方法", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "ApiResponse.success(data)返回code=200, message='success'", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "ApiResponse.error(code, message)返回data=null", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "PageResponse<T>包含items/total/page/size/totalPages五个字段", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "PageResponse.fromPage()正确从Spring Data Page转换，page从0-based转为1-based", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "ErrorCode枚举定义7个标准错误码，code和message正确", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "所有DTO使用Lombok注解（@Data @Builder @NoArgsConstructor @AllArgsConstructor）", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "JSON序列化时totalPages字段输出为total_pages（@JsonProperty注解）", "verified_by": "automated_test" },
+    { "id": "AC-009", "criterion": "error响应JSON中data字段为null时不输出（@JsonInclude(NON_NULL)）", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "单元测试全部通过", "verified_by": "automated_test" }
+  ]
+}

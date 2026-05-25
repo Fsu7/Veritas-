@@ -58,7 +58,7 @@
 | F3.3 | LLM服务模块 | 三路模型配置(软件方/外接API/本地)、推理服务、降级切换 |
 | F3.4 | 个性化引擎模块 | 用户画像解析、Prompt个性化、难度/风格适配 |
 | F3.5 | API服务模块 | FastAPI路由、请求校验、SSE推送 |
-| F5.2 | Embedding模型模块 | 文本向量化(bge-large-zh)、批量处理 |
+| F5.2 | Embedding模型模块 | 文本向量化(text-embedding-v4阿里云百炼API)、批量处理 |
 | F4.3 | 向量数据库模块 | Chroma向量存储、相似度检索 |
 
 ### 1.3 技术栈
@@ -103,7 +103,7 @@
 │  PersonalizationService → SearchService                     │
 ├─────────────────────────────────────────────────────────────┤
 │                      基础设施层（Infrastructure）             │
-│  ChromaDB → bge-large-zh → Qwen2/API/软件方模型             │
+│  ChromaDB → text-embedding-v4(阿里云百炼) → Qwen2/API/软件方模型             │
 │  Prompt模板 → Redis（可选） → MySQL（通过Java间接访问）      │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -293,7 +293,7 @@ async def lifespan(app: FastAPI):
     # === 启动阶段 ===
     logger.info("Starting AI Service...")
 
-    # 1. 加载Embedding模型（bge-large-zh，约1.3GB）
+    # 1. 初始化Embedding服务（text-embedding-v4，阿里云百炼API）
     await embedding_service.load_model()
     logger.info("Embedding model loaded")
 
@@ -1217,7 +1217,7 @@ class Reranker:
     │
     ▼
 EmbeddingService.encode()
-    │ bge-large-zh-v1.5 → 768维向量
+    │ text-embedding-v4 → 768维向量
     │ 耗时约50ms
     ▼
 VectorStoreService.search()
@@ -1836,7 +1836,7 @@ class PersonalizationService:
 
 ### 9.1 模块概述
 
-负责将文本转换为高维向量表示，是语义检索的基础。支持本地模型（bge-large-zh-v1.5）和外接Embedding API两种方案。
+负责将文本转换为高维向量表示，是语义检索的基础。优先使用阿里云百炼API（text-embedding-v4），备选本地模型（bge-large-zh-v1.5）。
 
 ### 9.2 EmbeddingService实现
 
@@ -1852,7 +1852,7 @@ class EmbeddingService:
     def __init__(self, settings):
         self.settings = settings
         self.model = None
-        self.dimension = 768  # bge-large-zh-v1.5输出维度
+        self.dimension = 768
         self.status = "initializing"
         self._api_client = None  # 外接API客户端（备选）
 
@@ -1945,7 +1945,7 @@ class EmbeddingService:
 
 | 编号 | 功能 | 优先级 | 说明 |
 |------|------|--------|------|
-| F5.2.1 | bge-large-zh部署 | P0 | 加载BAAI/bge-large-zh-v1.5，向量维度768 |
+| F5.2.1 | 阿里云百炼API配置 | P0 | 配置text-embedding-v4 API，向量维度768 |
 | F5.2.2 | 文本向量化 | P0 | 单条/批量文本→768维向量，支持本地或API |
 | F5.2.3 | 批量向量化 | P0 | 100条/10秒，分批处理 |
 | F5.2.4 | 外接Embedding API | P1 | Jina/OpenAI等API作为备选 |
@@ -2071,7 +2071,7 @@ class VectorStoreService:
 
 ```python
 # Collection: papers
-# 向量维度：768（bge-large-zh-v1.5输出维度）
+# 向量维度：768（text-embedding-v4输出维度）
 
 collection_schema = {
     "name": "papers",
@@ -2651,7 +2651,7 @@ LOG_LEVEL=INFO
 | 单篇论文分析响应时间 | ≤ 30秒 | 5维度信息提取 |
 | 综述生成端到端响应时间 | ≤ 60秒 | 6-Agent协同全过程 |
 | 流式首字节响应时间 | ≤ 2秒 | LLM流式生成 |
-| 批量向量化速度 | 100条/10秒 | bge-large-zh批量处理 |
+| 批量向量化速度 | 100条/10秒 | text-embedding-v4 API批量处理 |
 | Agent协同降级成功率 | ≥ 95% | 降级后仍返回部分结果 |
 | AI服务调用成功率 | ≥ 99% | 含重试和降级 |
 | 单Agent超时时间 | 30秒 | 超时后跳过 |

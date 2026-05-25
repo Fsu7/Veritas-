@@ -270,7 +270,7 @@ AI 服务的核心依赖大语言模型（LLM），但 LLM 服务存在多种不
 
 ```
 用户查询
-    ├── 语义检索：bge-large-zh-v1.5 编码 → ChromaDB 余弦相似度 → 排序 R_sem
+    ├── 语义检索：text-embedding-v4(阿里云百炼) 编码 → ChromaDB 余弦相似度 → 排序 R_sem
     └── 关键词检索：MySQL FULLTEXT(ngram) → 排序 R_kw
     
 RRF 融合: RRF_score(d) = Σ 1/(k + rank_i),  k=60
@@ -278,7 +278,7 @@ RRF 融合: RRF_score(d) = Σ 1/(k + rank_i),  k=60
 → 融合排序 → Top-N 结果
 ```
 
-**Embedding 模型**：BAAI/bge-large-zh-v1.5，768 维向量，中文优化
+**Embedding 模型**：text-embedding-v4（阿里云百炼API），768 维向量，支持100+语种
 
 **ChromaDB 检索**：余弦相似度，HNSW 索引（M=16, ef=200）
 
@@ -290,7 +290,7 @@ RRF 融合: RRF_score(d) = Σ 1/(k + rank_i),  k=60
 
 1. **互补性**：语义检索捕获概念关联（如"深度学习"↔"神经网络"），关键词检索确保术语精确匹配
 2. **RRF 优势**：无需归一化分数，对排序而非绝对分数进行融合，更鲁棒
-3. **中文优化**：bge-large-zh-v1.5 在中文语义相似度任务上表现优异；ngram parser 适合中文全文检索
+3. **多语种支持**：text-embedding-v4 支持100+语种（含中文优化），中文语义相似度任务表现优异；ngram parser 适合中文全文检索
 4. **可调性**：RRF 的 k 参数可根据实际效果调整
 
 ### 后果

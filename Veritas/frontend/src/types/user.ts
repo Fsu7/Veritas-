@@ -13,8 +13,8 @@ export interface LoginResponse {
 }
 
 export interface ProfileResponse {
-  educationLevel: string
+  educationLevel: UserProfile['educationLevel']
   researchField: string
-  knowledgeLevel: string
-  preferredStyle: string
+  knowledgeLevel: UserProfile['knowledgeLevel']
+  preferredStyle: UserProfile['preferredStyle']
 }
