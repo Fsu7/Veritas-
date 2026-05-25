@@ -97,25 +97,123 @@ graph TD
 
 | 层级 | 技术 | 版本 |
 |------|------|------|
-| 前端 | Vue3 + Composition API + `<script setup>` | 3.4+ |
-| 前端 | TypeScript | 5.0+ |
-| 前端 | Vite | 5.0+ |
-| 前端 | Element Plus | 2.5+ |
-| 前端 | ECharts | 5.4+ |
-| 前端 | Pinia | 2.1+ |
+| 前端 | Vue3 + Composition API + `<script setup>` | 3.5+ |
+| 前端 | TypeScript | 6.0+ |
+| 前端 | Vite | 8.0+ |
+| 前端 | Element Plus | 2.14+ |
+| 前端 | ECharts | 5.6+ |
+| 前端 | Pinia | 2.3+ |
+| 前端 | Axios | 1.16+ |
+| 前端 | markdown-it | 14.2+ |
 | 后端 | Java | 17 |
-| 后端 | Spring Boot | 3.2+ |
+| 后端 | Spring Boot | 3.2.5 |
 | 后端 | Spring Data JPA / Redis | — |
+| 后端 | JJWT | 0.12.5 |
+| 后端 | MapStruct | 1.5.5 |
 | AI服务 | Python | 3.10+ |
-| AI服务 | FastAPI | 0.110+ |
-| AI服务 | LangGraph | — |
+| AI服务 | FastAPI | 0.115+ |
+| AI服务 | LangGraph | 0.2.28 |
+| AI服务 | LangChain | 0.3.0 |
 | AI服务 | ChromaDB | 0.5+ |
+| AI服务 | Pydantic | 2.9+ |
+| AI服务 | sentence-transformers | 3.1+ |
 | 数据库 | MySQL | 8.0 |
 | 数据库 | Redis | 7.0 |
 | 向量库 | ChromaDB | 0.5+ |
 | 图数据库 | Neo4j | 5.x Community |
 | Embedding | bge-large-zh-v1.5 | 1024维 |
 | 部署 | Docker Compose | — |
+
+---
+
+## 当前开发进度
+
+> 最后更新：2026-05-25
+
+### M1 基础设施就绪 — 进行中（约70%）
+
+```mermaid
+graph LR
+    subgraph 已完成
+        DB[MySQL 6表DDL+索引+种子数据]
+        RD[Redis配置]
+        CH[ChromaDB服务代码]
+        JB[Java项目骨架]
+        PB[Python项目骨架]
+        FB[前端项目骨架]
+        DC[Docker Compose 5服务编排]
+        EM[Embedding服务<br/>DashScope API+本地bge]
+        LM[LLM服务<br/>三路Provider+降级]
+        PT[6个Prompt模板]
+    end
+    subgraph 未完成
+        PD[论文数据采集入库]
+        JS[Java Service/Controller/Client层]
+        AG[6个Agent实现+LangGraph工作流]
+        FP[前端业务页面]
+        SS[SSE推送链路]
+    end
+```
+
+### 各模块实现状态
+
+| 模块 | 骨架 | 数据层 | 服务层 | API层 | 前端页面 |
+|------|------|--------|--------|-------|---------|
+| Backend (Java) | ✅ | ✅ | ⬜ | ⬜ | — |
+| AI Service (Python) | ✅ | ✅ | ✅ | 🔄 | — |
+| Frontend (Vue3) | ✅ | — | ✅ | ✅ | 🔄 |
+| Docker/Deploy | ✅ | — | — | — | — |
+
+> ✅ 完成 | 🔄 部分完成 | ⬜ 未开始
+
+### Backend (Java) 详细状态
+
+| 层级 | 状态 | 说明 |
+|------|------|------|
+| 配置层 (config/) | ✅ | Security/Redis/WebClient/CORS/JWT全部配置 |
+| Entity层 | ✅ | 6个实体+枚举+JPA转换器 |
+| Repository层 | ✅ | 8个Repository含自定义FULLTEXT查询 |
+| DTO层 | 🔄 | 通用DTO完成，请求/响应DTO为空 |
+| 异常层 | ✅ | 全局异常处理+5个业务异常 |
+| 过滤器层 | ✅ | JWT认证+请求ID |
+| 工具层 | ✅ | JWT/RedisKey/DateTime |
+| Service层 | ⬜ | 核心业务逻辑未实现 |
+| Controller层 | 🔄 | 仅HealthController，业务API缺失 |
+| Client层 | ⬜ | AI服务调用客户端缺失 |
+| Mapper层 | ⬜ | MapStruct映射器缺失 |
+
+### AI Service (Python) 详细状态
+
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| FastAPI骨架 | ✅ | 入口+路由+生命周期+异常处理 |
+| 配置系统 | ✅ | pydantic-settings + .env |
+| 日志系统 | ✅ | loguru控制台+文件轮转 |
+| Embedding服务 | ✅ | DashScope API优先+本地bge-large-zh-v1.5兜底 |
+| 向量存储服务 | ✅ | ChromaDB初始化+CRUD+搜索+过滤 |
+| LLM服务 | ✅ | 三路Provider(Builtin/API/Local)+自动降级+5分钟恢复 |
+| Prompt管理 | ✅ | 6个模板文件加载+Template变量替换 |
+| API端点 | 🔄 | search和model/status可用，analyze仅返回processing |
+| Pydantic模型 | ✅ | AnalyzeRequest/SearchRequest/Response等 |
+| Agent模块 | ⬜ | 6个Agent均未开发 |
+| LangGraph工作流 | ⬜ | graph.py未创建 |
+| 个性化引擎 | ⬜ | personalization_service.py未创建 |
+| 论文数据 | ⬜ | data/papers/为空 |
+
+### Frontend (Vue3) 详细状态
+
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| 项目骨架 | ✅ | Vite+Vue3+TS+Element Plus |
+| 路由系统 | ✅ | 9条路由+认证守卫+懒加载 |
+| API层 | ✅ | Axios实例+JWT拦截+4个API模块 |
+| 状态管理 | ✅ | 4个Pinia Store(user/paper/session/agent) |
+| 类型定义 | ✅ | 6个TypeScript类型文件 |
+| 布局组件 | ✅ | Header+Footer |
+| 首页 | ✅ | 搜索框+最近搜索标签 |
+| 其他8个页面 | ⬜ | 占位状态 |
+| 业务组件 | ⬜ | 5个组件目录为空 |
+| Composables | ⬜ | useSSE等组合函数缺失 |
 
 ---
 
@@ -130,58 +228,103 @@ Veritas(求真)/
 │   │   ├── 03-开发阶段/                     # 功能实现顺序、技术栈
 │   │   ├── 04-学习资料/                     # 零基础学习路线图
 │   │   └── 05-风险管理/                     # 风险清单、项目方案
-│   ├── backend/                             # Java后端架构文档
-│   ├── ai-service/                          # AI服务架构文档
-│   ├── frontend/                            # 前端架构文档
+│   ├── backend/                             # Java后端架构文档+里程碑文档
+│   ├── ai-service/                          # AI服务架构文档+里程碑文档
+│   ├── frontend/                            # 前端架构文档+里程碑文档
 │   ├── database/                            # 数据库设计文档
 │   ├── 信息架构文档(IA).md
 │   ├── 开发规范文档.md
 │   ├── 架构决策记录(ADR).md
 │   ├── 版本里程碑功能清单.md
+│   ├── 项目模块功能与联系文档.md
 │   └── 项目里程碑文档.md
-├── backend/                                 # Java后端
-│   └── src/main/java/com/literatureassistant/
-│       ├── config/                          # 配置类
-│       ├── controller/                      # API控制器
-│       ├── service/                         # 业务逻辑
-│       ├── repository/                      # 数据访问
-│       ├── entity/                          # JPA实体
-│       ├── dto/                             # 数据传输对象
-│       ├── client/                          # 外部服务客户端
-│       ├── mapper/                          # MapStruct映射器
-│       ├── filter/                          # 过滤器/拦截器
-│       ├── exception/                       # 异常定义
-│       ├── enums/                           # 枚举定义
-│       ├── aspect/                          # 切面
-│       └── util/                            # 工具类
-├── ai-service/                              # Python AI服务
-│   ├── app/
-│   │   ├── main.py                          # FastAPI入口
-│   │   ├── api/router.py                    # API路由
-│   │   ├── core/config.py                   # 配置
-│   │   ├── agents/                          # Agent模块
-│   │   │   ├── coordinator.py / retriever.py / analyzer.py
-│   │   │   ├── comparer.py / generator.py / reviewer.py
-│   │   │   └── graph.py                     # LangGraph工作流
-│   │   ├── services/                        # 服务层
-│   │   │   ├── llm_service.py / embedding_service.py
-│   │   │   ├── vector_store_service.py / personalization_service.py
-│   │   └── models/schemas.py                # Pydantic数据模型
-│   ├── prompts/                             # Prompt模板
-│   └── requirements.txt
-├── frontend/                                # 前端
-│   └── src/
-│       ├── views/                           # 页面组件
-│       ├── components/                      # 可复用组件
-│       ├── stores/                          # Pinia状态管理
-│       ├── api/                             # API封装
-│       ├── router/                          # 路由配置
-│       ├── composables/                     # 组合式函数
-│       ├── types/                           # TypeScript类型
-│       └── utils/                           # 工具函数
-├── docker-compose.yml                       # Docker编排
-├── .env.example                             # 环境变量模板
-├── nginx.conf                               # Nginx反向代理配置
+├── Veritas/                                 # 主项目代码
+│   ├── backend/                             # Java后端
+│   │   ├── Dockerfile
+│   │   ├── pom.xml
+│   │   └── src/main/java/com/literatureassistant/
+│   │       ├── LiteratureAssistantApplication.java
+│   │       ├── config/                      # Security/Redis/WebClient/CORS配置
+│   │       ├── controller/                  # HealthController（业务API待开发）
+│   │       ├── service/                     # ⬜ 待开发
+│   │       ├── repository/                  # 8个Repository含FULLTEXT搜索
+│   │       ├── entity/                      # 6个JPA实体
+│   │       ├── dto/                         # 通用DTO完成，请求/响应DTO待开发
+│   │       │   ├── common/                  # ApiResponse / ErrorCode / PageResponse
+│   │       │   ├── request/                 # ⬜ 待开发
+│   │       │   └── response/                # ⬜ 待开发
+│   │       ├── client/                      # ⬜ AI服务客户端待开发
+│   │       ├── mapper/                      # ⬜ MapStruct映射器待开发
+│   │       ├── filter/                      # JwtAuthFilter / RequestIdFilter
+│   │       ├── exception/                   # 全局异常处理+5个业务异常
+│   │       ├── enums/                       # 完整枚举体系+JPA转换器
+│   │       ├── aspect/                      # ⬜ 待开发
+│   │       └── util/                        # JwtUtil / RedisKeyUtil / DateTimeUtil
+│   │   └── src/main/resources/
+│   │       ├── application.yml
+│   │       └── db/                          # 01_create_tables / 02_indexes / 03_seed_data
+│   ├── ai-service/                          # Python AI服务
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   ├── .env.example
+│   │   ├── app/
+│   │   │   ├── main.py                      # FastAPI入口+健康检查
+│   │   │   ├── exception.py                 # 5个自定义异常
+│   │   │   ├── core/
+│   │   │   │   ├── config.py                # pydantic-settings配置
+│   │   │   │   ├── events.py                # 启动/关闭生命周期
+│   │   │   │   └── logging.py               # loguru日志配置
+│   │   │   ├── api/
+│   │   │   │   ├── router.py                # API路由注册
+│   │   │   │   └── endpoints/               # agent / search / model
+│   │   │   ├── services/                    # 服务层
+│   │   │   │   ├── llm_service.py           # 三路Provider+降级+恢复
+│   │   │   │   ├── embedding_service.py     # DashScope API+本地bge双模式
+│   │   │   │   ├── vector_store_service.py  # ChromaDB CRUD+搜索
+│   │   │   │   └── prompt_manager.py        # Prompt模板加载
+│   │   │   ├── agents/                      # ⬜ 6个Agent待开发
+│   │   │   ├── models/
+│   │   │   │   └── schemas.py               # Pydantic数据模型
+│   │   │   └── utils/                       # ⬜ 待开发
+│   │   ├── prompts/                         # 6个Prompt模板
+│   │   │   ├── coordinator.txt / retriever.txt / analyzer.txt
+│   │   │   └── comparer.txt / generator.txt / reviewer.txt
+│   │   ├── data/papers/                     # ⬜ 论文数据待采集
+│   │   ├── scripts/                         # ⬜ 数据处理脚本待开发
+│   │   └── tests/                           # 7个测试文件
+│   ├── frontend/                            # 前端
+│   │   ├── Dockerfile
+│   │   ├── package.json
+│   │   ├── vite.config.ts
+│   │   ├── tsconfig.json
+│   │   ├── .env.development
+│   │   └── src/
+│   │       ├── main.ts                      # 应用入口
+│   │       ├── App.vue                      # 根组件(Header+RouterView+Footer)
+│   │       ├── env.d.ts                     # 环境类型声明
+│   │       ├── router/index.ts              # 9条路由+认证守卫
+│   │       ├── api/                         # Axios实例+4个API模块
+│   │       │   ├── index.ts                 # Axios实例+JWT拦截器
+│   │       │   ├── user.ts / paper.ts / session.ts / analysis.ts
+│   │       ├── stores/                      # 4个Pinia Store
+│   │       │   ├── userStore.ts / paperStore.ts / sessionStore.ts / agentStore.ts
+│   │       ├── types/                       # 6个TypeScript类型文件
+│   │       │   ├── user.ts / paper.ts / session.ts / analysis.ts / agent.ts / common.ts
+│   │       ├── views/                       # 页面组件
+│   │       │   ├── HomeView.vue             # ✅ 首页(搜索框+最近搜索)
+│   │       │   └── 8个占位页面              # ⬜ 待开发
+│   │       ├── components/
+│   │       │   ├── layout/                  # ✅ AppHeader + AppFooter
+│   │       │   └── agent/analysis/common/paper/report/  # ⬜ 待开发
+│   │       ├── composables/                 # ⬜ useSSE等待开发
+│   │       ├── utils/                       # ⬜ 待开发
+│   │       └── styles/                      # global.scss + variables.scss
+│   ├── docker-compose.yml                   # Docker编排（5服务）
+│   ├── .env.example                         # 环境变量模板
+│   └── nginx.conf                           # Nginx反向代理+SSE支持
+├── json_prompt/                             # AI Coding提示词
+├── log/                                     # 开发日志
+├── .gitignore
 ├── AGENTS.md                                # AI Agent全景上下文
 └── README.md                                # 本文件
 ```
@@ -210,6 +353,7 @@ cd Veritas\(求真\)
 ### 2. 配置环境变量
 
 ```bash
+cd Veritas
 cp .env.example .env
 # 编辑 .env 填写实际配置
 ```
@@ -246,6 +390,7 @@ EMBEDDING_MODEL_NAME=BAAI/bge-large-zh-v1.5
 ### 3. Docker Compose 一键启动
 
 ```bash
+cd Veritas
 docker-compose up -d
 ```
 
@@ -270,19 +415,20 @@ open http://localhost
 
 ```bash
 # 1. 启动MySQL和Redis（Docker）
+cd Veritas
 docker-compose up -d mysql redis
 
 # 2. 启动Python AI服务
-cd ai-service
+cd Veritas/ai-service
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # 3. 启动Java后端
-cd backend
+cd Veritas/backend
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 
 # 4. 启动前端
-cd frontend
+cd Veritas/frontend
 npm install
 npm run dev
 ```
@@ -293,28 +439,32 @@ npm run dev
 
 ### Java后端API
 
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| `/api/users/register` | POST | 用户注册 |
-| `/api/users/login` | POST | 用户登录 |
-| `/api/users/{userId}/profile` | GET/POST/PUT | 画像CRUD |
-| `/api/papers` | GET | 论文列表（分页） |
-| `/api/papers/{paperId}` | GET | 论文详情 |
-| `/api/papers/search` | GET | 论文搜索 |
-| `/api/sessions` | POST/GET | 创建/列表会话 |
-| `/api/analysis/paper` | POST | 论文分析 |
-| `/api/analysis/compare` | POST | 对比分析 |
-| `/api/analysis/report` | POST | 综述生成 |
-| `/api/analysis/{analysisId}/agent-stream` | GET(SSE) | Agent状态流 |
+| 接口 | 方法 | 说明 | 状态 |
+|------|------|------|------|
+| `/api/users/register` | POST | 用户注册 | ⬜ |
+| `/api/users/login` | POST | 用户登录 | ⬜ |
+| `/api/users/{userId}/profile` | GET/POST/PUT | 画像CRUD | ⬜ |
+| `/api/papers` | GET | 论文列表（分页） | ⬜ |
+| `/api/papers/{paperId}` | GET | 论文详情 | ⬜ |
+| `/api/papers/search` | GET | 论文搜索 | ⬜ |
+| `/api/papers/{paperId}/favorite` | POST/DELETE | 收藏/取消 | ⬜ |
+| `/api/sessions` | POST/GET | 创建/列表会话 | ⬜ |
+| `/api/sessions/{sessionId}` | GET/DELETE | 详情/删除 | ⬜ |
+| `/api/analysis/paper` | POST | 论文分析 | ⬜ |
+| `/api/analysis/compare` | POST | 对比分析 | ⬜ |
+| `/api/analysis/report` | POST | 综述生成 | ⬜ |
+| `/api/analysis/{analysisId}` | GET | 分析结果 | ⬜ |
+| `/api/analysis/{analysisId}/status` | GET | 分析状态 | ⬜ |
+| `/api/analysis/{analysisId}/agent-stream` | GET(SSE) | Agent状态流 | ⬜ |
 
 ### Python AI服务API
 
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| `/api/agent/analyze` | POST | 启动Agent工作流 |
-| `/api/search` | POST | 语义检索 |
-| `/api/model/status` | GET | 模型状态 |
-| `/health` | GET | 健康检查 |
+| 接口 | 方法 | 说明 | 状态 |
+|------|------|------|------|
+| `/api/agent/analyze` | POST | 启动Agent工作流 | 🔄 |
+| `/api/search` | POST | 语义检索 | ✅ |
+| `/api/model/status` | GET | 模型状态 | ✅ |
+| `/health` | GET | 健康检查 | ✅ |
 
 ### 统一响应格式
 
@@ -377,7 +527,7 @@ graph LR
 
 | 版本 | 里程碑 | 时间 | 核心交付 | 状态 |
 |------|--------|------|---------|------|
-| v0.1 | M1 基础设施就绪 | Week 1-2 | 数据库+模型+3个项目骨架+Docker Compose | ⬜ |
+| v0.1 | M1 基础设施就绪 | Week 1-2 | 数据库+模型+3个项目骨架+Docker Compose | 🔄 70% |
 | v0.2 | M2 单Agent可用 | Week 3-4 | RAG检索+检索/分析/生成3个Agent+LangGraph基础流程 | ⬜ |
 | v0.3 | M3 前后端联调 | Week 5-6 | 用户认证+论文管理+前端基础页面+全链路联调 | ⬜ |
 | v0.4 | M4 多Agent协同 | Week 7-8 | 6-Agent完整工作流+降级机制+个性化引擎+SSE推送 | ⬜ |
@@ -385,6 +535,15 @@ graph LR
 | v1.0 | M6 交付就绪 | Week 11-14 | 性能优化+测试+技术报告+演示视频+答辩PPT | ⬜ |
 
 **关键路径**：M1→M2→M3→M4→M5→M6，最关键里程碑为M4（多Agent协同）。
+
+### M1 剩余工作
+
+| 待完成项 | 说明 |
+|---------|------|
+| 论文数据采集 | 采集200+篇AI/Agent领域论文并入库ChromaDB |
+| Java Service层 | UserService / PaperService / SessionService 等核心业务逻辑 |
+| Java Controller层 | 业务API端点实现 |
+| Java Client层 | AI服务调用WebClient客户端 |
 
 ---
 
@@ -436,13 +595,17 @@ graph TD
 | 潜在风险清单 | [docs/XH-202630-科研文献助手/05-风险管理/08-潜在风险清单.md](docs/XH-202630-科研文献助手/05-风险管理/08-潜在风险清单.md) |
 | 项目方案 | [docs/XH-202630-科研文献助手/05-风险管理/09-项目方案.md](docs/XH-202630-科研文献助手/05-风险管理/09-项目方案.md) |
 | Java后端架构文档 | [docs/backend/Java后端模块系统架构文档.md](docs/backend/Java后端模块系统架构文档.md) |
+| Java后端里程碑文档 | [docs/backend/Java后端模块项目里程碑文档.md](docs/backend/Java后端模块项目里程碑文档.md) |
 | AI服务架构文档 | [docs/ai-service/AI服务模块系统架构文档.md](docs/ai-service/AI服务模块系统架构文档.md) |
+| AI服务里程碑文档 | [docs/ai-service/AI服务模块项目里程碑文档.md](docs/ai-service/AI服务模块项目里程碑文档.md) |
 | 前端架构文档 | [docs/frontend/前端模块系统架构文档.md](docs/frontend/前端模块系统架构文档.md) |
+| 前端里程碑文档 | [docs/frontend/前端模块项目里程碑文档.md](docs/frontend/前端模块项目里程碑文档.md) |
 | 数据库设计文档 | [docs/database/数据库设计文档.md](docs/database/数据库设计文档.md) |
 | 信息架构文档 | [docs/信息架构文档(IA).md](docs/信息架构文档(IA).md) |
 | 开发规范文档 | [docs/开发规范文档.md](docs/开发规范文档.md) |
 | 架构决策记录 | [docs/架构决策记录(ADR).md](docs/架构决策记录(ADR).md) |
 | 版本里程碑功能清单 | [docs/版本里程碑功能清单.md](docs/版本里程碑功能清单.md) |
+| 项目模块功能与联系文档 | [docs/项目模块功能与联系文档.md](docs/项目模块功能与联系文档.md) |
 | 项目里程碑文档 | [docs/项目里程碑文档.md](docs/项目里程碑文档.md) |
 
 ---

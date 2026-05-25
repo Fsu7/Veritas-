@@ -14,9 +14,13 @@ class EmbeddingService:
     def __init__(self, settings):
         self.settings = settings
         self.model = None
-        self.dimension = 1024
+        self._dimension: int | None = None
         self.status = "initializing"
         self._api_client = None
+
+    @property
+    def dimension(self) -> int | None:
+        return self._dimension
 
     async def load_model(self) -> None:
         if self.settings.DASHSCOPE_API_KEY:
@@ -27,7 +31,7 @@ class EmbeddingService:
                     input=["test"],
                 )
                 dim = len(test_resp.data[0].embedding)
-                self.dimension = dim
+                self._dimension = dim
                 self.status = "loaded_api"
                 masked_key = self.settings.DASHSCOPE_API_KEY[:4] + "****"
                 logger.info(
@@ -51,9 +55,9 @@ class EmbeddingService:
                 self._load_local_model,
             )
             if hasattr(self.model, 'get_embedding_dimension'):
-                self.dimension = self.model.get_embedding_dimension()
+                self._dimension = self.model.get_embedding_dimension()
             else:
-                self.dimension = self.model.get_sentence_embedding_dimension()
+                self._dimension = self.model.get_sentence_embedding_dimension()
             self.status = "loaded_local"
             logger.info(
                 f"Embedding model loaded via local bge-large-zh-v1.5, "
@@ -92,7 +96,8 @@ class EmbeddingService:
 
     async def encode_batch(self, texts: list, batch_size: int = 32) -> np.ndarray:
         if not texts:
-            return np.array([], dtype=np.float32).reshape(0, self.dimension)
+            dim = self._dimension or 1024
+            return np.array([], dtype=np.float32).reshape(0, dim)
 
         if len(texts) <= batch_size:
             return await self.encode(texts)

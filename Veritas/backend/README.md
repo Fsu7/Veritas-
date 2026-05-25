@@ -1,6 +1,6 @@
 # 科研文献智能助手 — Java 后端
 
-> **课题编号**: XH-202630 | **版本**: v0.1.0-SNAPSHOT | **里程碑**: M1 基础设施就绪
+> **课题编号**: XH-202630 | **版本**: v0.1.0-SNAPSHOT | **里程碑**: M1 基础设施就绪 ✅
 
 Spring Boot 3.2 后端服务，负责用户认证、论文管理、会话管理、缓存策略及 AI 服务代理。
 
@@ -18,21 +18,21 @@ backend/
     ├── main/
     │   ├── java/com/literatureassistant/
     │   │   ├── LiteratureAssistantApplication.java   # 启动类
-    │   │   ├── config/              # 配置类
-    │   │   ├── controller/          # API 控制器
-    │   │   ├── service/             # 业务逻辑
-    │   │   ├── repository/          # 数据访问
-    │   │   ├── entity/              # JPA 实体
+    │   │   ├── config/              # 配置类（4个已实现）
+    │   │   ├── controller/          # API 控制器（HealthController已实现）
+    │   │   ├── service/             # 业务逻辑（M2实现）
+    │   │   ├── repository/          # 数据访问（6个已实现）
+    │   │   ├── entity/              # JPA 实体（6个已实现）
     │   │   ├── dto/                 # 数据传输对象
-    │   │   │   ├── common/          # 通用 DTO
-    │   │   │   ├── request/         # 请求 DTO
-    │   │   │   └── response/        # 响应 DTO
-    │   │   ├── client/              # 外部服务客户端
-    │   │   ├── mapper/              # MapStruct 映射器
-    │   │   ├── filter/              # 过滤器/拦截器
-    │   │   ├── exception/           # 异常定义
-    │   │   ├── enums/               # 枚举定义
-    │   │   └── util/                # 工具类
+    │   │   │   ├── common/          # 通用 DTO（3个已实现）
+    │   │   │   ├── request/         # 请求 DTO（M2实现）
+    │   │   │   └── response/        # 响应 DTO（M2实现）
+    │   │   ├── client/              # 外部服务客户端（M2实现）
+    │   │   ├── mapper/              # MapStruct 映射器（M2实现）
+    │   │   ├── filter/              # 过滤器（2个已实现）
+    │   │   ├── exception/           # 异常定义（5个已实现）
+    │   │   ├── enums/               # 枚举定义（12个已实现）
+    │   │   └── util/                # 工具类（3个已实现）
     │   └── resources/
     │       ├── application.yml      # 应用配置
     │       └── db/                  # 数据库脚本
@@ -41,8 +41,33 @@ backend/
     │           └── 03_insert_seed_data.sql
     └── test/
         └── java/com/literatureassistant/
-            └── LiteratureAssistantApplicationTests.java
+            ├── LiteratureAssistantApplicationTests.java
+            ├── controller/          # HealthControllerTest
+            ├── dto/common/          # ApiResponseTest, ErrorCodeTest, PageResponseTest
+            ├── enums/               # AbstractEnumConverterTest, EnumConverterIntegrationTest
+            ├── exception/           # 5个异常测试类
+            ├── filter/              # JwtAuthFilterTest
+            └── util/                # DateTimeUtilTest, JwtUtilTest, RedisKeyUtilTest
 ```
+
+---
+
+## M1 交付状态
+
+| 检查项 | 状态 | 说明 |
+|--------|------|------|
+| Spring Boot 启动 | ✅ | `mvn spring-boot:run` 无报错，1.9s启动 |
+| 健康检查 | ✅ | `curl http://localhost:8080/health` 返回200 |
+| MySQL 连接 | ✅ | HikariCP 连接池初始化成功（max=20） |
+| Redis 连接 | ✅ | RedisTemplate SET/GET 测试通过 |
+| JPA 实体 | ✅ | 6张表自动创建（ddl-auto=update） |
+| Redis 缓存 | ✅ | CacheManager 配置6个缓存空间 + TTL抖动防雪崩 |
+| 异常处理 | ✅ | 统一 ApiResponse 错误格式 |
+| JWT 认证 | ✅ | JwtAuthFilter + JwtUtil + Redis黑名单 |
+| Docker | ✅ | 多阶段构建 + 非root用户 + healthcheck |
+| 环境变量 | ✅ | `${MYSQL_PASSWORD}`、`${JWT_SECRET}` 等正确注入 |
+| 日志 | ✅ | 控制台输出包含 `[requestId]`，响应头包含 `X-Request-Id` |
+| 测试 | ✅ | 120个测试全部通过 |
 
 ---
 
@@ -50,8 +75,8 @@ backend/
 
 | 文件 | 作用 |
 |------|------|
-| `pom.xml` | Maven 项目对象模型。定义 Spring Boot 3.2.5 父工程、Java 17、依赖（WebFlux / JPA / Redis / Validation / MySQL / JJWT / Lombok / MapStruct）及编译插件配置 |
-| `Dockerfile` | 两阶段构建：`build` 阶段用 `eclipse-temurin:17-jdk-alpine` 编译 JAR；`run` 阶段用 `eclipse-temurin:17-jre-alpine` 运行，含健康检查、非 root 用户 |
+| `pom.xml` | Maven 项目对象模型。定义 Spring Boot 3.2.5 父工程、Java 17、依赖（Web / WebFlux / JPA / Redis / Security / Validation / MySQL / JJWT / Lombok / MapStruct）及编译插件配置 |
+| `Dockerfile` | 两阶段构建：`build` 阶段用 `maven:3.9-eclipse-temurin-17` 编译 JAR；`run` 阶段用 `eclipse-temurin:17-jre-alpine` 运行，含健康检查、非 root 用户 |
 | `.gitignore` | 排除 `target/`、IDE 文件（`.idea/`、`*.iml`）、`.env`、日志等 |
 | `.dockerignore` | 排除 `target/`、`.git/`、`.env`、`Dockerfile` 自身等，减小构建上下文 |
 
@@ -69,15 +94,15 @@ Spring Boot 启动类，标注 `@SpringBootApplication`，包含 `main()` 方法
 
 存放 Spring 配置类，负责将外部依赖注册为 Bean 或定义全局行为。
 
-**预期内容**：
+**已实现**：
 
 | 配置类 | 职责 |
 |--------|------|
-| `RedisConfig` | Redis 连接工厂、序列化策略、TTL 配置 |
-| `WebClientConfig` | 调用 AI 服务的 WebClient Bean（超时、重试） |
-| `SecurityConfig` | Spring Security 配置、JWT 过滤器注册、白名单路径 |
-| `CorsConfig` | 跨域策略 |
-| `JacksonConfig` | JSON 序列化规则（日期格式、null 处理） |
+| `SecurityConfig` | Spring Security 配置：STATELESS会话、JWT过滤器注册、CORS、白名单路径（`/api/users/register`、`/api/users/login`、`/health`、`/actuator/**`）、自定义401/403处理 |
+| `RedisConfig` | `@EnableCaching` + 6个命名缓存空间（userProfile/userInfo/paperDetail/paperSearch/analysisResult/sessionState）+ TTL抖动防雪崩 + GenericJackson2JsonRedisSerializer |
+| `WebClientConfig` | AI服务WebClient Bean：连接池(max=50)、超时(30s)、重试、maxInMemorySize(16MB) |
+| `CustomAuthenticationEntryPoint` | 401未认证统一返回 `ApiResponse.error(401, "未认证，请先登录")` |
+| `CustomAccessDeniedHandler` | 403无权限统一返回 `ApiResponse.error(403, "无权限访问")` |
 
 **编码规范**：配置类使用 `@Configuration` + `@Bean` 模式，命名以 `Config` 结尾。
 
@@ -87,12 +112,17 @@ Spring Boot 启动类，标注 `@SpringBootApplication`，包含 `main()` 方法
 
 接收 HTTP 请求，参数校验，调用 Service 层，返回统一响应格式。
 
-**预期接口**：
+**已实现**：
+
+| 控制器 | 路径 | 职责 |
+|--------|------|------|
+| `HealthController` | `GET /health` | 健康检查：MySQL连接测试（`SELECT 1`）、Redis连接测试（`PING`）、返回统一 `ApiResponse` |
+
+**M2 预期接口**：
 
 | 控制器 | 路径前缀 | 职责 |
 |--------|---------|------|
 | `UserController` | `/api/users` | 注册、登录、用户信息查询 |
-| `UserProfileController` | `/api/users/{userId}/profile` | 用户画像 CRUD |
 | `PaperController` | `/api/papers` | 论文列表、详情、搜索、收藏 |
 | `SessionController` | `/api/sessions` | 分析会话创建与管理 |
 | `AnalysisController` | `/api/analysis` | 论文分析、对比分析、综述生成、Agent 状态流（SSE） |
@@ -107,9 +137,9 @@ Spring Boot 启动类，标注 `@SpringBootApplication`，包含 `main()` 方法
 
 ### `service/` — 业务逻辑层
 
-核心业务逻辑实现，是 Controller 与 Repository/Client 之间的桥梁。
+核心业务逻辑实现，是 Controller 与 Repository/Client 之间的桥梁。（M2阶段实现）
 
-**预期服务**：
+**M2 预期服务**：
 
 | 服务 | 职责 |
 |------|------|
@@ -119,11 +149,9 @@ Spring Boot 启动类，标注 `@SpringBootApplication`，包含 `main()` 方法
 | `SessionService` | 会话生命周期管理 |
 | `AnalysisService` | 分析任务调度、结果查询 |
 | `AiServiceProxy` | 通过 WebClient 代理调用 Python AI 服务，转发 SSE 流 |
-| `CacheService` | 缓存管理（TTL 分层：5min ~ 2h） |
 
 **编码规范**：
-- 接口 + 实现分离（`UserService` / `UserServiceImpl`）
-- `@Service` 注解
+- `@Service` + `@RequiredArgsConstructor` 构造器注入
 - `@Transactional` 事务管理，方法粒度，避免大事务
 - `@Cacheable` / `@CacheEvict` 缓存注解
 
@@ -133,21 +161,24 @@ Spring Boot 启动类，标注 `@SpringBootApplication`，包含 `main()` 方法
 
 基于 Spring Data JPA 的数据访问接口，与 MySQL 交互。
 
-**预期仓库**：
+**已实现**：
 
 | 仓库 | 实体 | 核心方法 |
 |------|------|---------|
-| `UserRepository` | `User` | `findByUserId`, `findByUsername`, `existsByEmail` |
-| `UserProfileRepository` | `UserProfile` | `findByUserId` |
-| `PaperRepository` | `Paper` | `findByPaperId`, 全文搜索（`@Query` + FULLTEXT） |
-| `SessionRepository` | `Session` | `findByUserIdAndStatus` |
-| `AnalysisResultRepository` | `AnalysisResult` | `findBySessionIdAndType` |
-| `PaperFavoriteRepository` | `PaperFavorite` | `findByUserIdAndPaperId` |
+| `UserRepository` | `User` | `findByUserId`, `findByUsername`, `existsByUsername`, `existsByEmail` |
+| `UserProfileRepository` | `UserProfile` | `findByUserId`, `existsByUserId` |
+| `PaperRepository` | `Paper` | `findByPaperId`, `findByPaperIdIn`, `searchByKeyword`（自定义FULLTEXT） |
+| `SessionRepository` | `Session` | `findBySessionId`, `findByUserIdOrderByCreatedAtDesc` |
+| `AnalysisResultRepository` | `AnalysisResult` | `findByAnalysisId`, `findBySessionId`, `findBySessionIdAndStatus` |
+| `PaperFavoriteRepository` | `PaperFavorite` | `findByUserIdOrderByCreatedAtDesc`, `existsByUserIdAndPaperId`, `deleteByUserIdAndPaperId` |
+
+**特殊实现**：
+- `PaperRepositoryCustom` + `PaperRepositoryCustomImpl`：MySQL FULLTEXT 全文检索（ngram parser），排序字段白名单防SQL注入，参数化查询
 
 **编码规范**：
-- 继承 `JpaRepository<Entity, Long>`
-- 复杂查询使用 `@Query` + 参数化查询，禁止 SQL 拼接
-- 方法命名遵循 Spring Data 派生查询规范
+- `@Repository` + `@Transactional(readOnly = true)`
+- 写方法单独标注 `@Transactional`
+- 继承 `JpaRepository<Entity, Long>` + `JpaSpecificationExecutor`
 
 ---
 
@@ -155,21 +186,25 @@ Spring Boot 启动类，标注 `@SpringBootApplication`，包含 `main()` 方法
 
 与 MySQL 表一一对应的 JPA 实体类。
 
-**预期实体**：
+**已实现**：
 
-| 实体 | 对应表 | 核心字段 |
-|------|--------|---------|
-| `User` | `users` | id, userId, username, email, passwordHash, createdAt |
-| `UserProfile` | `user_profiles` | id, userId, educationLevel, researchField, knowledgeLevel, preferredStyle, profileData(JSON) |
-| `Paper` | `papers` | id, paperId, title, authors(JSON), abstract, year, venue, keywords(JSON), citationCount |
-| `Session` | `sessions` | id, sessionId, userId, topic, status(ENUM) |
-| `AnalysisResult` | `analysis_results` | id, analysisId, sessionId, type(ENUM), result(JSON), status(ENUM) |
-| `PaperFavorite` | `paper_favorites` | id, userId, paperId |
+| 实体 | 对应表 | 核心字段 | 枚举字段 |
+|------|--------|---------|---------|
+| `User` | `users` | id, userId(UQ), username, email, passwordHash, createdAt | — |
+| `UserProfile` | `user_profiles` | id, userId, researchField, profileData(JSON), updatedAt | educationLevel, knowledgeLevel, preferredStyle |
+| `Paper` | `papers` | id, paperId(UQ), title, authors(JSON), abstract(TEXT), year, venue, keywords(JSON), citationCount, pdfUrl, createdAt, updatedAt | — |
+| `Session` | `sessions` | id, sessionId(UQ), userId, topic, createdAt | status |
+| `AnalysisResult` | `analysis_results` | id, analysisId(UQ), sessionId, result(JSON), createdAt | type, status |
+| `PaperFavorite` | `paper_favorites` | id, userId, paperId, createdAt | — |
 
 **编码规范**：
-- `@Data` + `@NoArgsConstructor` + `@Builder`（Lombok）
-- `@PrePersist` 生成 UUID 主键
-- Entity 与 DTO 严格分离，禁止直接返回 Entity 给前端
+- `@Data` + `@NoArgsConstructor` + `@AllArgsConstructor` + `@Builder`（Lombok）
+- 双ID设计：`Long id` 自增主键 + `String xxxId` 业务ID（UQ）
+- 枚举字段使用 `@Convert(converter = XxxConverter.class)` + `DbValueEnum` 体系，确保数据库存储字符串值
+- JSON字段使用 `String` + `columnDefinition = "JSON"`
+- `@PrePersist` / `@PreUpdate` 自动填充时间
+- Entity间通过 String 业务ID 弱关联，不使用 JPA `@ManyToOne`/`@OneToMany`
+- `User.toString()` 排除 passwordHash 敏感字段
 
 ---
 
@@ -177,15 +212,15 @@ Spring Boot 启动类，标注 `@SpringBootApplication`，包含 `main()` 方法
 
 前后端交互的数据载体，与 Entity 分离，避免暴露内部数据结构。
 
-#### `dto/common/` — 通用 DTO
+#### `dto/common/` — 通用 DTO（已实现）
 
 | 类 | 用途 |
 |----|------|
-| `ApiResponse<T>` | 统一响应封装：`{code, message, data, timestamp}` |
-| `PageRequest` | 分页请求参数 |
-| `PageResponse<T>` | 分页响应封装 |
+| `ApiResponse<T>` | 统一响应封装：`{code, message, data, timestamp}`。静态工厂方法 `success(data)` / `error(code, msg)` / `error(ErrorCode)` |
+| `ErrorCode` | 错误码枚举：200/400/401/403/404/500/503 |
+| `PageResponse<T>` | 分页响应封装：`{items, total, page, totalPages, size}`。page从1开始，静态工厂 `fromPage(Page)` |
 
-#### `dto/request/` — 请求 DTO
+#### `dto/request/` — 请求 DTO（M2实现）
 
 | 类 | 用途 |
 |----|------|
@@ -194,9 +229,8 @@ Spring Boot 启动类，标注 `@SpringBootApplication`，包含 `main()` 方法
 | `UserProfileUpdateRequest` | 画像更新请求 |
 | `PaperSearchRequest` | 论文搜索请求：keyword, year, venue, page, size |
 | `AnalysisRequest` | 分析请求：topic, paperIds, userId |
-| `CompareRequest` | 对比分析请求：paperIds[] |
 
-#### `dto/response/` — 响应 DTO
+#### `dto/response/` — 响应 DTO（M2实现）
 
 | 类 | 用途 |
 |----|------|
@@ -204,52 +238,8 @@ Spring Boot 启动类，标注 `@SpringBootApplication`，包含 `main()` 方法
 | `LoginResponse` | 登录响应：token, userId |
 | `UserProfileResponse` | 用户画像响应 |
 | `PaperResponse` | 论文详情响应 |
-| `PaperListResponse` | 论文列表响应（含分页） |
 | `AnalysisResponse` | 分析结果响应 |
 | `AgentStateResponse` | Agent 状态响应（SSE 推送） |
-
-**编码规范**：
-- 使用 `@Data` + `@Builder`
-- 请求 DTO 用 `@NotBlank` / `@NotNull` / `@Size` 等校验注解
-- 命名以 `Request` / `Response` 结尾
-
----
-
-### `client/` — 外部服务客户端
-
-封装对 Python AI 服务的 HTTP 调用逻辑。
-
-**预期内容**：
-
-| 类 | 职责 |
-|----|------|
-| `AiServiceClient` | 通过 WebClient 调用 AI 服务的 REST API（`/api/agent/analyze`、`/api/search` 等） |
-| `AiServiceSseClient` | SSE 流式转发：订阅 AI 服务的 Agent 状态流，转发给前端 |
-
-**编码规范**：
-- 使用 Spring WebFlux `WebClient`（非 RestTemplate）
-- 超时 30s，重试 1 次，间隔 3s
-- SSE 使用 `Flux<ServerSentEvent>` 处理
-
----
-
-### `mapper/` — MapStruct 映射器
-
-Entity ↔ DTO 之间的类型转换，基于 MapStruct 编译期代码生成。
-
-**预期映射器**：
-
-| 映射器 | 转换方向 |
-|--------|---------|
-| `UserMapper` | `User` ↔ `UserResponse` |
-| `UserProfileMapper` | `UserProfile` ↔ `UserProfileResponse` / `UserProfileUpdateRequest` |
-| `PaperMapper` | `Paper` ↔ `PaperResponse` |
-| `AnalysisMapper` | `AnalysisResult` ↔ `AnalysisResponse` |
-
-**编码规范**：
-- `@Mapper(componentModel = "spring")` 注解
-- 复杂映射使用 `@Mapping` 注解指定字段对应关系
-- camelCase ↔ snake_case 转换由 Jackson `@JsonProperty` 处理
 
 ---
 
@@ -257,17 +247,23 @@ Entity ↔ DTO 之间的类型转换，基于 MapStruct 编译期代码生成。
 
 HTTP 请求的预处理与后处理。
 
-**预期内容**：
+**已实现**：
 
 | 类 | 职责 |
 |----|------|
-| `JwtAuthenticationFilter` | JWT Token 解析与验证，将用户信息注入 SecurityContext |
-| `RequestLoggingFilter` | 请求日志记录（requestId、耗时、路径） |
+| `RequestIdFilter` | 请求ID过滤器：从 `X-Request-Id` 头读取或生成UUID，注入MDC（`requestId`），响应头回传，请求结束清理MDC。`@Order(Ordered.HIGHEST_PRECEDENCE)` 确保最先执行 |
+| `JwtAuthFilter` | JWT认证过滤器：从 `Authorization: Bearer xxx` 提取Token，调用 `JwtUtil.validateToken()` + `isTokenBlacklisted()` 验证，提取userId/username设置 `SecurityContextHolder`。注册在 `UsernamePasswordAuthenticationFilter` 之前 |
 
-**编码规范**：
-- 实现 `OncePerRequestFilter`（JWT 过滤器）
-- 或实现 `HandlerInterceptor`（日志拦截器）
-- JWT 黑名单通过 Redis 校验
+**JWT认证流程**：
+
+```mermaid
+graph LR
+    REQ[请求] --> FILTER[JwtAuthFilter]
+    FILTER -->|有效Token| AUTH[设置SecurityContext]
+    FILTER -->|无效/过期/黑名单| PASS[继续过滤链]
+    AUTH --> CTRL[Controller]
+    PASS --> SEC[Spring Security 401]
+```
 
 ---
 
@@ -275,41 +271,60 @@ HTTP 请求的预处理与后处理。
 
 全局异常体系，统一错误响应格式。
 
-**预期内容**：
+**已实现**：
 
 | 类 | 职责 |
 |----|------|
-| `BusinessException` | 业务异常基类（errorCode + message） |
-| `AuthenticationException` | 认证异常 |
-| `ResourceNotFoundException` | 资源未找到 |
-| `AiServiceException` | AI 服务调用异常 |
-| `GlobalExceptionHandler` | `@RestControllerAdvice` 全局异常处理器 |
+| `BusinessException` | 业务异常基类：`code` + `message` + `errorKey` + `cause`，4个构造器 |
+| `AuthenticationException` | 认证异常（401，AUTHENTICATION_FAILED），继承 BusinessException |
+| `ResourceNotFoundException` | 资源未找到（404，RESOURCE_NOT_FOUND），继承 BusinessException |
+| `AIServiceException` | AI服务异常（503，AI_SERVICE_ERROR），继承 BusinessException，隐藏内部错误细节 |
+| `GlobalExceptionHandler` | `@RestControllerAdvice` 全局异常处理器：处理 MethodArgumentNotValidException / AuthenticationException / ResourceNotFoundException / AIServiceException / BusinessException / Exception |
 
-**编码规范**：
-- 所有业务异常继承 `BusinessException`
-- `GlobalExceptionHandler` 捕获异常后返回 `ApiResponse` 统一格式
-- 区分客户端错误（4xx）和服务端错误（5xx）
+**异常体系**：
+
+```mermaid
+graph TD
+    RUN[RuntimeException] --> BE[BusinessException]
+    BE --> AE[AuthenticationException 401]
+    BE --> RN[ResourceNotFoundException 404]
+    BE --> AI[AIServiceException 503]
+    AE --> GEH[GlobalExceptionHandler]
+    RN --> GEH
+    AI --> GEH
+    BE --> GEH
+    GEH --> RESP[ApiResponse error]
+```
 
 ---
 
 ### `enums/` — 枚举定义
 
-业务枚举类型，与数据库 ENUM 字段对应。
+业务枚举类型，与数据库 ENUM 字段对应。采用 `DbValueEnum` + `AbstractEnumConverter` 体系。
 
-**预期枚举**：
+**已实现**：
 
-| 枚举 | 值 | 对应字段 |
-|------|----|---------|
-| `EducationLevel` | UNDERGRADUATE / MASTER / PHD / FACULTY | `user_profiles.education_level` |
-| `KnowledgeLevel` | BEGINNER / INTERMEDIATE / ADVANCED / EXPERT | `user_profiles.knowledge_level` |
-| `PreferredStyle` | SIMPLE / BALANCED / TECHNICAL | `user_profiles.preferred_style` |
-| `SessionStatus` | ACTIVE / COMPLETED / EXPIRED | `sessions.status` |
-| `AnalysisType` | PAPER_ANALYSIS / COMPARE / REPORT | `analysis_results.type` |
-| `AnalysisStatus` | PENDING / PROCESSING / COMPLETED / FAILED | `analysis_results.status` |
+| 枚举 | dbValue | label | 对应字段 |
+|------|---------|-------|---------|
+| `EducationLevel` | undergraduate / master / phd / faculty | 本科 / 硕士 / 博士 / 教师 | `user_profiles.education_level` |
+| `KnowledgeLevel` | beginner / intermediate / advanced / expert | 初级 / 中级 / 高级 / 专家 | `user_profiles.knowledge_level` |
+| `PreferredStyle` | simple / balanced / technical | 通俗 / 均衡 / 专业 | `user_profiles.preferred_style` |
+| `SessionStatus` | active / completed / expired | — | `sessions.status` |
+| `AnalysisType` | paper_analysis / compare / report | — | `analysis_results.type` |
+| `AnalysisStatus` | pending / processing / completed / failed | — | `analysis_results.status` |
+
+**Converter 体系**：
+
+| 类 | 职责 |
+|----|------|
+| `DbValueEnum` | 接口：定义 `getDbValue()` 方法 |
+| `AbstractEnumConverter<E>` | 抽象类：实现 `AttributeConverter<E, String>`，自动构建 dbValue→Enum 反向映射 |
+| 6个 `XxxConverter` | 具体Converter：`@Converter(autoApply = true)` + Entity字段显式 `@Convert` 双重保障 |
 
 **编码规范**：
 - Java 枚举值使用 `UPPER_SNAKE_CASE`
-- 数据库 ENUM 值使用 `lower_case`，通过 `@Enumerated(EnumType.STRING)` 映射
+- 数据库值使用 `lower_case`，通过 `DbValueEnum.getDbValue()` 映射
+- Entity枚举字段显式标注 `@Convert(converter = XxxConverter.class)` 确保映射安全
 
 ---
 
@@ -317,19 +332,13 @@ HTTP 请求的预处理与后处理。
 
 无状态的辅助方法集合。
 
-**预期内容**：
+**已实现**：
 
 | 类 | 职责 |
 |----|------|
-| `JwtUtil` | JWT Token 生成、解析、验证 |
-| `UuidUtil` | UUID 生成（`usr_` / `ses_` / `anl_` 前缀） |
-| `CacheKeyUtil` | Redis Key 拼接（`user:profile:{userId}` 等模式） |
-| `JsonUtil` | JSON 序列化/反序列化辅助 |
-
-**编码规范**：
-- 工具类使用 `final` + 私有构造器
-- 方法均为 `static`
-- 无状态，不注入 Spring Bean
+| `JwtUtil` | JWT Token 生成/解析/验证/黑名单检查。`@PostConstruct` 校验密钥≥32字节，HS256签名，Token脱敏日志，Redis黑名单通过 `RedisKeyUtil.authBlacklistKey(jti)` |
+| `RedisKeyUtil` | Redis Key 命名工具：`user:profile:{userId}` / `paper:detail:{paperId}` / `auth:blacklist:{tokenHash}` 等9个静态方法。`final` + 私有构造器 |
+| `DateTimeUtil` | 日期时间工具：`formatDateTime` / `parseDateTime` / `getCurrentTimestamp` / `isExpired`。使用 `DateTimeFormatter`（线程安全）。`final` + 私有构造器 |
 
 ---
 
@@ -342,13 +351,14 @@ Spring Boot 主配置文件，包含：
 | 配置项 | 值 |
 |--------|-----|
 | 服务端口 | `8080` |
-| 数据源 | MySQL（HikariCP，max-pool=20） |
-| JPA | `ddl-auto: update`，MySQLDialect |
-| Redis | Lettuce 连接池（max-active=20） |
-| AI 服务地址 | `http://localhost:8000`（超时 30s） |
-| JWT | 24h 有效期 |
-| Jackson | 日期格式 `yyyy-MM-dd HH:mm:ss`，非 null 序列化 |
-| 日志 | `com.literatureassistant: DEBUG`，含 requestId |
+| 数据源 | MySQL（HikariCP，max-pool=20，min-idle=5，connection-timeout=30s） |
+| JPA | `ddl-auto: update`，format_sql=true |
+| Redis | Lettuce 连接池（max-active=20，max-idle=10，min-idle=5，timeout=5s） |
+| AI 服务地址 | `${AI_SERVICE_URL:http://localhost:8000}`（超时 30s，重试1次，间隔3s） |
+| CORS | `${CORS_ALLOWED_ORIGINS:http://localhost:5173}` |
+| JWT | `${JWT_SECRET}`（必填），`${JWT_EXPIRATION:86400000}`（24h） |
+| Jackson | 日期格式 `yyyy-MM-dd HH:mm:ss`，非null序列化，时区 Asia/Shanghai |
+| 日志 | `com.literatureassistant: DEBUG`，格式含 `[requestId]` |
 
 所有敏感配置通过环境变量注入（`${ENV:default}`），不硬编码。
 
@@ -362,7 +372,7 @@ Spring Boot 主配置文件，包含：
 |------|------|---------|
 | `01_create_tables.sql` | DDL — 建库建表 | 创建 `literature_assistant` 数据库及 6 张核心表：`users`、`user_profiles`、`papers`（含 FULLTEXT ngram 索引）、`sessions`、`analysis_results`、`paper_favorites` |
 | `02_create_indexes.sql` | 补充索引 | FULLTEXT 索引验证/重建脚本（`01` 中已内联创建） |
-| `03_insert_seed_data.sql` | 种子数据 | 插入测试用户、画像、2 篇论文、1 个会话、1 条分析结果、1 条收藏 |
+| `03_insert_seed_data.sql` | 种子数据 | 插入测试用户（BCrypt密码）、画像、2 篇论文、1 个会话、1 条分析结果、1 条收藏。使用 `ON DUPLICATE KEY UPDATE` 幂等插入 |
 
 **数据库表关系**：
 
@@ -428,14 +438,26 @@ erDiagram
 
 ## `src/test/` — 测试代码
 
-| 文件 | 作用 |
-|------|------|
-| `LiteratureAssistantApplicationTests.java` | Spring Boot 上下文加载测试（`@SpringBootTest`），验证应用能正常启动 |
+120个测试全部通过。
 
-**后续测试规划**：
-- `controller/` — 控制器集成测试（`@WebMvcTest`）
-- `service/` — 服务单元测试（`@ExtendWith(MockitoExtension.class)`）
-- `repository/` — 仓库集成测试（`@DataJpaTest`）
+| 测试类 | 覆盖内容 | 测试数 |
+|--------|---------|--------|
+| `LiteratureAssistantApplicationTests` | Spring Boot 上下文加载 | 1 |
+| `HealthControllerTest` | 健康检查端点 | — |
+| `ApiResponseTest` | 统一响应封装 | — |
+| `ErrorCodeTest` | 错误码枚举 | — |
+| `PageResponseTest` | 分页响应封装 | — |
+| `AbstractEnumConverterTest` | 枚举Converter基类 | — |
+| `EnumConverterIntegrationTest` | 6个枚举Converter集成测试（round-trip一致性） | — |
+| `BusinessExceptionTest` | 业务异常构造器 | — |
+| `AuthenticationExceptionTest` | 认证异常 | — |
+| `ResourceNotFoundExceptionTest` | 资源未找到异常 | — |
+| `AIServiceExceptionTest` | AI服务异常 | — |
+| `GlobalExceptionHandlerTest` | 全局异常处理器（5种异常类型） | — |
+| `JwtAuthFilterTest` | JWT过滤器（有效/无效/黑名单/无Auth/非Bearer） | 5 |
+| `JwtUtilTest` | JWT工具类（生成/解析/验证/黑名单/密钥校验） | 15 |
+| `RedisKeyUtilTest` | Redis Key命名工具 | — |
+| `DateTimeUtilTest` | 日期时间工具 | — |
 
 ---
 
@@ -446,9 +468,11 @@ erDiagram
 | 依赖 | 版本 | 用途 |
 |------|------|------|
 | Spring Boot | 3.2.5 | 应用框架 |
-| Spring WebFlux | — | 响应式 Web + WebClient（SSE 转发） |
+| Spring Web | — | REST API（Servlet + Tomcat） |
+| Spring WebFlux | — | WebClient（AI服务调用 + SSE转发） |
 | Spring Data JPA | — | ORM 数据访问 |
 | Spring Data Redis | — | 缓存（Lettuce 客户端） |
+| Spring Security | — | 认证授权（STATELESS + JWT） |
 | Spring Validation | — | 参数校验 |
 | MySQL Connector/J | — | MySQL 驱动 |
 | JJWT | 0.12.5 | JWT Token 生成与解析 |
@@ -461,16 +485,17 @@ erDiagram
 
 ```mermaid
 graph TD
-    REQ[HTTP 请求] --> FILTER[filter/ 过滤器<br/>JWT认证 · 请求日志]
-    FILTER --> CTRL[controller/ 控制器<br/>参数校验 · 路由分发]
+    REQ[HTTP 请求] --> RID[RequestIdFilter<br/>MDC注入requestId]
+    RID --> JWT[JwtAuthFilter<br/>Token验证+SecurityContext]
+    JWT --> CTRL[controller/ 控制器<br/>参数校验 · 路由分发]
     CTRL --> SVC[service/ 业务逻辑<br/>事务管理 · 缓存策略]
     SVC --> REPO[repository/ 数据访问<br/>JPA · MySQL]
     SVC --> CLI[client/ 外部客户端<br/>WebClient · AI服务]
     CTRL --> MAPPER[mapper/ 对象映射<br/>Entity ↔ DTO]
-    REPO --> ENTITY[entity/ JPA实体<br/>users · papers · sessions ...]
+    REPO --> ENTITY[entity/ JPA实体<br/>6表 + @Convert枚举]
     CTRL --> DTO_REQ[dto/request/ 请求DTO]
     CTRL --> DTO_RES[dto/response/ 响应DTO]
-    SVC --> CACHE[(Redis 缓存<br/>Cache-Aside)]
+    SVC --> CACHE[(Redis 缓存<br/>6缓存空间 + TTL抖动)]
     CLI --> AI[Python AI 服务<br/>FastAPI :8000]
 ```
 
@@ -484,13 +509,13 @@ graph TD
 
 ```mermaid
 graph LR
-    A[eclipse-temurin:17-jdk-alpine<br/>编译阶段] -->|COPY JAR| B[eclipse-temurin:17-jre-alpine<br/>运行阶段]
+    A[maven:3.9-eclipse-temurin-17<br/>编译阶段] -->|COPY JAR| B[eclipse-temurin:17-jre-alpine<br/>运行阶段]
     B -->|EXPOSE 8080| C[健康检查<br/>curl /health]
     B -->|USER appuser| D[非 root 运行]
 ```
 
 - **编译阶段**：`mvn dependency:go-offline` + `mvn package -DskipTests`
-- **运行阶段**：JRE 镜像 + 健康检查 + 非 root 用户
+- **运行阶段**：JRE 镜像 + 健康检查（30s间隔） + 非 root 用户（appuser）
 - **启动参数**：`--spring.profiles.active=prod`
 
 ---
@@ -503,19 +528,22 @@ mysql -u root -p < src/main/resources/db/01_create_tables.sql
 mysql -u root -p < src/main/resources/db/02_create_indexes.sql
 mysql -u root -p < src/main/resources/db/03_insert_seed_data.sql
 
-# 2. 本地运行
-mvn spring-boot:run
+# 2. 本地运行（必须设置JWT_SECRET）
+JWT_SECRET=your-jwt-secret-at-least-32-characters-long mvn spring-boot:run
 
-# 3. Docker 构建
+# 3. 验证健康检查
+curl http://localhost:8080/health
+
+# 4. Docker 构建
 docker build -t literature-assistant-backend .
 
-# 4. Docker 运行
+# 5. Docker 运行
 docker run -p 8080:8080 \
   -e MYSQL_URL=jdbc:mysql://mysql:3306/literature_assistant \
   -e MYSQL_USERNAME=root \
   -e MYSQL_PASSWORD=root123 \
   -e REDIS_HOST=redis \
   -e AI_SERVICE_URL=http://ai-service:8000 \
-  -e JWT_SECRET=your_jwt_secret \
+  -e JWT_SECRET=your_jwt_secret_at_least_32_characters_long \
   literature-assistant-backend
 ```

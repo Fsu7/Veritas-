@@ -17,7 +17,7 @@ class TestEmbeddingServiceInit:
     async def test_initial_state(self):
         settings = Settings(DASHSCOPE_API_KEY="", EMBEDDING_MODEL_PATH="BAAI/bge-large-zh-v1.5")
         svc = EmbeddingService(settings)
-        assert svc.dimension == 1024
+        assert svc.dimension is None
         assert svc.status == "initializing"
         assert svc.model is None
         assert svc._api_client is None

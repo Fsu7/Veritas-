@@ -570,6 +570,7 @@ class TestLLMServiceDegradation:
     async def test_auto_mode_fallback_to_local(self):
         s = Settings(
             LLM_MODE="auto",
+            LLM_API_KEY="",
             LLM_LOCAL_MODEL_PATH="Qwen/Qwen2-1.5B-Instruct",
         )
         svc = LLMService(s)

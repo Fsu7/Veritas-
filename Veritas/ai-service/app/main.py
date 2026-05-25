@@ -7,16 +7,16 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.api.router import api_router
+from app.core import events
 from app.core.config import settings
-from app.core.events import embedding_service, llm_service, on_shutdown, on_startup, prompt_manager, vector_store_service
 from app.exception import AIServiceException
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await on_startup()
+    await events.on_startup()
     yield
-    await on_shutdown()
+    await events.on_shutdown()
 
 
 app = FastAPI(
@@ -33,10 +33,10 @@ async def health_check():
     return {
         "status": "UP",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "llm": llm_service.status if llm_service else "not_loaded",
-        "embedding": embedding_service.status if embedding_service else "not_loaded",
-        "chroma": vector_store_service.status if vector_store_service else "not_connected",
-        "prompts": prompt_manager.status if prompt_manager else "not_loaded",
+        "llm": events.llm_service.status if events.llm_service else "not_loaded",
+        "embedding": events.embedding_service.status if events.embedding_service else "not_loaded",
+        "chroma": events.vector_store_service.status if events.vector_store_service else "not_connected",
+        "prompts": events.prompt_manager.status if events.prompt_manager else "not_loaded",
     }
 
 

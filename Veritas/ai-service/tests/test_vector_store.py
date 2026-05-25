@@ -6,7 +6,10 @@ from app.services.vector_store_service import VectorStoreService
 pytestmark = pytest.mark.asyncio
 
 
-def _random_unit_vector(dim=1024):
+DEFAULT_EMBEDDING_DIM = 1024
+
+
+def _random_unit_vector(dim=DEFAULT_EMBEDDING_DIM):
     v = np.random.randn(dim).astype(np.float32)
     v = v / np.linalg.norm(v)
     return v.tolist()
