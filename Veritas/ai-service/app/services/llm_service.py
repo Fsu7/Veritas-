@@ -82,11 +82,20 @@ class BuiltinLLMProvider(LLMProvider):
                 yield content
 
     async def test_connection(self) -> bool:
-        await self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": "Hello"}],
-            max_tokens=5,
-        )
+        try:
+            await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[{"role": "user", "content": "Hello"}],
+                    max_tokens=5,
+                ),
+                timeout=10,
+            )
+        except asyncio.TimeoutError:
+            raise ConnectionError(
+                f"Builtin provider connection timed out (10s), "
+                f"url={self.client.base_url}"
+            )
         return True
 
 
@@ -133,11 +142,20 @@ class APILLMProvider(LLMProvider):
                 yield content
 
     async def test_connection(self) -> bool:
-        await self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": "Hello"}],
-            max_tokens=5,
-        )
+        try:
+            await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[{"role": "user", "content": "Hello"}],
+                    max_tokens=5,
+                ),
+                timeout=10,
+            )
+        except asyncio.TimeoutError:
+            raise ConnectionError(
+                f"API provider connection timed out (10s), "
+                f"url={self.client.base_url}"
+            )
         return True
 
 
@@ -285,15 +303,18 @@ class LLMService:
 
     async def initialize(self) -> None:
         if self.mode in (LLMMode.AUTO, LLMMode.BUILTIN):
-            try:
-                provider = BuiltinLLMProvider(self.settings)
-                await provider.test_connection()
-                self.providers["builtin"] = provider
-                self.active_provider = provider
-                self._status = "loaded"
-                logger.info("LLM: Using builtin provider")
-            except Exception as e:
-                logger.warning(f"Builtin provider failed: {e}")
+            if self.settings.LLM_BUILTIN_URL:
+                try:
+                    provider = BuiltinLLMProvider(self.settings)
+                    await provider.test_connection()
+                    self.providers["builtin"] = provider
+                    self.active_provider = provider
+                    self._status = "loaded"
+                    logger.info("LLM: Using builtin provider")
+                except Exception as e:
+                    logger.warning(f"Builtin provider failed: {e}")
+            else:
+                logger.info("LLM: Builtin provider skipped (LLM_BUILTIN_URL not configured)")
 
         if self.mode in (LLMMode.AUTO, LLMMode.API):
             if self.settings.LLM_API_KEY:
@@ -400,8 +421,24 @@ class LLMService:
     ) -> str:
         if self.active_provider is None:
             raise ModelNotLoadedException("LLM service not initialized")
+        timeout = self.settings.LLM_TIMEOUT
         try:
-            return await self.active_provider.generate(prompt, max_tokens, temperature)
+            return await asyncio.wait_for(
+                self.active_provider.generate(prompt, max_tokens, temperature),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"LLM generation timed out after {timeout}s")
+            provider_name = self.active_provider.mode
+            self._degradation_state["consecutive_failures"][provider_name] = (
+                self._degradation_state["consecutive_failures"].get(provider_name, 0)
+                + 1
+            )
+            await self._fallback()
+            return await asyncio.wait_for(
+                self.active_provider.generate(prompt, max_tokens, temperature),
+                timeout=timeout,
+            )
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")
             provider_name = self.active_provider.mode
@@ -411,8 +448,9 @@ class LLMService:
             )
             try:
                 await self._fallback()
-                return await self.active_provider.generate(
-                    prompt, max_tokens, temperature
+                return await asyncio.wait_for(
+                    self.active_provider.generate(prompt, max_tokens, temperature),
+                    timeout=timeout,
                 )
             except Exception as fallback_err:
                 raise LLMException(str(fallback_err)) from fallback_err

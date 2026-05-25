@@ -11,8 +11,9 @@ class Settings(BaseSettings):
 
     CHROMA_PATH: str = "./data/vector_db"
 
-    EMBEDDING_MODEL_PATH: str = "BAAI/bge-large-zh-v1.5"
+    EMBEDDING_MODEL_PATH: str = "BAAI/bge-m3"
     EMBEDDING_DEVICE: str = "cpu"
+    EMBEDDING_EXPECTED_DIMENSION: int = 1024
     EMBEDDING_API_KEY: str = ""
     EMBEDDING_API_BASE: str = ""
     EMBEDDING_API_MODEL: str = ""
@@ -21,10 +22,10 @@ class Settings(BaseSettings):
     DASHSCOPE_EMBEDDING_MODEL: str = "text-embedding-v4"
     DASHSCOPE_EMBEDDING_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
-    LLM_MODE: str = "auto"
-    LLM_BUILTIN_URL: str = "https://llm.literature-assistant.com/v1"
-    LLM_BUILTIN_API_KEY: str = "builtin"
-    LLM_BUILTIN_MODEL: str = "literature-assistant-pro"
+    LLM_MODE: str = "api"
+    LLM_BUILTIN_URL: str = ""
+    LLM_BUILTIN_API_KEY: str = ""
+    LLM_BUILTIN_MODEL: str = ""
     LLM_API_KEY: str = ""
     LLM_API_BASE: str = ""
     LLM_MODEL_NAME: str = ""

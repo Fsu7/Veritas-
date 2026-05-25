@@ -11,6 +11,8 @@ from app.exception import ModelNotLoadedException
 
 class EmbeddingService:
 
+    EXPECTED_DIMENSION = 1024
+
     def __init__(self, settings):
         self.settings = settings
         self.model = None
@@ -58,9 +60,18 @@ class EmbeddingService:
                 self._dimension = self.model.get_embedding_dimension()
             else:
                 self._dimension = self.model.get_sentence_embedding_dimension()
+
+            expected = getattr(self.settings, 'EMBEDDING_EXPECTED_DIMENSION', self.EXPECTED_DIMENSION)
+            if self._dimension != expected:
+                logger.warning(
+                    f"Local model dimension={self._dimension} != expected={expected}, "
+                    f"vector operations may fail with existing ChromaDB data"
+                )
+
             self.status = "loaded_local"
             logger.info(
-                f"Embedding model loaded via local bge-large-zh-v1.5, "
+                f"Embedding model loaded via local "
+                f"{self.settings.EMBEDDING_MODEL_PATH or 'BAAI/bge-m3'}, "
                 f"dimension={self.dimension}, device={self.settings.EMBEDDING_DEVICE}"
             )
         except Exception as e:
@@ -70,7 +81,7 @@ class EmbeddingService:
 
     def _load_local_model(self) -> SentenceTransformer:
         return SentenceTransformer(
-            self.settings.EMBEDDING_MODEL_PATH or "BAAI/bge-large-zh-v1.5",
+            self.settings.EMBEDDING_MODEL_PATH or "BAAI/bge-m3",
             device=self.settings.EMBEDDING_DEVICE or "cpu",
         )
 

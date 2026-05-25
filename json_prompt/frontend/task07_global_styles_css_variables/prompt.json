@@ -1,0 +1,150 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1 / FM1：项目骨架与基础设施就绪",
+    "requirement": "创建全局样式文件（styles/variables.scss和styles/global.scss），定义CSS变量体系包括Element Plus主题色覆盖、Agent状态色（waiting/running/completed/failed）、布局变量（header-height/sidebar-width/content-max-width）、间距/圆角/阴影/字体变量，global.scss包含全局重置样式、Element Plus组件定制样式、通用工具类（.text-ellipsis/.flex-center等），并在main.ts中导入全局样式",
+    "requirement_ids": ["F1.1", "F1.2", "F1.3", "F1.4", "F1.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第14.2节主题配置：CSS变量定义（主色/Agent状态色/布局变量）" },
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第12节组件设计规范：BEM命名、scoped样式" },
+      { "path": "AGENTS.md", "purpose": "Agent状态颜色映射：waiting=#C0C4CC, running=#409EFF, completed=#67C23A, failed=#F56C6C" },
+      { "path": "docs/开发规范文档.md", "purpose": "前端编码规范：CSS变量命名、BEM规范" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/styles/variables.scss", "description": "CSS变量定义文件" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/styles/global.scss", "description": "全局样式文件" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/main.ts", "description": "应用入口文件（task00创建），需导入全局样式", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/vite.config.ts", "description": "Vite配置（task01创建），需配置SCSS全局注入variables.scss", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/package.json", "description": "项目依赖（task00创建），需确认sass已安装", "reuse_type": "reference" },
+      { "file_path": "docs/frontend/前端模块系统架构文档.md", "description": "第14.2节定义了CSS变量体系", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "styles/variables.scss",
+      "path": "Veritas/frontend/src/styles/variables.scss",
+      "responsibility": "CSS变量定义：主题色、Agent状态色、布局变量、间距/圆角/阴影/字体",
+      "key_interfaces": [
+        { "name": "Element Plus主题色覆盖", "signature": "--el-color-primary: #409EFF; --el-color-success: #67C23A; --el-color-warning: #E6A23C; --el-color-danger: #F56C6C; --el-color-info: #909399", "description": "覆盖Element Plus默认主题色" },
+        { "name": "Agent状态色", "signature": "--agent-waiting: #C0C4CC; --agent-running: #409EFF; --agent-completed: #67C23A; --agent-failed: #F56C6C", "description": "Agent可视化状态颜色" },
+        { "name": "布局变量", "signature": "--header-height: 60px; --sidebar-width: 240px; --content-max-width: 1200px", "description": "页面布局尺寸" }
+      ]
+    },
+    {
+      "name": "styles/global.scss",
+      "path": "Veritas/frontend/src/styles/global.scss",
+      "responsibility": "全局重置样式、Element Plus组件定制、通用工具类",
+      "key_interfaces": [
+        { "name": "全局重置", "signature": "body/html margin/padding/font-family重置", "description": "基础样式重置" },
+        { "name": "通用工具类", "signature": ".text-ellipsis / .flex-center / .page-container 等", "description": "可复用CSS工具类" },
+        { "name": "Element Plus定制", "signature": "el-card/el-button/el-tag等组件样式覆盖", "description": "统一组件外观" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/styles/variables.scss", "description": "CSS变量定义：主题色、Agent状态色、布局变量、间距/圆角/阴影/字体", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/styles/global.scss", "description": "全局样式：重置样式、Element Plus定制、通用工具类", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/main.ts", "description": "导入全局样式：import './styles/global.scss'", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/vite.config.ts", "description": "配置SCSS全局注入variables.scss：css.preprocessorOptions.scss.additionalData", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "创建styles/variables.scss：在:root选择器中定义CSS变量体系——(1) Element Plus主题色覆盖：--el-color-primary: #409EFF, --el-color-success: #67C23A, --el-color-warning: #E6A23C, --el-color-danger: #F56C6C, --el-color-info: #909399；(2) Agent状态色：--agent-waiting: #C0C4CC, --agent-running: #409EFF, --agent-completed: #67C23A, --agent-failed: #F56C6C；(3) 布局变量：--header-height: 60px, --sidebar-width: 240px, --content-max-width: 1200px；(4) 间距变量：--spacing-xs: 4px, --spacing-sm: 8px, --spacing-md: 16px, --spacing-lg: 24px, --spacing-xl: 32px；(5) 圆角变量：--radius-sm: 4px, --radius-md: 8px, --radius-lg: 12px；(6) 阴影变量：--shadow-sm: 0 2px 4px rgba(0,0,0,0.08), --shadow-md: 0 4px 12px rgba(0,0,0,0.1), --shadow-lg: 0 8px 24px rgba(0,0,0,0.12)；(7) 字体变量：--font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif, --font-size-sm: 12px, --font-size-base: 14px, --font-size-lg: 16px, --font-size-xl: 20px, --font-size-xxl: 24px；(8) 过渡变量：--transition-fast: 0.15s ease, --transition-normal: 0.3s ease",
+        "priority": "P0",
+        "acceptance_condition": "variables.scss包含全部8类CSS变量，可在组件中通过var(--xxx)引用"
+      },
+      {
+        "id": "FR-002",
+        "description": "创建styles/global.scss：(1) 导入variables.scss（@use './variables' as *）；(2) 全局重置：html/body的margin:0, padding:0, font-family:var(--font-family), font-size:var(--font-size-base), color:#303133, background-color:#f5f7fa, -webkit-font-smoothing:antialiased；(3) 通用工具类：.text-ellipsis（overflow:hidden, text-overflow:ellipsis, white-space:nowrap）、.flex-center（display:flex, align-items:center, justify-content:center）、.page-container（max-width:var(--content-max-width), margin:0 auto, padding:var(--spacing-md)）、.section-title（font-size:var(--font-size-xl), font-weight:600, margin-bottom:var(--spacing-md)）；(4) Element Plus组件定制：.el-card统一border-radius:var(--radius-md)和box-shadow:var(--shadow-sm)、.el-button统一font-weight:500、.el-tag统一border-radius:var(--radius-sm)；(5) AI内容标注样式：.ai-generated-label（font-size:var(--font-size-sm), color:var(--el-color-info), font-style:italic）",
+        "priority": "P0",
+        "acceptance_condition": "global.scss包含重置样式、工具类、Element Plus定制、AI标注样式"
+      },
+      {
+        "id": "FR-003",
+        "description": "修改main.ts：在import语句区域添加import './styles/global.scss'，确保在createApp之前导入，使全局样式生效",
+        "priority": "P0",
+        "acceptance_condition": "main.ts正确导入global.scss，开发服务器启动后全局样式生效"
+      },
+      {
+        "id": "FR-004",
+        "description": "修改vite.config.ts：在css.preprocessorOptions.scss中配置additionalData为'@use \"@/styles/variables\" as *;\\n'，使所有SCSS文件自动注入variables.scss，无需手动@use导入",
+        "priority": "P0",
+        "acceptance_condition": "组件的<style scoped lang=\"scss\">中可直接使用var(--xxx)变量，无需手动导入variables.scss"
+      },
+      {
+        "id": "FR-005",
+        "description": "确认package.json中已安装sass依赖（task00应已安装），如未安装则添加sass为开发依赖",
+        "priority": "P1",
+        "acceptance_condition": "npm run dev启动成功，SCSS文件正确编译"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "CSS变量命名使用kebab-case（如--agent-waiting, --header-height），与CSS规范一致",
+        "mappings": []
+      },
+      "api_contracts": [],
+      "data_flow": "variables.scss(CSS变量定义) → vite.config.ts(全局注入) → 组件<style>中使用var(--xxx)"
+    },
+    "security_requirements": []
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "camelCase.scss（样式文件：variables.scss / global.scss）"
+      },
+      "json": { "field_name": "snake_case" },
+      "cross_system_mapping": []
+    },
+    "layering": {
+      "frontend": { "rule": "styles/目录为基础设施层，被所有组件层引用" }
+    },
+    "error_handling": {
+      "frontend": { "approach": "不涉及错误处理" }
+    },
+    "caching": { "pattern": "不涉及缓存", "ttl_layers": [] },
+    "logging": { "prohibited": [] },
+    "security": {}
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "在组件<style>中硬编码颜色值", "reason": "必须使用CSS变量保持一致性", "severity": "high" },
+    { "id": "FA-003", "action": "使用!important覆盖Element Plus样式", "reason": "应通过CSS变量或更高优先级选择器覆盖", "severity": "medium" },
+    { "id": "FA-004", "action": "修改task00-05已创建的文件（main.ts和vite.config.ts除外）", "reason": "避免引入无关变更", "severity": "medium" },
+    { "id": "FA-005", "action": "在global.scss中编写组件特定样式", "reason": "全局样式仅包含重置和通用工具类，组件样式写在组件scoped style中", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "CSS变量验证测试",
+        "description": "验证variables.scss中定义的CSS变量可通过getComputedStyle获取正确值",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run dev", "expected_result": "开发服务器启动成功，SCSS编译无错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run build", "expected_result": "构建成功，CSS变量正确输出到dist/assets/*.css" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "variables.scss包含8类CSS变量（主题色/Agent状态色/布局/间距/圆角/阴影/字体/过渡）", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "global.scss包含重置样式、工具类、Element Plus定制、AI标注样式", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "main.ts正确导入global.scss", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "vite.config.ts配置SCSS全局注入variables.scss", "verified_by": "code_review" },
+    { "id": "AC-005", "criterion": "npm run dev启动成功，SCSS编译无错误", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "npm run build构建成功", "verified_by": "manual_test" },
+    { "id": "AC-007", "criterion": "Agent状态色变量(--agent-waiting/running/completed/failed)定义正确", "verified_by": "code_review" }
+  ]
+}

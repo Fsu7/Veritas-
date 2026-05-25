@@ -14,6 +14,7 @@
 | 版本 | 日期 | 修订人 | 修订内容 |
 |------|------|--------|---------|
 | v1.0 | 2026-05-23 | 项目组 | 初始版本 |
+| v1.1 | 2026-05-25 | 项目组 | M1修复后更新：Embedding模型bge-large-zh→bge-m3、维度校验、软件方URL空值保护、camelCase alias、/health 503、LLM超时控制、AppState重构 |
 
 ---
 
@@ -253,6 +254,7 @@ ai-service-python/
 │   └── evaluate.py                     # 评估脚本
 │
 ├── Dockerfile                           # Docker构建文件
+├── .dockerignore                        # Docker忽略文件
 ├── requirements.txt                     # Python依赖
 ├── .env                                 # 环境变量（不入Git）
 ├── .env.example                         # 环境变量示例
@@ -336,6 +338,16 @@ app.include_router(api_router, prefix="/api")
 ### 4.3 路由定义
 
 ```python
+# core/events.py
+class AppState:
+    """应用全局状态（替代全局变量）"""
+    embedding_service = None
+    vector_store_service = None
+    llm_service = None
+    prompt_manager = None
+
+app_state = AppState()
+
 # api/router.py
 from fastapi import APIRouter
 
@@ -500,13 +512,25 @@ async def model_status() -> ModelStatusResponse:
 # main.py
 @app.get("/health")
 async def health():
-    return {
-        "status": "UP",
-        "timestamp": datetime.now().isoformat(),
-        "llm": llm_service.status,
-        "embedding": embedding_service.status,
-        "chroma": vector_store_service.status
+    components = {
+        "llm": llm_service.status if llm_service else "not_loaded",
+        "embedding": embedding_service.status if embedding_service else "not_loaded",
+        "chroma": vector_store_service.status if vector_store_service else "not_connected",
+        "prompts": prompt_manager.status if prompt_manager else "not_loaded",
     }
+    critical_ok = (
+        components["llm"] == "loaded"
+        and components["embedding"] in ("loaded_api", "loaded_local")
+        and components["chroma"] == "connected"
+    )
+    return JSONResponse(
+        status_code=200 if critical_ok else 503,
+        content={
+            "status": "UP" if critical_ok else "DEGRADED",
+            "timestamp": datetime.now().isoformat(),
+            **components
+        }
+    )
 ```
 
 ### 4.5 API接口清单
@@ -1266,7 +1290,7 @@ Reranker.rerank()（P1）
 │                                                            │
 │  配置项（环境变量）：                                       │
 │  LLM_MODE=auto|builtin|api|local                           │
-│  LLM_BUILTIN_URL=https://llm.literature-assistant.com/v1   │
+│  LLM_BUILTIN_URL=（待发榜单位提供，未配置时自动跳过）   │
 │  LLM_API_KEY=xxx              # 用户自配API密钥             │
 │  LLM_API_BASE=https://api.xxx.com/v1                       │
 │  LLM_MODEL_NAME=qwen2-7b-instruct                          │
@@ -1290,7 +1314,7 @@ Reranker.rerank()（P1）
 │  降级策略：方案A(软件方) → 方案B(API) → 方案C(本地) → 错误│
 │  重试策略：失败后重试1次，间隔3秒                          │
 │  超时策略：单次推理30秒超时                                │
-│  默认选择：方案A（软件方模型），不可用时自动降级            │
+│  默认选择：auto模式按优先级降级，方案A URL未配置时直接使用方案B            │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -1320,15 +1344,18 @@ class LLMService:
     async def initialize(self):
         """初始化LLM服务，根据配置加载Provider"""
         if self.mode in (LLMMode.AUTO, LLMMode.BUILTIN):
-            try:
-                self.providers["builtin"] = BuiltinLLMProvider(self.settings)
-                await self.providers["builtin"].test_connection()
-                self.active_provider = self.providers["builtin"]
-                self.status = "loaded"
-                logger.info("LLM: Using builtin provider (软件方模型)")
-                return
-            except Exception as e:
-                logger.warning(f"Builtin provider failed: {e}")
+            if self.settings.LLM_BUILTIN_URL:
+                try:
+                    self.providers["builtin"] = BuiltinLLMProvider(self.settings)
+                    await self.providers["builtin"].test_connection()
+                    self.active_provider = self.providers["builtin"]
+                    self.status = "loaded"
+                    logger.info("LLM: Using builtin provider (软件方模型)")
+                    return
+                except Exception as e:
+                    logger.warning(f"Builtin provider failed: {e}")
+            else:
+                logger.info("LLM: Builtin provider skipped (LLM_BUILTIN_URL not configured)")
 
         if self.mode in (LLMMode.AUTO, LLMMode.API):
             if self.settings.LLM_API_KEY:
@@ -1370,12 +1397,18 @@ class LLMService:
             生成的文本
         """
         try:
+            return await asyncio.wait_for(
+                self.active_provider.generate(prompt, max_tokens, temperature),
+                timeout=self.settings.LLM_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"LLM generation timed out after {self.settings.LLM_TIMEOUT}s")
+            await self._fallback()
             return await self.active_provider.generate(
                 prompt, max_tokens, temperature
             )
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")
-            # 降级到下一个可用Provider
             await self._fallback()
             return await self.active_provider.generate(
                 prompt, max_tokens, temperature
@@ -1836,7 +1869,7 @@ class PersonalizationService:
 
 ### 9.1 模块概述
 
-负责将文本转换为高维向量表示，是语义检索的基础。优先使用阿里云百炼API（text-embedding-v4），备选本地模型（bge-large-zh-v1.5）。
+负责将文本转换为高维向量表示，是语义检索的基础。优先使用阿里云百炼API（text-embedding-v4），备选本地模型（BAAI/bge-m3，1024维，与API对齐）。
 
 ### 9.2 EmbeddingService实现
 
@@ -1852,7 +1885,8 @@ class EmbeddingService:
     def __init__(self, settings):
         self.settings = settings
         self.model = None
-        self.dimension = 1024
+        self.dimension = None
+        self.EXPECTED_DIMENSION = 1024
         self.status = "initializing"
         self._api_client = None  # 外接API客户端（备选）
 
@@ -1860,10 +1894,15 @@ class EmbeddingService:
         """加载本地Embedding模型"""
         try:
             self.model = SentenceTransformer(
-                self.settings.EMBEDDING_MODEL_PATH or "BAAI/bge-large-zh-v1.5",
+                self.settings.EMBEDDING_MODEL_PATH or "BAAI/bge-m3",
                 device=self.settings.EMBEDDING_DEVICE or "cpu"
             )
             self.dimension = self.model.get_sentence_embedding_dimension()
+            if self.dimension != self.EXPECTED_DIMENSION:
+                logger.warning(
+                    f"Embedding dimension mismatch: got {self.dimension}, "
+                    f"expected {self.EXPECTED_DIMENSION}"
+                )
             self.status = "loaded"
             logger.info(f"Embedding model loaded, dimension={self.dimension}")
         except Exception as e:
@@ -1964,6 +2003,8 @@ from typing import Optional
 class VectorStoreService:
     """Chroma向量数据库服务"""
 
+    EXPECTED_DIMENSION = 1024
+
     def __init__(self, settings):
         self.settings = settings
         self.client = None
@@ -1999,6 +2040,11 @@ class VectorStoreService:
             metadatas: 元数据列表 [{paper_id, title, year, venue, ...}]
             documents: 文档文本列表（标题+摘要）
         """
+        if embeddings and len(embeddings[0]) != self.EXPECTED_DIMENSION:
+            raise VectorStoreException(
+                code=400,
+                message=f"Embedding dimension mismatch: got {len(embeddings[0])}, expected {self.EXPECTED_DIMENSION}"
+            )
         self.collection.add(
             ids=paper_ids,
             embeddings=embeddings,
@@ -2354,7 +2400,7 @@ prompts/
 
 ```python
 # models/schemas.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from enum import Enum
 
@@ -2383,43 +2429,53 @@ class AnalysisType(str, Enum):
 # ===== 请求模型 =====
 
 class UserProfile(BaseModel):
-    educationLevel: EducationLevel
-    researchField: str
-    knowledgeLevel: KnowledgeLevel
-    preferredStyle: PreferredStyle
+    model_config = ConfigDict(populate_by_name=True)
+
+    education_level: EducationLevel = Field(alias="educationLevel")
+    research_field: str = Field(alias="researchField")
+    knowledge_level: KnowledgeLevel = Field(alias="knowledgeLevel")
+    preferred_style: PreferredStyle = Field(alias="preferredStyle")
 
 class AnalyzeRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     topic: str = Field(..., min_length=1, max_length=500)
-    paperIds: List[str] = Field(default_factory=list)
-    userProfile: UserProfile
-    analysisType: AnalysisType
-    analysisId: str = Field(..., min_length=1)
+    paper_ids: List[str] = Field(default_factory=list, alias="paperIds")
+    user_profile: UserProfile = Field(alias="userProfile")
+    analysis_type: AnalysisType = Field(alias="analysisType")
+    analysis_id: str = Field(..., min_length=1, alias="analysisId")
 
 class SearchRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     query: str = Field(..., min_length=1, max_length=500)
-    topK: int = Field(default=10, ge=1, le=50)
+    top_k: int = Field(default=10, ge=1, le=50, alias="topK")
     filters: Optional[dict] = None
 
 # ===== 响应模型 =====
 
 class AgentStateResponse(BaseModel):
-    agentName: str
-    status: str           # waiting / running / completed / failed
+    agent_name: str = Field(alias="agentName")
+    status: str
     progress: Optional[float] = None
-    intermediateResult: Optional[str] = None
-    durationMs: Optional[int] = None
+    intermediate_result: Optional[str] = Field(default=None, alias="intermediateResult")
+    duration_ms: Optional[int] = Field(default=None, alias="durationMs")
 
 class AnalyzeResponse(BaseModel):
-    analysisId: str
+    model_config = ConfigDict(populate_by_name=True)
+
+    analysis_id: str = Field(alias="analysisId")
     status: str
     report: Optional[str] = None
     citations: Optional[list] = None
-    agentStates: Optional[List[AgentStateResponse]] = None
+    agent_states: Optional[List[AgentStateResponse]] = Field(default=None, alias="agentStates")
     degraded: Optional[bool] = None
-    degradedReason: Optional[str] = None
+    degraded_reason: Optional[str] = Field(default=None, alias="degradedReason")
 
-class SearchResult(BaseModel):
-    paperId: str
+class SearchResultItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    paper_id: str = Field(alias="paperId")
     title: str
     abstract: Optional[str] = None
     score: float
@@ -2427,16 +2483,22 @@ class SearchResult(BaseModel):
     venue: Optional[str] = None
 
 class SearchResponse(BaseModel):
-    results: List[SearchResult]
+    results: List[SearchResultItem]
     total: int
 
 class ModelStatusResponse(BaseModel):
-    llmStatus: str         # loading / loaded / error
-    llmMode: str           # builtin / api / local
-    embeddingStatus: str   # loading / loaded / error
-    chromaStatus: str      # connected / disconnected
-    gpuAvailable: bool = False
-    gpuMemoryUsed: Optional[str] = None
+    model_config = ConfigDict(populate_by_name=True)
+
+    llm_status: str = Field(alias="llmStatus")
+    llm_mode: str = Field(alias="llmMode")
+    embedding_status: str = Field(alias="embeddingStatus")
+    embedding_dimension: Optional[int] = Field(default=None, alias="embeddingDimension")
+    chroma_status: str = Field(alias="chromaStatus")
+    active_llm_provider: Optional[str] = Field(default=None, alias="activeLlmProvider")
+    gpu_available: bool = Field(default=False, alias="gpuAvailable")
+    gpu_memory_used: Optional[str] = Field(default=None, alias="gpuMemoryUsed")
+
+# 注：API端点应设置 response_model_by_alias=True 以输出camelCase
 ```
 
 ### 14.2 枚举定义
@@ -2567,17 +2629,18 @@ class Settings(BaseSettings):
     CHROMA_PATH: str = "./data/vector_db"
 
     # Embedding配置
-    EMBEDDING_MODEL_PATH: str = "BAAI/bge-large-zh-v1.5"
+    EMBEDDING_MODEL_PATH: str = "BAAI/bge-m3"
     EMBEDDING_DEVICE: str = "cpu"              # cpu / cuda
+    EMBEDDING_EXPECTED_DIMENSION: int = 1024
     EMBEDDING_API_KEY: str = ""                # 外接Embedding API Key
     EMBEDDING_API_BASE: str = ""               # 外接Embedding API Base URL
     EMBEDDING_API_MODEL: str = ""              # 外接Embedding API 模型名
 
     # LLM配置
     LLM_MODE: str = "auto"                     # auto / builtin / api / local
-    LLM_BUILTIN_URL: str = "https://llm.literature-assistant.com/v1"
-    LLM_BUILTIN_API_KEY: str = "builtin"
-    LLM_BUILTIN_MODEL: str = "literature-assistant-pro"
+    LLM_BUILTIN_URL: str = ""
+    LLM_BUILTIN_API_KEY: str = ""
+    LLM_BUILTIN_MODEL: str = ""
     LLM_API_KEY: str = ""                      # 用户自配API Key
     LLM_API_BASE: str = ""                     # 用户自配API Base URL
     LLM_MODEL_NAME: str = ""                   # 用户自配API 模型名
@@ -2614,16 +2677,17 @@ settings = Settings()
 CHROMA_PATH=./data/vector_db
 
 # Embedding
-EMBEDDING_MODEL_PATH=BAAI/bge-large-zh-v1.5
+EMBEDDING_MODEL_PATH=BAAI/bge-m3
 EMBEDDING_DEVICE=cpu
+EMBEDDING_EXPECTED_DIMENSION=1024
 # EMBEDDING_API_KEY=          # 外接API Key（备选方案）
 # EMBEDDING_API_BASE=         # 外接API Base URL
 # EMBEDDING_API_MODEL=        # 外接API 模型名
 
 # LLM配置（三路并行，auto模式按优先级降级）
 LLM_MODE=auto
-# 方案A：软件方模型（最高优先级，开箱即用）
-LLM_BUILTIN_URL=https://llm.literature-assistant.com/v1
+# 方案A：软件方模型（最高优先级，待发榜单位提供URL后配置）
+# LLM_BUILTIN_URL=https://llm.literature-assistant.com/v1
 # 方案B：外接API（中等优先级，用户自配）
 # LLM_API_KEY=sk-xxx
 # LLM_API_BASE=https://api.deepseek.com/v1

@@ -98,6 +98,18 @@ json_prompt/
 │   └── task05_pinia_stores_skeleton/
 │       ├── prompt.json
 │       └── prompt.md
+│   ├── task06_typescript_type_definitions/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task07_global_styles_css_variables/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task08_app_header_footer_layout/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   └── task09_home_view_integration_test/
+│       ├── prompt.json
+│       └── prompt.md
 └── ai-service/
     ├── task00_python_fastapi_skeleton/
     │   ├── prompt.json
@@ -182,6 +194,10 @@ json_prompt/
 | 03 | task03_axios_interceptor_api_skeleton | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
 | 04 | task04_vue_router_guards_routes | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
 | 05 | task05_pinia_stores_skeleton | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
+| 06 | task06_typescript_type_definitions | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
+| 07 | task07_global_styles_css_variables | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
+| 08 | task08_app_header_footer_layout | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1 |
+| 09 | task09_home_view_integration_test | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.2.1, F1.2.6 |
 
 > **维护说明**：每新增一个任务文件夹，必须同步更新对应模块目录的映射表。序号与里程碑对应关系参考 `docs/项目里程碑文档.md` 和 `docs/版本里程碑功能清单.md`。
 

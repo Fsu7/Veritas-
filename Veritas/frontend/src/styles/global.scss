@@ -1,3 +1,5 @@
+@use './variables' as *;
+
 *,
 *::before,
 *::after {
@@ -14,9 +16,8 @@ html {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-    'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
-    'Noto Color Emoji';
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
   color: #303133;
   background-color: #f5f7fa;
 }
@@ -30,6 +31,49 @@ a:hover {
   text-decoration: underline;
 }
 
+.text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.page-container {
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--spacing-md);
+}
+
+.section-title {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  margin-bottom: var(--spacing-md);
+}
+
+.el-card {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.el-button {
+  font-weight: 500;
+}
+
+.el-tag {
+  border-radius: var(--radius-sm);
+}
+
+.ai-generated-label {
+  font-size: var(--font-size-sm);
+  color: var(--el-color-info);
+  font-style: italic;
+}
+
 .app-container {
   display: flex;
   flex-direction: column;
@@ -41,5 +85,5 @@ a:hover {
   max-width: var(--content-max-width);
   width: 100%;
   margin: 0 auto;
-  padding: 20px;
+  padding: var(--spacing-md);
 }

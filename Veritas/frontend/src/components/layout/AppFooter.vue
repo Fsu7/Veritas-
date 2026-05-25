@@ -2,20 +2,33 @@
 </script>
 
 <template>
-  <el-footer class="app-footer">
-    <p>&copy; 2026 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究</p>
+  <el-footer class="app-footer" height="auto">
+    <div class="app-footer__content">
+      <p class="app-footer__info">XH-202630 科研文献智能助手</p>
+      <p class="app-footer__info">v0.1</p>
+      <p class="app-footer__ai-label ai-generated-label">AI生成内容仅供参考</p>
+    </div>
   </el-footer>
 </template>
 
 <style scoped lang="scss">
 .app-footer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 48px;
-  background-color: #fff;
+  background-color: #f5f7fa;
   border-top: 1px solid #e4e7ed;
-  color: #909399;
-  font-size: 13px;
+  padding: var(--spacing-md) 0;
+
+  &__content {
+    text-align: center;
+  }
+
+  &__info {
+    font-size: var(--font-size-sm);
+    color: var(--el-color-info);
+    line-height: 1.8;
+  }
+
+  &__ai-label {
+    margin-top: var(--spacing-xs);
+  }
 }
 </style>

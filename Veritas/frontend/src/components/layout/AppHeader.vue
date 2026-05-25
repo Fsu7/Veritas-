@@ -32,7 +32,7 @@ function handleLogout() {
     </el-menu>
     <div class="app-header__user" v-if="userStore.isLoggedIn">
       <span class="app-header__username">{{ userStore.username }}</span>
-      <el-button text @click="handleLogout">退出</el-button>
+      <el-button text class="app-header__logout" @click="handleLogout">退出</el-button>
     </div>
     <div class="app-header__auth" v-else>
       <el-button text @click="router.push('/login')">登录</el-button>

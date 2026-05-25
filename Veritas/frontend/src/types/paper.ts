@@ -1,3 +1,8 @@
+/**
+ * 论文实体，对应后端papers表
+ * JSON字段映射: paperId ↔ paper_id, citationCount ↔ citation_count,
+ * pdfUrl ↔ pdf_url, recommendReason ↔ recommend_reason
+ */
 export interface Paper {
   paperId: string
   title: string
@@ -12,6 +17,9 @@ export interface Paper {
   recommendReason?: string
 }
 
+/**
+ * 论文筛选参数
+ */
 export interface FilterParams {
   yearFrom?: number
   yearTo?: number

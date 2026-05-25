@@ -30,14 +30,33 @@ app.include_router(api_router, prefix="/api")
 
 @app.get("/health")
 async def health_check():
-    return {
-        "status": "UP",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "llm": events.llm_service.status if events.llm_service else "not_loaded",
-        "embedding": events.embedding_service.status if events.embedding_service else "not_loaded",
-        "chroma": events.vector_store_service.status if events.vector_store_service else "not_connected",
-        "prompts": events.prompt_manager.status if events.prompt_manager else "not_loaded",
+    llm_status = events.app_state.llm_service.status if events.app_state.llm_service else "not_loaded"
+    embedding_status = events.app_state.embedding_service.status if events.app_state.embedding_service else "not_loaded"
+    chroma_status = events.app_state.vector_store_service.status if events.app_state.vector_store_service else "not_connected"
+    prompts_status = events.app_state.prompt_manager.status if events.app_state.prompt_manager else "not_loaded"
+
+    components = {
+        "llm": llm_status,
+        "embedding": embedding_status,
+        "chroma": chroma_status,
+        "prompts": prompts_status,
     }
+
+    critical_ok = (
+        llm_status == "loaded"
+        and embedding_status in ("loaded_api", "loaded_local")
+        and chroma_status == "connected"
+    )
+    overall = "UP" if critical_ok else "DEGRADED"
+
+    return JSONResponse(
+        status_code=200 if critical_ok else 503,
+        content={
+            "status": overall,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **components,
+        },
+    )
 
 
 @app.exception_handler(AIServiceException)

@@ -1,0 +1,173 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1 / FM1：项目骨架与基础设施就绪",
+    "requirement": "创建HomeView.vue首页骨架组件，实现主题搜索输入框（支持中英文、回车触发检索）、最近搜索标签（LocalStorage存储最近10条）、检索按钮（点击跳转/search路由并传递query参数），集成AppHeader和AppFooter布局组件，使用paperStore管理搜索状态，未登录用户可使用首页但点击检索后引导登录，并编写集成测试验证首页渲染、搜索输入、历史记录和布局组件集成",
+    "requirement_ids": ["F1.2.1", "F1.2.6"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第5.2.1节首页设计：HomeView完整UI布局和核心逻辑" },
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第9.1.2节paperStore：searchPapers Action定义" },
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第12节组件设计规范：组件通信模式、Loading状态" },
+      { "path": "AGENTS.md", "purpose": "第9.4节前端规范：script setup + Composition API + scoped样式" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/HomeView.vue", "description": "首页页面组件" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/layout/AppHeader.vue", "description": "顶部导航栏（task08创建）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/layout/AppFooter.vue", "description": "底部信息栏（task08创建）" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "task05创建的paperStore，HomeView调用searchPapers", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/stores/userStore.ts", "description": "task05创建的userStore，HomeView判断登录状态", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/router/index.ts", "description": "task04创建的路由配置，HomeView使用router.push跳转", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/layout/AppHeader.vue", "description": "task08创建的AppHeader组件", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/layout/AppFooter.vue", "description": "task08创建的AppFooter组件", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/styles/variables.scss", "description": "task07创建的CSS变量", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/types/paper.ts", "description": "task06创建的Paper/FilterParams类型", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "views/HomeView.vue",
+      "path": "Veritas/frontend/src/views/HomeView.vue",
+      "responsibility": "首页：主题搜索输入、最近搜索标签、检索跳转、布局集成",
+      "key_interfaces": [
+        { "name": "searchQuery", "signature": "ref<string>('')", "description": "搜索输入框绑定值" },
+        { "name": "recentSearches", "signature": "ref<string[]>(loadFromLocalStorage)", "description": "最近搜索记录（最多10条）" },
+        { "name": "handleSearch", "signature": "() => void", "description": "检索：校验输入 → 保存历史 → 判断登录 → 跳转/search" },
+        { "name": "handleRecentClick", "signature": "(query: string) => void", "description": "点击历史标签：填入搜索框并触发检索" },
+        { "name": "clearRecentSearches", "signature": "() => void", "description": "清除搜索历史" }
+      ]
+    },
+    {
+      "name": "utils/storage.ts",
+      "path": "Veritas/frontend/src/utils/storage.ts",
+      "responsibility": "LocalStorage工具：搜索历史的存取",
+      "key_interfaces": [
+        { "name": "RECENT_SEARCHES_KEY", "signature": "const RECENT_SEARCHES_KEY = 'recent_searches'", "description": "LocalStorage key" },
+        { "name": "getRecentSearches", "signature": "() => string[]", "description": "获取最近搜索记录" },
+        { "name": "saveRecentSearch", "signature": "(query: string) => void", "description": "保存搜索记录（去重+最多10条）" },
+        { "name": "clearRecentSearches", "signature": "() => void", "description": "清除搜索记录" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/views/HomeView.vue", "description": "首页页面：搜索输入+历史标签+检索跳转+布局集成", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/utils/storage.ts", "description": "LocalStorage工具：搜索历史存取", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/router/index.ts", "description": "确认'/'路由已配置HomeView（task04应已配置）", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "创建utils/storage.ts：实现LocalStorage搜索历史管理——(1) RECENT_SEARCHES_KEY常量='recent_searches'；(2) getRecentSearches(): 从localStorage读取并JSON.parse，返回string[]，异常时返回[]；(3) saveRecentSearch(query: string): 读取现有列表 → 去重（如已存在则移到首位）→ 在头部插入query → 截取前10条 → JSON.stringify写回localStorage；(4) clearRecentSearches(): 移除localStorage中的RECENT_SEARCHES_KEY",
+        "priority": "P0",
+        "acceptance_condition": "搜索历史可正确存取、去重、限制10条、清除"
+      },
+      {
+        "id": "FR-002",
+        "description": "创建HomeView.vue（<script setup lang=\"ts\">）：(1) 导入useRouter、usePaperStore、useUserStore、storage工具；(2) searchQuery=ref('')绑定搜索输入框；(3) recentSearches=ref(getRecentSearches())初始化历史记录；(4) handleSearch方法：校验searchQuery非空trim → saveRecentSearch(query) → 更新recentSearches → 判断userStore.isLoggedIn（已登录：router.push({name:'Search',query:{q:query}})；未登录：ElMessage.warning('请先登录') + router.push('/login')）；(5) handleRecentClick(query)方法：searchQuery.value=query → handleSearch()；(6) clearRecentSearches方法：clearRecentSearches() → recentSearches.value=[]；(7) 模板结构：AppHeader → 主内容区（.home-view__content, flex-center居中）→ 搜索区域（.home-view__search）：标题'🔍 科研文献智能助手'（.home-view__title）、el-input（v-model=searchQuery, placeholder='输入研究主题，如Multi-Agent协同决策', @keyup.enter=handleSearch, size=large, clearable）、el-button（type=primary, @click=handleSearch, size=large）'检索'、最近搜索区域（.home-view__recent, v-if=recentSearches.length）：标签'最近搜索：' + el-tag（v-for, @click=handleRecentClick, effect=plain, size=small, style=cursor:pointer）+ 清除按钮 → AppFooter",
+        "priority": "P0",
+        "acceptance_condition": "首页正确渲染搜索框、历史标签、布局组件，搜索跳转功能正常"
+      },
+      {
+        "id": "FR-003",
+        "description": "HomeView样式（<style scoped lang=\"scss\">）：(1) .home-view使用min-height:100vh, display:flex, flex-direction:column；(2) .home-view__content使用flex:1, display:flex, flex-direction:column, align-items:center, justify-content:center, padding:var(--spacing-xl)；(3) .home-view__title使用font-size:var(--font-size-xxl), font-weight:600, margin-bottom:var(--spacing-lg), color:#303133；(4) .home-view__search使用width:100%, max-width:640px；(5) .home-view__search-input使用margin-bottom:var(--spacing-md)；(6) .home-view__recent使用margin-top:var(--spacing-lg), display:flex, align-items:center, flex-wrap:wrap, gap:var(--spacing-sm)；(7) .home-view__recent-label使用color:var(--el-color-info), font-size:var(--font-size-sm), margin-right:var(--spacing-sm)；(8) .home-view__clear-btn使用margin-left:auto",
+        "priority": "P0",
+        "acceptance_condition": "首页样式美观居中，使用CSS变量，响应式布局"
+      },
+      {
+        "id": "FR-004",
+        "description": "搜索输入防抖：使用lodash-es的debounce或自定义debounce，搜索输入300ms防抖（仅用于自动补全场景，回车和按钮点击立即触发）。当前M1阶段仅需回车和按钮触发，防抖为预留设计",
+        "priority": "P2",
+        "acceptance_condition": "回车和按钮点击立即触发检索"
+      },
+      {
+        "id": "FR-005",
+        "description": "集成测试：编写HomeView集成测试，验证(1)首页正确渲染AppHeader和AppFooter；(2)搜索输入框存在且可输入；(3)回车触发检索跳转（已登录→/search?q=xxx）；(4)未登录点击检索提示登录；(5)最近搜索标签正确显示和点击；(6)清除历史功能正确",
+        "priority": "P0",
+        "acceptance_condition": "集成测试全部通过"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "路由query参数使用q（简短），与后端API参数名一致",
+        "mappings": [
+          { "java": "query", "python": "query", "json": "q" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "用户输入 → HomeView → router.push(/search?q=xxx) → SearchView → paperStore.searchPapers(q) → API调用"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "未登录用户点击检索时引导登录，不直接调用需认证API" },
+      { "category": "xss", "requirement": "搜索输入通过v-model绑定，Vue自动转义，无需额外处理" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue（HomeView.vue）"
+      },
+      "json": { "field_name": "snake_case" },
+      "cross_system_mapping": []
+    },
+    "layering": {
+      "frontend": { "rule": "View → Store → API，HomeView通过paperStore调用搜索，不直接调API" }
+    },
+    "error_handling": {
+      "frontend": { "approach": "搜索输入校验（非空trim），未登录提示ElMessage.warning" }
+    },
+    "caching": { "pattern": "搜索历史存储在LocalStorage，不涉及Redis缓存", "ttl_layers": [] },
+    "logging": { "prohibited": [] },
+    "security": {
+      "auth_mechanism": "未登录用户可访问首页（/路由requiresAuth:false），但检索时引导登录"
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "在组件中直接调用API", "reason": "通过paperStore调用，不直接调API", "severity": "high" },
+    { "id": "FA-003", "action": "使用非scoped样式", "reason": "组件样式必须scoped", "severity": "high" },
+    { "id": "FA-004", "action": "硬编码颜色值或尺寸", "reason": "必须使用CSS变量", "severity": "medium" },
+    { "id": "FA-005", "action": "使用any类型", "reason": "类型安全约束", "severity": "high" },
+    { "id": "FA-006", "action": "修改task00-08已创建的文件（router/index.ts确认除外）", "reason": "避免引入无关变更", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "storage工具测试",
+        "description": "验证getRecentSearches/saveRecentSearch/clearRecentSearches功能，包括去重、10条限制",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "HomeView集成测试",
+        "description": "验证首页渲染AppHeader/AppFooter、搜索输入、检索跳转、历史标签、未登录引导",
+        "layers_involved": ["frontend"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "TypeScript编译无错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run dev", "expected_result": "开发服务器启动成功，首页渲染正常" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run test", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "HomeView：搜索输入框+检索按钮+历史标签功能完整", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "HomeView：回车和按钮触发检索，已登录跳转/search?q=xxx", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "HomeView：未登录点击检索提示登录并跳转/login", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "HomeView：最近搜索标签显示和点击功能正确", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "HomeView：集成AppHeader和AppFooter布局组件", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "utils/storage.ts：搜索历史存取、去重、10条限制功能正确", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "集成测试全部通过", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "npx vue-tsc --noEmit编译无错误", "verified_by": "automated_test" }
+  ]
+}

@@ -10,6 +10,8 @@ from app.exception import VectorStoreException
 
 class VectorStoreService:
 
+    EXPECTED_DIMENSION = 1024
+
     def __init__(self, settings):
         self.settings = settings
         self.client = None
@@ -52,6 +54,15 @@ class VectorStoreService:
                 f"ids={len(paper_ids)}, embeddings={len(embeddings)}, "
                 f"metadatas={len(metadatas)}, documents={len(documents)}"
             )
+
+        if embeddings:
+            actual_dim = len(embeddings[0])
+            if actual_dim != self.EXPECTED_DIMENSION:
+                raise VectorStoreException(
+                    f"Embedding dimension mismatch: got {actual_dim}, "
+                    f"expected {self.EXPECTED_DIMENSION}. "
+                    f"Ensure the embedding model outputs {self.EXPECTED_DIMENSION}-dim vectors."
+                )
 
         self.collection.add(
             ids=paper_ids,

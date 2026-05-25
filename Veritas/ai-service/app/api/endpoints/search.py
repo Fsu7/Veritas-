@@ -12,15 +12,15 @@ from app.models.schemas import (
 router = APIRouter()
 
 
-@router.post("/", response_model=SearchResponse)
+@router.post("/", response_model=SearchResponse, response_model_by_alias=True)
 async def search(request: SearchRequest) -> SearchResponse:
-    if events.embedding_service is None or events.embedding_service.status == "error":
+    if events.app_state.embedding_service is None or events.app_state.embedding_service.status == "error":
         raise AIServiceException(code=503, message="Embedding服务未就绪")
-    if events.vector_store_service is None or events.vector_store_service.status != "connected":
+    if events.app_state.vector_store_service is None or events.app_state.vector_store_service.status != "connected":
         raise AIServiceException(code=503, message="ChromaDB未就绪")
 
-    query_embedding = await events.embedding_service.encode(request.query)
-    raw_results = await events.vector_store_service.search(
+    query_embedding = await events.app_state.embedding_service.encode(request.query)
+    raw_results = await events.app_state.vector_store_service.search(
         embedding=query_embedding.tolist(),
         top_k=request.top_k,
         filters=request.filters,

@@ -1,3 +1,6 @@
+/**
+ * 后端统一响应格式
+ */
 export interface ApiResponse<T> {
   code: number
   message: string
@@ -5,6 +8,9 @@ export interface ApiResponse<T> {
   timestamp: number
 }
 
+/**
+ * 分页响应格式
+ */
 export interface PageResponse<T> {
   items: T[]
   total: number

@@ -1,0 +1,223 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1 / FM1：项目骨架与基础设施就绪",
+    "requirement": "创建5个TypeScript类型定义文件（types/paper.ts、types/user.ts、types/analysis.ts、types/agent.ts、types/common.ts），覆盖前端全部业务域的类型需求，包括论文、用户画像、分析结果、Agent状态、通用响应等类型，所有interface使用export导出，枚举值使用PascalCase，字段命名使用camelCase（与TypeScript规范一致），同时定义与后端JSON snake_case字段的映射注释",
+    "requirement_ids": ["F1.1", "F1.2", "F1.3", "F1.4", "F1.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "附录A：TypeScript类型定义完整参考，包含Paper/UserProfile/AnalysisResult/AgentState等全部interface" },
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第9章状态管理规范：Store中使用的类型定义" },
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第10章API通信层规范：ApiResponse/PageResponse类型" },
+      { "path": "AGENTS.md", "purpose": "第7节数据库设计：枚举值定义（education_level/knowledge_level/preferred_style等）" },
+      { "path": "docs/信息架构文档(IA).md", "purpose": "跨系统字段映射：Java camelCase ↔ Python/JSON snake_case" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/paper.ts", "description": "论文相关类型定义" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/user.ts", "description": "用户相关类型定义" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/analysis.ts", "description": "分析相关类型定义" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/agent.ts", "description": "Agent相关类型定义" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/common.ts", "description": "通用类型定义（ApiResponse/PageResponse等）" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/userStore.ts", "description": "task05创建的userStore，引用了UserProfile/LoginResponse/ProfileResponse类型", "reuse_type": "reference" },
+      { "file_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "task05创建的paperStore，引用了Paper/FilterParams类型", "reuse_type": "reference" },
+      { "file_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "task05创建的sessionStore，引用了AnalysisResult类型", "reuse_type": "reference" },
+      { "file_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "task05创建的agentStore，引用了AgentState/FlowData类型", "reuse_type": "reference" },
+      { "file_path": "Veritas/frontend/src/api/index.ts", "description": "task03创建的Axios实例，响应拦截器引用了ApiResponse<T>类型", "reuse_type": "reference" },
+      { "file_path": "docs/frontend/前端模块系统架构文档.md", "description": "附录A定义了全部TypeScript类型，是本次任务的直接参考", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "types/common.ts",
+      "path": "Veritas/frontend/src/types/common.ts",
+      "responsibility": "通用类型定义：API统一响应、分页响应",
+      "key_interfaces": [
+        { "name": "ApiResponse<T>", "signature": "interface ApiResponse<T> { code: number; message: string; data: T; timestamp: number }", "description": "后端统一响应格式" },
+        { "name": "PageResponse<T>", "signature": "interface PageResponse<T> { items: T[]; total: number; page: number; size: number; totalPages: number }", "description": "分页响应格式" }
+      ]
+    },
+    {
+      "name": "types/paper.ts",
+      "path": "Veritas/frontend/src/types/paper.ts",
+      "responsibility": "论文相关类型：论文实体、筛选参数",
+      "key_interfaces": [
+        { "name": "Paper", "signature": "interface Paper { paperId, title, authors, abstract, year, venue?, keywords?, citationCount?, pdfUrl?, score?, recommendReason? }", "description": "论文实体，对应后端papers表" },
+        { "name": "FilterParams", "signature": "interface FilterParams { yearFrom?, yearTo?, venue?, minCitations?, sort? }", "description": "论文筛选参数" }
+      ]
+    },
+    {
+      "name": "types/user.ts",
+      "path": "Veritas/frontend/src/types/user.ts",
+      "responsibility": "用户相关类型：用户画像、登录响应、画像响应",
+      "key_interfaces": [
+        { "name": "UserProfile", "signature": "interface UserProfile { educationLevel, researchField, knowledgeLevel, preferredStyle }", "description": "用户画像4维度，枚举值类型约束" },
+        { "name": "LoginResponse", "signature": "interface LoginResponse { token, userId, username, hasProfile }", "description": "登录接口响应" },
+        { "name": "ProfileResponse", "signature": "interface ProfileResponse { educationLevel, researchField, knowledgeLevel, preferredStyle }", "description": "画像接口响应" }
+      ]
+    },
+    {
+      "name": "types/analysis.ts",
+      "path": "Veritas/frontend/src/types/analysis.ts",
+      "responsibility": "分析相关类型：分析结果、结构化分析、对比结果、引用、矛盾",
+      "key_interfaces": [
+        { "name": "AnalysisResult", "signature": "interface AnalysisResult { analysisId, status, type, result?, agentStates?, degraded?, degradedReason? }", "description": "分析结果实体" },
+        { "name": "StructuredAnalysis", "signature": "interface StructuredAnalysis { researchQuestion, coreMethod, keyExperiments, coreFindings, limitations, plainExplanation? }", "description": "5维度结构化分析" },
+        { "name": "CompareResult", "signature": "interface CompareResult { table: CompareRow[], summary, conflicts: Conflict[] }", "description": "对比结果含矛盾发现" },
+        { "name": "Citation", "signature": "interface Citation { paperId, text, location }", "description": "引用信息" },
+        { "name": "Conflict", "signature": "interface Conflict { description, possibleReason, papers: string[] }", "description": "矛盾发现" },
+        { "name": "CompareRow", "signature": "interface CompareRow { dimension: string; values: string[] }", "description": "对比表格行" }
+      ]
+    },
+    {
+      "name": "types/agent.ts",
+      "path": "Veritas/frontend/src/types/agent.ts",
+      "responsibility": "Agent相关类型：Agent状态、流程图数据",
+      "key_interfaces": [
+        { "name": "AgentState", "signature": "interface AgentState { name, status, progress?, intermediateResult?, durationMs?, error? }", "description": "Agent执行状态" },
+        { "name": "FlowData", "signature": "interface FlowData { nodes: FlowNode[]; links: FlowLink[] }", "description": "ECharts流程图数据" },
+        { "name": "FlowNode", "signature": "interface FlowNode { name, label, x, y }", "description": "流程图节点" },
+        { "name": "FlowLink", "signature": "interface FlowLink { source, target }", "description": "流程图连线" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/types/common.ts", "description": "通用类型：ApiResponse<T>、PageResponse<T>", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/types/paper.ts", "description": "论文类型：Paper、FilterParams", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/types/user.ts", "description": "用户类型：UserProfile、LoginResponse、ProfileResponse", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/types/analysis.ts", "description": "分析类型：AnalysisResult、StructuredAnalysis、CompareResult、Citation、Conflict、CompareRow", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/types/agent.ts", "description": "Agent类型：AgentState、FlowData、FlowNode、FlowLink", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "创建types/common.ts：定义ApiResponse<T>（code: number, message: string, data: T, timestamp: number）和PageResponse<T>（items: T[], total: number, page: number, size: number, totalPages: number），两个interface均使用export导出",
+        "priority": "P0",
+        "acceptance_condition": "ApiResponse和PageResponse类型可被api/index.ts和Store正确导入使用"
+      },
+      {
+        "id": "FR-002",
+        "description": "创建types/paper.ts：定义Paper interface（paperId: string, title: string, authors: string[], abstract: string, year: number, venue?: string, keywords?: string[], citationCount?: number, pdfUrl?: string, score?: number, recommendReason?: string）和FilterParams interface（yearFrom?: number, yearTo?: number, venue?: string, minCitations?: number, sort?: 'relevance' | 'year' | 'citations'），均使用export导出",
+        "priority": "P0",
+        "acceptance_condition": "Paper和FilterParams类型可被paperStore和PaperCard组件正确导入使用"
+      },
+      {
+        "id": "FR-003",
+        "description": "创建types/user.ts：定义UserProfile interface（educationLevel: 'undergraduate' | 'master' | 'phd' | 'faculty', researchField: string, knowledgeLevel: 'beginner' | 'intermediate' | 'advanced' | 'expert', preferredStyle: 'simple' | 'balanced' | 'technical'）、LoginResponse interface（token: string, userId: string, username: string, hasProfile: boolean）、ProfileResponse interface（educationLevel: string, researchField: string, knowledgeLevel: string, preferredStyle: string），均使用export导出。UserProfile的枚举字段使用联合字面量类型而非string，确保类型安全",
+        "priority": "P0",
+        "acceptance_condition": "UserProfile/LoginResponse/ProfileResponse类型可被userStore和UserProfileForm组件正确导入使用，枚举值有类型约束"
+      },
+      {
+        "id": "FR-004",
+        "description": "创建types/analysis.ts：定义AnalysisResult interface（analysisId: string, status: 'pending' | 'processing' | 'completed' | 'failed', type: 'paper_analysis' | 'compare' | 'report', result?: { report?: string, citations?: Citation[], analysis?: StructuredAnalysis, comparison?: CompareResult }, agentStates?: AgentState[], degraded?: boolean, degradedReason?: string）、StructuredAnalysis interface（researchQuestion: string, coreMethod: string, keyExperiments: string, coreFindings: string, limitations: string, plainExplanation?: string）、CompareResult interface（table: CompareRow[], summary: string, conflicts: Conflict[]）、CompareRow interface（dimension: string, values: string[]）、Citation interface（paperId: string, text: string, location: string）、Conflict interface（description: string, possibleReason: string, papers: string[]），均使用export导出。AnalysisResult需从agent.ts导入AgentState类型",
+        "priority": "P0",
+        "acceptance_condition": "AnalysisResult等6个类型可被sessionStore和AnalysisCard/CompareTable组件正确导入使用"
+      },
+      {
+        "id": "FR-005",
+        "description": "创建types/agent.ts：定义AgentState interface（name: string, status: 'waiting' | 'running' | 'completed' | 'failed', progress?: number, intermediateResult?: string, durationMs?: number, error?: string）、FlowData interface（nodes: FlowNode[], links: FlowLink[]）、FlowNode interface（name: string, label: string, x: number, y: number）、FlowLink interface（source: string, target: string），均使用export导出",
+        "priority": "P0",
+        "acceptance_condition": "AgentState/FlowData/FlowNode/FlowLink类型可被agentStore和AgentFlowChart组件正确导入使用"
+      },
+      {
+        "id": "FR-006",
+        "description": "所有interface字段命名使用camelCase（TypeScript规范），与后端JSON的snake_case字段通过Axios响应拦截器自动转换。在每个interface上方添加JSDoc注释说明对应的JSON字段名（如 @field paperId ↔ paper_id），方便开发者理解跨系统映射",
+        "priority": "P1",
+        "acceptance_condition": "每个interface有JSDoc注释标注JSON字段映射关系"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "TypeScript interface字段使用camelCase，后端JSON使用snake_case，Axios响应拦截器自动转换",
+        "mappings": [
+          { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" },
+          { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+          { "java": "pdfUrl", "python": "pdf_url", "json": "pdf_url" },
+          { "java": "recommendReason", "python": "recommend_reason", "json": "recommend_reason" },
+          { "java": "researchQuestion", "python": "research_question", "json": "research_question" },
+          { "java": "coreMethod", "python": "core_method", "json": "core_method" },
+          { "java": "keyExperiments", "python": "key_experiments", "json": "key_experiments" },
+          { "java": "coreFindings", "python": "core_findings", "json": "core_findings" },
+          { "java": "plainExplanation", "python": "plain_explanation", "json": "plain_explanation" },
+          { "java": "possibleReason", "python": "possible_reason", "json": "possible_reason" },
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediate_result" },
+          { "java": "durationMs", "python": "duration_ms", "json": "duration_ms" },
+          { "java": "degradedReason", "python": "degraded_reason", "json": "degraded_reason" },
+          { "java": "hasProfile", "python": "has_profile", "json": "has_profile" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "后端JSON(snake_case) → Axios拦截器转换 → TypeScript类型(camelCase) → Store/组件使用"
+    },
+    "security_requirements": []
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "camelCase.ts（类型文件：paper.ts / user.ts / analysis.ts / agent.ts / common.ts）",
+        "enum_value": "PascalCase（联合字面量类型使用小写字符串值，如 'undergraduate' | 'master'）"
+      },
+      "json": { "field_name": "snake_case" },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "frontend": { "rule": "types/目录为基础设施层，被所有其他层引用（Store/Component/API/Composable）" }
+    },
+    "error_handling": {
+      "frontend": { "approach": "类型定义本身不涉及错误处理，但AnalysisResult.status和AgentState.status包含错误状态枚举" }
+    },
+    "caching": { "pattern": "不涉及缓存", "ttl_layers": [] },
+    "logging": { "prohibited": [] },
+    "security": {}
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "使用any类型", "reason": "类型安全约束，所有字段必须明确类型", "severity": "high" },
+    { "id": "FA-003", "action": "在interface字段中使用snake_case命名", "reason": "TypeScript规范要求camelCase，JSON转换由Axios拦截器处理", "severity": "high" },
+    { "id": "FA-004", "action": "修改task00-05已创建的文件", "reason": "避免引入无关变更，后续任务会更新import引用", "severity": "medium" },
+    { "id": "FA-005", "action": "使用enum关键字定义枚举", "reason": "项目规范使用联合字面量类型（union literal types），如 'undergraduate' | 'master'", "severity": "high" },
+    { "id": "FA-006", "action": "在types/目录创建除5个指定文件外的其他文件", "reason": "当前M1里程碑仅需5个类型文件", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "类型导入验证测试",
+        "description": "验证所有5个类型文件可正确导入，interface类型定义完整，枚举值类型约束有效",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "TypeScript编译无错误，所有类型定义合法" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run build", "expected_result": "构建成功，类型文件正确编译" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "types/common.ts：ApiResponse<T>和PageResponse<T>定义完整，字段类型正确", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "types/paper.ts：Paper和FilterParams定义完整，可选字段使用?标记", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "types/user.ts：UserProfile枚举字段使用联合字面量类型，LoginResponse和ProfileResponse定义完整", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "types/analysis.ts：6个interface定义完整，AnalysisResult正确引用AgentState类型", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "types/agent.ts：AgentState/FlowData/FlowNode/FlowLink定义完整", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "所有interface字段使用camelCase命名", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "npx vue-tsc --noEmit 编译无错误", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "无any类型使用", "verified_by": "code_review" }
+  ]
+}

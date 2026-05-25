@@ -1,0 +1,159 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1 / FM1：项目骨架与基础设施就绪",
+    "requirement": "创建2个布局组件（components/layout/AppHeader.vue和components/layout/AppFooter.vue），AppHeader实现顶部导航栏包含Logo文字、水平菜单（首页/用户中心）、用户信息显示和退出按钮，根据登录状态动态显示菜单和用户区域，未登录时显示登录/注册链接；AppFooter实现底部信息栏包含项目名称、版本号、AI内容标注提示，使用Element Plus组件（el-header/el-menu/el-button/el-footer），遵循BEM CSS命名和scoped样式",
+    "requirement_ids": ["F1.1"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第11.2节导航栏设计：AppHeader完整代码参考" },
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第12节组件设计规范：Props Down/Events Up、BEM命名、scoped样式" },
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第3.2节命名规范：组件文件命名、CSS BEM命名" },
+      { "path": "AGENTS.md", "purpose": "第9.4节前端规范：script setup + Composition API + scoped样式" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/layout/AppHeader.vue", "description": "顶部导航栏组件" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/layout/AppFooter.vue", "description": "底部信息栏组件" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/userStore.ts", "description": "task05创建的userStore，AppHeader使用isLoggedIn/username/logout", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/router/index.ts", "description": "task04创建的路由配置，AppHeader使用router.push导航", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/styles/variables.scss", "description": "task07创建的CSS变量，AppHeader使用--header-height等变量", "reuse_type": "direct_reuse" },
+      { "file_path": "docs/frontend/前端模块系统架构文档.md", "description": "第11.2节定义了AppHeader完整代码", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "components/layout/AppHeader.vue",
+      "path": "Veritas/frontend/src/components/layout/AppHeader.vue",
+      "responsibility": "顶部导航栏：Logo、导航菜单、用户信息、退出按钮",
+      "key_interfaces": [
+        { "name": "Props", "signature": "无（从userStore获取状态）", "description": "不接收Props，直接使用userStore" },
+        { "name": "menuItems", "signature": "computed(() => isLoggedIn ? [{label:'首页',route:'/'},{label:'用户中心',route:'/user-center'}] : [])", "description": "根据登录状态动态生成菜单项" },
+        { "name": "handleLogout", "signature": "() => void", "description": "退出登录：调用userStore.logout() + router.push('/login')" }
+      ]
+    },
+    {
+      "name": "components/layout/AppFooter.vue",
+      "path": "Veritas/frontend/src/components/layout/AppFooter.vue",
+      "responsibility": "底部信息栏：项目名称、版本号、AI标注提示",
+      "key_interfaces": [
+        { "name": "Props", "signature": "无", "description": "纯展示组件，无Props" },
+        { "name": "Emits", "signature": "无", "description": "纯展示组件，无Events" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/layout/AppHeader.vue", "description": "顶部导航栏组件：Logo+菜单+用户信息+退出", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/components/layout/AppFooter.vue", "description": "底部信息栏组件：项目名称+版本+AI标注", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "创建AppHeader.vue（<script setup lang=\"ts\">）：(1) 导入useUserStore和useRouter；(2) 使用computed根据userStore.isLoggedIn动态生成menuItems数组（已登录：首页'/' + 用户中心'/user-center'；未登录：空数组）；(3) handleLogout方法：调用userStore.logout()后router.push('/login')；(4) 模板使用el-header（height=var(--header-height)），内部包含3个区域：左侧Logo文字'科研文献智能助手'（class=app-header__logo）、中间el-menu（mode=horizontal, router, 遍历menuItems生成el-menu-item）、右侧用户区域（v-if=userStore.isLoggedIn显示username+退出按钮，v-else显示登录/注册链接）；(5) 样式使用scoped + BEM命名（.app-header / .app-header__logo / .app-header__user / .app-header__username / .app-header__logout）",
+        "priority": "P0",
+        "acceptance_condition": "AppHeader正确显示Logo、菜单（根据登录状态）、用户信息和退出按钮"
+      },
+      {
+        "id": "FR-002",
+        "description": "创建AppFooter.vue（<script setup lang=\"ts\">）：(1) 纯展示组件，无Props和Emits；(2) 模板使用el-footer（height=auto），包含3行信息：第1行项目名称'XH-202630 科研文献智能助手'、第2行版本号'v0.1'、第3行AI内容标注'AI生成内容仅供参考'（使用.ai-generated-label样式类）；(3) 样式使用scoped + BEM命名（.app-footer / .app-footer__content / .app-footer__info / .app-footer__ai-label），居中对齐，背景色#f5f7fa，上边框1px solid #e4e7ed",
+        "priority": "P0",
+        "acceptance_condition": "AppFooter正确显示项目名称、版本号和AI标注提示"
+      },
+      {
+        "id": "FR-003",
+        "description": "两个组件必须遵循组件成员排列顺序：导入 → Props/Emits → 响应式状态 → 计算属性 → 方法 → 生命周期钩子",
+        "priority": "P1",
+        "acceptance_condition": "代码结构顺序符合规范"
+      },
+      {
+        "id": "FR-004",
+        "description": "AppHeader的el-menu使用router模式，menu-item的index属性为路由路径，点击自动导航；AppHeader高度使用CSS变量var(--header-height)而非硬编码",
+        "priority": "P0",
+        "acceptance_condition": "菜单点击正确导航，header高度使用CSS变量"
+      },
+      {
+        "id": "FR-005",
+        "description": "AppHeader的退出按钮调用userStore.logout()（清除token/userId/username/profile和localStorage），然后router.push('/login')跳转登录页",
+        "priority": "P0",
+        "acceptance_condition": "点击退出后token清除，跳转到登录页"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "组件内部使用camelCase（TypeScript规范），与Store交互时使用camelCase字段名",
+        "mappings": []
+      },
+      "api_contracts": [],
+      "data_flow": "AppHeader → userStore.isLoggedIn/username/logout → 视图响应式更新"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "退出按钮调用userStore.logout()清除localStorage中的token" },
+      { "category": "sensitive_info", "requirement": "不在模板中显示token内容" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue（AppHeader.vue / AppFooter.vue）"
+      },
+      "json": { "field_name": "snake_case" },
+      "cross_system_mapping": []
+    },
+    "layering": {
+      "frontend": { "rule": "布局组件属于组件层，通过Store获取状态，不直接调用API" }
+    },
+    "error_handling": {
+      "frontend": { "approach": "logout操作无需try-catch（同步操作），路由跳转失败由路由守卫处理" }
+    },
+    "caching": { "pattern": "不涉及缓存", "ttl_layers": [] },
+    "logging": { "prohibited": ["在组件中console.log token内容"] },
+    "security": {
+      "auth_mechanism": "退出时清除localStorage中的token/userId/username"
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "在组件中直接调用API", "reason": "布局组件通过Store获取状态，不直接调API", "severity": "high" },
+    { "id": "FA-003", "action": "使用非scoped样式", "reason": "组件样式必须scoped，防止样式污染", "severity": "high" },
+    { "id": "FA-004", "action": "硬编码颜色值或尺寸", "reason": "必须使用CSS变量（var(--header-height)等）", "severity": "medium" },
+    { "id": "FA-005", "action": "使用any类型", "reason": "类型安全约束", "severity": "high" },
+    { "id": "FA-006", "action": "修改task00-07已创建的文件", "reason": "避免引入无关变更", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "AppHeader渲染测试",
+        "description": "验证已登录/未登录两种状态下菜单和用户区域正确渲染，退出按钮功能正确",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "AppFooter渲染测试",
+        "description": "验证底部信息正确显示，AI标注提示存在",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "TypeScript编译无错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run dev", "expected_result": "开发服务器启动成功，布局组件渲染正常" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "AppHeader：Logo+菜单+用户信息+退出按钮功能完整", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "AppHeader：根据登录状态动态显示菜单和用户区域", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "AppHeader：退出按钮清除token并跳转登录页", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "AppFooter：项目名称+版本号+AI标注提示显示正确", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "两个组件使用<script setup lang=\"ts\"> + scoped样式 + BEM命名", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "使用CSS变量（var(--header-height)等）而非硬编码", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "npx vue-tsc --noEmit编译无错误", "verified_by": "automated_test" }
+  ]
+}
