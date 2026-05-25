@@ -14,6 +14,7 @@
 | 版本 | 日期 | 修订人 | 修订内容 |
 |------|------|--------|---------|
 | v1.0 | 2026-05-23 | 项目组 | 初始版本 |
+| v1.2 | 2026-05-25 | 项目组 | 枚举重构：引入DbValueEnum接口+AttributeConverter模式（Java UPPER_SNAKE_CASE ↔ DB lowercase）；移除Entity中@Enumerated注解；新增Security异常统一处理（CustomAuthenticationEntryPoint/CustomAccessDeniedHandler）；新增6个Converter + 抽象基类 |
 
 ---
 
@@ -174,10 +175,11 @@ com.literatureassistant/
 ├── LiteratureAssistantApplication.java     # Spring Boot启动类
 │
 ├── config/                                  # 配置类
-│   ├── WebConfig.java                      # CORS、拦截器、消息转换器配置
 │   ├── RedisConfig.java                    # Redis序列化、TTL、连接池配置
 │   ├── WebClientConfig.java                # WebClient（调用Python服务）配置
-│   └── SecurityConfig.java                 # JWT鉴权过滤器链配置
+│   ├── SecurityConfig.java                 # JWT鉴权过滤器链配置
+│   ├── CustomAuthenticationEntryPoint.java # Security 401统一ApiResponse处理
+│   └── CustomAccessDeniedHandler.java      # Security 403统一ApiResponse处理
 │
 ├── controller/                              # API控制器层
 │   ├── UserController.java                 # 用户管理API（F2.1）
@@ -242,6 +244,7 @@ com.literatureassistant/
 │   └── AnalysisMapper.java
 │
 ├── filter/                                  # 过滤器/拦截器
+│   ├── RequestIdFilter.java                # 请求ID过滤器（MDC注入requestId）
 │   └── JwtAuthFilter.java                  # JWT鉴权过滤器
 │
 ├── exception/                               # 异常定义
@@ -252,12 +255,20 @@ com.literatureassistant/
 │   └── GlobalExceptionHandler.java         # 全局异常处理器
 │
 ├── enums/                                   # 枚举定义
+│   ├── DbValueEnum.java                    # 枚举接口：定义getDbValue()契约
+│   ├── AbstractEnumConverter.java          # 抽象基类：通用双向转换逻辑
 │   ├── EducationLevel.java                 # 学历层次
 │   ├── KnowledgeLevel.java                 # 知识水平
 │   ├── PreferredStyle.java                 # 偏好风格
 │   ├── SessionStatus.java                  # 会话状态
 │   ├── AnalysisType.java                   # 分析类型
-│   └── AnalysisStatus.java                 # 分析状态
+│   ├── AnalysisStatus.java                 # 分析状态
+│   ├── EducationLevelConverter.java        # @Converter(autoApply=true)
+│   ├── KnowledgeLevelConverter.java        # @Converter(autoApply=true)
+│   ├── PreferredStyleConverter.java        # @Converter(autoApply=true)
+│   ├── SessionStatusConverter.java         # @Converter(autoApply=true)
+│   ├── AnalysisTypeConverter.java          # @Converter(autoApply=true)
+│   └── AnalysisStatusConverter.java        # @Converter(autoApply=true)
 │
 └── util/                                    # 工具类
     ├── JwtUtil.java                        # JWT工具
@@ -611,26 +622,16 @@ public interface PaperRepository extends JpaRepository<Paper, Long>, JpaSpecific
 
     Optional<Paper> findByPaperId(String paperId);
 
-    // MySQL全文检索
-    @Query(value = "SELECT * FROM papers WHERE MATCH(title, abstract) AGAINST(:keyword IN NATURAL LANGUAGE MODE) " +
-            "AND (:yearFrom IS NULL OR year >= :yearFrom) " +
-            "AND (:yearTo IS NULL OR year <= :yearTo) " +
-            "AND (:venue IS NULL OR venue = :venue) " +
-            "ORDER BY CASE WHEN :sort = 'relevance' THEN MATCH(title, abstract) AGAINST(:keyword IN NATURAL LANGUAGE MODE) " +
-            "WHEN :sort = 'year' THEN year " +
-            "WHEN :sort = 'citations' THEN citation_count " +
-            "END DESC",
-            nativeQuery = true)
-    Page<Paper> searchByKeyword(@Param("keyword") String keyword,
-                                 @Param("yearFrom") Integer yearFrom,
-                                 @Param("yearTo") Integer yearTo,
-                                 @Param("venue") String venue,
-                                 @Param("sort") String sort,
+    // MySQL全文检索（排序通过PaperRepositoryCustomImpl白名单校验）
+    Page<Paper> searchByKeyword(String keyword, Integer yearFrom,
+                                 Integer yearTo, String venue, String sort,
                                  Pageable pageable);
 
     List<Paper> findByPaperIdIn(List<String> paperIds);
 }
 ```
+
+> **排序白名单**: `PaperRepositoryCustomImpl` 使用 `SORT_MAPPING` 白名单校验排序字段，仅允许 `relevance`/`year`/`citations`，非法值降级为 `year DESC`。
 
 ### 5.3 搜索策略
 
@@ -1450,22 +1451,86 @@ public class User {
 | `AnalysisResult` | `AnalysisResultRepository` | analysis_results | 分析结果 |
 | `PaperFavorite` | `PaperFavoriteRepository` | paper_favorites | 论文收藏 |
 
-### 11.3 枚举类型定义
+### 11.3 枚举类型定义与ORM映射
+
+**设计原则**：Java层保持 `UPPER_SNAKE_CASE`（符合Java规范），数据库保持 `lowercase`（符合MySQL规范），通过 `AttributeConverter` 实现双向自动转换。
+
+```java
+// DbValueEnum — 所有枚举实现的接口
+public interface DbValueEnum {
+    String getDbValue();
+}
+
+// AbstractEnumConverter — 通用双向转换基类（autoApply=true自动生效）
+public abstract class AbstractEnumConverter<E extends Enum<E> & DbValueEnum>
+        implements AttributeConverter<E, String> {
+
+    private final Map<String, E> dbValueMap; // O(1)反向映射
+
+    @Override
+    public String convertToDatabaseColumn(E attribute) {
+        return attribute != null ? attribute.getDbValue() : null;
+    }
+
+    @Override
+    public E convertToEntityAttribute(String dbData) {
+        if (dbData == null) return null;
+        E result = dbValueMap.get(dbData);
+        if (result == null) throw new IllegalArgumentException(
+                "Unknown dbValue '" + dbData + "' for enum " + enumClass.getSimpleName());
+        return result;
+    }
+}
+
+// 具体枚举示例
+public enum AnalysisStatus implements DbValueEnum {
+    PENDING("pending"),
+    PROCESSING("processing"),
+    COMPLETED("completed"),
+    FAILED("failed");
+
+    private final String dbValue;
+    AnalysisStatus(String dbValue) { this.dbValue = dbValue; }
+    @Override public String getDbValue() { return dbValue; }
+}
+
+// 具体Converter示例（@Converter(autoApply=true)自动生效，Entity无需@Convert注解）
+@Converter(autoApply = true)
+public class AnalysisStatusConverter extends AbstractEnumConverter<AnalysisStatus> {
+    public AnalysisStatusConverter() { super(AnalysisStatus.class); }
+}
+```
+
+**转换流程**：
+
+```
+Java枚举 (UPPER_SNAKE_CASE)             数据库 (lowercase)
+  AnalysisStatus.PENDING  ── convertToDatabaseColumn() ──→  "pending"
+  AnalysisStatus.PENDING  ←─ convertToEntityAttribute() ──  "pending"
+```
+
+**Entity中使用**（无需 `@Enumerated` 和 `@Convert` 注解）：
+
+```java
+@Column(nullable = false, length = 20)
+private AnalysisStatus status;  // Converter自动处理
+```
+
+**Note**: 由于 `AttributeConverter` 将枚举映射为 `String` 类型存储，Hibernate 启动时（`ddl-auto=update`）会自动执行 `ALTER TABLE ... MODIFY COLUMN ... VARCHAR(20)`，将数据库中的 `ENUM` 列转换为 `VARCHAR` 列。这是正常行为，不影响数据存取。
+
+**已有枚举映射表**：
 
 ```java
 // 学历层次
-public enum EducationLevel {
+public enum EducationLevel implements DbValueEnum {
     UNDERGRADUATE("undergraduate", "本科"),
     MASTER("master", "硕士"),
     PHD("phd", "博士"),
     FACULTY("faculty", "教师");
-
-    private final String code;
-    private final String label;
 }
 
 // 知识水平
-public enum KnowledgeLevel {
+public enum KnowledgeLevel implements DbValueEnum {
     BEGINNER("beginner", "初级"),
     INTERMEDIATE("intermediate", "中级"),
     ADVANCED("advanced", "高级"),
@@ -1473,25 +1538,25 @@ public enum KnowledgeLevel {
 }
 
 // 偏好风格
-public enum PreferredStyle {
+public enum PreferredStyle implements DbValueEnum {
     SIMPLE("simple", "通俗"),
     BALANCED("balanced", "均衡"),
     TECHNICAL("technical", "专业");
 }
 
 // 会话状态
-public enum SessionStatus {
-    ACTIVE, COMPLETED, EXPIRED
+public enum SessionStatus implements DbValueEnum {
+    ACTIVE("active"), COMPLETED("completed"), EXPIRED("expired");
 }
 
 // 分析类型
-public enum AnalysisType {
-    PAPER_ANALYSIS, COMPARE, REPORT
+public enum AnalysisType implements DbValueEnum {
+    PAPER_ANALYSIS("paper_analysis"), COMPARE("compare"), REPORT("report");
 }
 
 // 分析状态
-public enum AnalysisStatus {
-    PENDING, PROCESSING, COMPLETED, FAILED
+public enum AnalysisStatus implements DbValueEnum {
+    PENDING("pending"), PROCESSING("processing"), COMPLETED("completed"), FAILED("failed");
 }
 ```
 
@@ -1682,7 +1747,61 @@ public class GlobalExceptionHandler {
 | 敏感配置 | API密钥通过环境变量注入(.env) | P0 |
 | 数据隔离 | 用户只能访问自己的会话和分析结果 | P0 |
 | CORS配置 | 限制允许的Origin | P0 |
+| Security异常统一处理 | CustomAuthenticationEntryPoint(401) + CustomAccessDeniedHandler(403)，返回ApiResponse格式 | P0 |
 | 请求限流 | Spring Boot Rate Limiter（可选） | P2 |
+
+### 13.3 Security异常统一处理
+
+```java
+// CustomAuthenticationEntryPoint — 未认证请求返回统一ApiResponse
+@Component
+public class CustomAuthenticationEntryPoint implements AuthenticationEntryPoint {
+    @Override
+    public void commence(HttpServletRequest request, HttpServletResponse response,
+                         AuthenticationException authException) throws IOException {
+        ApiResponse<Void> apiResponse = ApiResponse.error(401, "未认证，请先登录");
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.getWriter().write(objectMapper.writeValueAsString(apiResponse));
+    }
+}
+
+// CustomAccessDeniedHandler — 无权限请求返回统一ApiResponse
+@Component
+public class CustomAccessDeniedHandler implements AccessDeniedHandler {
+    @Override
+    public void handle(HttpServletRequest request, HttpServletResponse response,
+                       AccessDeniedException accessDeniedException) throws IOException {
+        ApiResponse<Void> apiResponse = ApiResponse.error(403, "无权限访问");
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.getWriter().write(objectMapper.writeValueAsString(apiResponse));
+    }
+}
+```
+
+**SecurityConfig注入**：
+
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+    
+    private final CustomAuthenticationEntryPoint authenticationEntryPoint;
+    private final CustomAccessDeniedHandler accessDeniedHandler;
+    
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            // ...
+            .exceptionHandling(exceptions -> exceptions
+                .authenticationEntryPoint(authenticationEntryPoint)
+                .accessDeniedHandler(accessDeniedHandler)
+            )
+            // ...
+    }
+}
+```
 
 ---
 
@@ -1749,8 +1868,8 @@ ai-service:
 
 # JWT配置
 jwt:
-  secret: ${JWT_SECRET:literature-assistant-jwt-secret-key-2026}
-  expiration: 86400000    # 24小时（毫秒）
+  secret: ${JWT_SECRET}                      # 必须通过环境变量注入，无默认值
+  expiration: ${JWT_EXPIRATION:86400000}     # 24小时（毫秒）
 
 # 日志配置
 logging:
@@ -1782,7 +1901,7 @@ application-prod.yml      # 生产环境（Docker内服务发现）
 | `REDIS_PORT` | Redis端口 | `6379` |
 | `REDIS_PASSWORD` | Redis密码 | 空 |
 | `AI_SERVICE_URL` | Python AI服务URL | `http://localhost:8000` |
-| `JWT_SECRET` | JWT签名密钥 | 内置默认值 |
+| `JWT_SECRET` | JWT签名密钥 | 无默认值（必须注入） |
 | `SPRING_PROFILES_ACTIVE` | 激活的Profile | `dev` |
 
 ---
@@ -1881,12 +2000,24 @@ public class HealthController {
 ### 17.1 Java后端Dockerfile
 
 ```dockerfile
-FROM eclipse-temurin:17-jdk-alpine
-VOLUME /tmp
-ARG JAR_FILE=target/*.jar
-COPY ${JAR_FILE} app.jar
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /build
+COPY pom.xml .
+RUN mvn dependency:go-offline -B
+COPY src ./src
+RUN mvn package -DskipTests -B
+
+FROM eclipse-temurin:17-jre-alpine
+RUN apk add --no-cache curl
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+WORKDIR /app
+COPY --from=build /build/target/*.jar app.jar
+RUN chown appuser:appgroup app.jar
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app.jar", "--spring.profiles.active=prod"]
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+USER appuser
+ENTRYPOINT ["java", "-jar", "/app/app.jar", "--spring.profiles.active=prod"]
 ```
 
 ### 17.2 Docker Compose中的Java后端配置
@@ -2025,7 +2156,7 @@ Nginx前端 (依赖Java后端)
 □ 用户数据隔离是否正确（只能访问自己的数据）？
 □ JPA查询是否避免了N+1问题？
 □ 分页接口是否正确使用Pageable？
-□ 枚举字段是否使用@Enumerated(EnumType.STRING)？
+□ 枚举字段是否使用DbValueEnum接口+@Converter(autoApply=true)模式？
 □ JSON字段是否使用@Convert或@Type注解？
 □ 密码是否使用BCrypt加密存储？
 □ JWT Token验证是否包含黑名单检查？

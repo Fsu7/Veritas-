@@ -1217,7 +1217,7 @@ class Reranker:
     │
     ▼
 EmbeddingService.encode()
-    │ text-embedding-v4 → 768维向量
+    │ text-embedding-v4 → 1024维向量
     │ 耗时约50ms
     ▼
 VectorStoreService.search()
@@ -1240,7 +1240,7 @@ Reranker.rerank()（P1）
 
 | 编号 | 功能 | 优先级 | 说明 |
 |------|------|--------|------|
-| F3.2.1 | 文档向量化 | P0 | 论文标题+摘要 → 768维向量，批量100条/10秒 |
+| F3.2.1 | 文档向量化 | P0 | 论文标题+摘要 → 1024维向量，批量100条/10秒 |
 | F3.2.2 | 向量存储 | P0 | 向量+元数据存入Chroma，建立papers collection |
 | F3.2.3 | 语义检索 | P0 | 查询向量 → TopK相似论文，cosine相似度 |
 | F3.2.4 | 混合检索 | P1 | 语义检索 + 关键词检索 + RRF融合 |
@@ -1852,7 +1852,7 @@ class EmbeddingService:
     def __init__(self, settings):
         self.settings = settings
         self.model = None
-        self.dimension = 768
+        self.dimension = 1024
         self.status = "initializing"
         self._api_client = None  # 外接API客户端（备选）
 
@@ -1892,7 +1892,7 @@ class EmbeddingService:
             text: 单条文本或文本列表
 
         Returns:
-            768维向量（单条）或向量矩阵（多条）
+            1024维向量（单条）或向量矩阵（多条）
         """
         if self.model:
             # 本地模型
@@ -1915,7 +1915,7 @@ class EmbeddingService:
             batch_size: 每批处理数量
 
         Returns:
-            向量矩阵 (N, 768)
+            向量矩阵 (N, 1024)
         """
         all_embeddings = []
 
@@ -1945,8 +1945,8 @@ class EmbeddingService:
 
 | 编号 | 功能 | 优先级 | 说明 |
 |------|------|--------|------|
-| F5.2.1 | 阿里云百炼API配置 | P0 | 配置text-embedding-v4 API，向量维度768 |
-| F5.2.2 | 文本向量化 | P0 | 单条/批量文本→768维向量，支持本地或API |
+| F5.2.1 | 阿里云百炼API配置 | P0 | 配置text-embedding-v4 API，向量维度1024 |
+| F5.2.2 | 文本向量化 | P0 | 单条/批量文本→1024维向量，支持本地或API |
 | F5.2.3 | 批量向量化 | P0 | 100条/10秒，分批处理 |
 | F5.2.4 | 外接Embedding API | P1 | Jina/OpenAI等API作为备选 |
 
@@ -1995,7 +1995,7 @@ class VectorStoreService:
 
         Args:
             paper_ids: 论文ID列表（如["arxiv_2024_001", ...]）
-            embeddings: 向量列表（每条768维）
+            embeddings: 向量列表（每条1024维）
             metadatas: 元数据列表 [{paper_id, title, year, venue, ...}]
             documents: 文档文本列表（标题+摘要）
         """
@@ -2013,7 +2013,7 @@ class VectorStoreService:
         向量相似度检索
 
         Args:
-            embedding: 查询向量（768维）
+            embedding: 查询向量（1024维）
             top_k: 返回数量
             filters: 元数据过滤条件
 
@@ -2071,7 +2071,7 @@ class VectorStoreService:
 
 ```python
 # Collection: papers
-# 向量维度：768（text-embedding-v4输出维度）
+# 向量维度：1024（text-embedding-v4输出维度）
 
 collection_schema = {
     "name": "papers",

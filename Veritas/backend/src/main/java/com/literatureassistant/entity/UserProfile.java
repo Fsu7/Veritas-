@@ -1,12 +1,14 @@
 package com.literatureassistant.entity;
 
 import com.literatureassistant.enums.EducationLevel;
+import com.literatureassistant.enums.EducationLevelConverter;
 import com.literatureassistant.enums.KnowledgeLevel;
+import com.literatureassistant.enums.KnowledgeLevelConverter;
 import com.literatureassistant.enums.PreferredStyle;
+import com.literatureassistant.enums.PreferredStyleConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -35,18 +37,18 @@ public class UserProfile {
     @Column(name = "user_id", nullable = false, length = 100)
     private String userId;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = EducationLevelConverter.class)
     @Column(name = "education_level", length = 20)
     private EducationLevel educationLevel;
 
     @Column(name = "research_field", length = 200)
     private String researchField;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = KnowledgeLevelConverter.class)
     @Column(name = "knowledge_level", length = 20)
     private KnowledgeLevel knowledgeLevel;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = PreferredStyleConverter.class)
     @Column(name = "preferred_style", length = 20)
     private PreferredStyle preferredStyle;
 

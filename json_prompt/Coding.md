@@ -106,8 +106,29 @@ json_prompt/
     │   ├── prompt.json
     │   └── prompt.md
     └── task02_python_schemas_enums_exception/
-        ├── prompt.json
-        └── prompt.md
+    │       ├── prompt.json
+    │       │   └── prompt.md
+    │   ├── task03_aliyun_bailian_embedding/
+    │   │   ├── prompt.json
+    │   │   └── prompt.md
+    │   ├── task04_chromadb_vector_store/
+    │   │   ├── prompt.json
+    │   │   └── prompt.md
+    │   ├── task05_embedding_verification_test/
+    │   │   ├── prompt.json
+    │   │   └── prompt.md
+    │   ├── task06_builtin_llm_provider/
+    │   │   ├── prompt.json
+    │   │   └── prompt.md
+    │   ├── task07_api_llm_provider/
+    │   │   ├── prompt.json
+    │   │   └── prompt.md
+    │   ├── task08_local_llm_provider_degradation/
+    │   │   ├── prompt.json
+    │   │   └── prompt.md
+    │   └── task09_prompt_template_dockerfile/
+    │       ├── prompt.json
+    │       └── prompt.md
 ```
 
 ## 分类规则
@@ -143,6 +164,13 @@ json_prompt/
 | 00 | task00_python_fastapi_skeleton | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.5, F3.5.1-F3.5.4 |
 | 01 | task01_python_config_env_logging | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.5, F3.3, F5.2, F4.3 |
 | 02 | task02_python_schemas_enums_exception | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.5, F3.1, F3.2, F3.3, F3.4 |
+| 03 | task03_aliyun_bailian_embedding | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F5.2, F5.2.1, F5.2.2, F5.2.3 |
+| 04 | task04_chromadb_vector_store | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service, data_layer | F4.3, F4.3.1, F4.3.2, F3.2.2 |
+| 05 | task05_embedding_verification_test | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F5.2.3, F4.3.1, F4.3.2 |
+| 06 | task06_builtin_llm_provider | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.3, F3.3.1, F3.3.2, F3.3.5, F3.3.6 |
+| 07 | task07_api_llm_provider | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.3, F3.3.1, F3.3.2, F3.3.5, F3.3.6 |
+| 08 | task08_local_llm_provider_degradation | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.3, F3.3.1-F3.3.3, F3.3.5, F3.3.7 |
+| 09 | task09_prompt_template_dockerfile | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.3.4, F3.5, F3.5.3, F3.1.1-F3.1.6 |
 
 ### frontend/
 
@@ -204,7 +232,7 @@ AI服务层 (Python FastAPI + LangGraph + ChromaDB + bge-large-zh-v1.5)
 | AI服务 | Python + FastAPI | 3.10+ / 0.110+ |
 | AI服务 | LangGraph + chromadb | — / 0.5+ |
 | 数据库 | MySQL 8.0 + Redis 7.0 + ChromaDB 0.5+ | — |
-| 向量 | bge-large-zh-v1.5 | 768维 |
+| 向量 | bge-large-zh-v1.5 | 1024维 |
 | 部署 | Docker Compose | — |
 
 ## 项目目录结构

@@ -133,7 +133,7 @@
 │  │                                                                    │  │
 │  │  MySQL（结构化）           Redis（缓存）             Chroma（向量）  │  │
 │  │  ├── papers表              ├── user:profile:{id}     ├── papers集合  │  │
-│  │  ├── users表               ├── search:result:{hash}  ├── 768维向量   │  │
+│  │  ├── users表               ├── search:result:{hash}  ├── 1024维向量   │ │
 │  │  ├── user_profiles表       ├── analysis:result:{id}  └── 元数据过滤  │  │
 │  │  ├── sessions表            ├── session:state:{id}                   │  │
 │  │  ├── analysis_results表    └── agent:state:{id}                    │  │
@@ -150,7 +150,7 @@
 │  │                                                                    │  │
 │  │  LLM推理信息               Embedding信息                           │  │
 │  │  ├── 方案A:软件方模型       ├── text-embedding-v4(阿里云百炼)      │  │
-│  │  ├── 方案B:外接API          ├── 768维输出                           │  │
+│  │  ├── 方案B:外接API          ├── 1024维输出                           │  │
 │  │  └── 方案C:用户本地模型     └── 本地模型备选                        │  │
 │  └────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -229,7 +229,7 @@
 │  ├── IC-2.1 元数据（title, authors, year, venue, keywords）        │
 │  ├── IC-2.2 内容信息（abstract, sections, pdf_url）                │
 │  ├── IC-2.3 统计信息（citation_count, relevance_score）            │
-│  ├── IC-2.4 向量信息（768维embedding, chunk_index, chunk_type）   │
+│  ├── IC-2.4 向量信息（1024维embedding, chunk_index, chunk_type）   │
 │  └── IC-2.5 图谱信息（Paper/Method/Concept/Author节点及关系）      │
 │                                                                     │
 │  IC-3 分析信息类                                                    │
@@ -613,7 +613,7 @@ L3: 详细结果级（可展开查看）
 ────────┼───────────────────┼───────────────────────────────────────────────┼──────────────────────
 1       │ 输入研究主题       │ 前端→Java: POST /api/papers/search            │ {q, yearFrom, sort}
 2       │ 等待检索结果       │ Java→Python: POST /api/search                 │ {query, top_k, filters}
-3       │ -                 │ Python: text-embedding-v4向量化 → Chroma检索 → RRF融合       │ 768维向量→Top10
+3       │ -                 │ Python: text-embedding-v4向量化 → Chroma检索 → RRF融合       │ 1024维向量→Top10
 4       │ -                 │ Python→Java: 检索结果JSON                      │ [{paper_id, score, ...}]
 5       │ -                 │ Java: 补充论文元数据 → Redis缓存               │ PaperDTO[]
 6       │ 查看论文列表       │ Java→前端: 论文卡片数据                        │ {total, items[]}
@@ -764,7 +764,7 @@ L3: 详细结果级（可展开查看）
 │  ────────────────────────────┼──────────────────────────────────│
 │  EmbeddingService            │  ChromaDB                          │
 │  ├── encode(text) → vector   │  ├── papers collection             │
-│  ├── encode_batch(texts)     │  ├── 768维向量                     │
+│  ├── encode_batch(texts)     │  ├── 1024维向量                     │
 │  └── 优先API/备选本地模型    │  └── cosine similarity             │
 │                                                                  │
 │  VectorStoreService          │  ChromaDB                          │
@@ -885,7 +885,7 @@ L3: 详细结果级（可展开查看）
 │  ┌────────────────────────────────────┐                            │
 │  │ papers collection                   │                            │
 │  │ ├── document: 论文分块文本          │                            │
-│  │ ├── embedding: 768维向量            │                            │
+│  │ ├── embedding: 1024维向量            │                            │
 │  │ └── metadata: {paper_id, title,    │                            │
 │  │       year, venue, citation_count, │                            │
 │  │       chunk_index, chunk_type}     │                            │
@@ -1202,7 +1202,7 @@ Agent状态标签：
 │       ▼                                                          │
 │  ┌─────────────────────────────┐                                │
 │  │     text-embedding-v4       │                                │
-│  │     文本 → 768维向量(阿里云百炼API) │                                │
+│  │     文本 → 1024维向量(阿里云百炼API) │                                │
 │  └──────────┬──────────────────┘                                │
 │             │                                                    │
 │     ┌───────┼───────┐                                           │

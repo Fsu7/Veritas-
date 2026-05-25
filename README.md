@@ -114,7 +114,7 @@ graph TD
 | 数据库 | Redis | 7.0 |
 | 向量库 | ChromaDB | 0.5+ |
 | 图数据库 | Neo4j | 5.x Community |
-| Embedding | bge-large-zh-v1.5 | 768维 |
+| Embedding | bge-large-zh-v1.5 | 1024维 |
 | 部署 | Docker Compose | — |
 
 ---
@@ -348,7 +348,7 @@ graph LR
         C6[JWT黑名单]
     end
     subgraph Chroma[ChromaDB 0.5+]
-        V1[papers collection<br/>768维 / cosine]
+        V1[papers collection<br/>1024维 / cosine]
     end
 ```
 
@@ -356,7 +356,7 @@ graph LR
 |------|------|-----------|
 | MySQL | 结构化数据 | users, user_profiles, papers, sessions, analysis_results, paper_favorites |
 | Redis | 缓存/会话 | user:profile:*, search:result:*, analysis:result:*, session:state:*, agent:state:* |
-| ChromaDB | 向量检索 | papers collection (768维, cosine, HNSW M=16) |
+| ChromaDB | 向量检索 | papers collection (1024维, cosine, HNSW M=16) |
 
 ---
 
@@ -392,7 +392,7 @@ graph LR
 
 ```mermaid
 graph TD
-    Q[用户查询] --> EMB[bge-large-zh-v1.5<br/>768维向量]
+    Q[用户查询] --> EMB[bge-large-zh-v1.5<br/>1024维向量]
     EMB -->|语义检索| CHROMA[ChromaDB<br/>Top20]
     Q -->|关键词检索| MYSQL[MySQL FULLTEXT<br/>ngram parser<br/>Top20]
     CHROMA --> RRF[RRF融合<br/>k=60]

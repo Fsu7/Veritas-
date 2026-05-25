@@ -1,0 +1,295 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / AM1：项目骨架与模型层就绪",
+    "requirement": "在task06的LLM服务骨架基础上，实现APILLMProvider（外接API）：1) 在services/llm_service.py中新增APILLMProvider类（继承LLMProvider），支持用户自配第三方OpenAI兼容API（讯飞星火/DeepSeek/通义千问/任何OpenAI兼容端点）；2) 在LLMService.initialize()中扩展AUTO模式：BuiltinLLMProvider失败后尝试APILLMProvider；3) 更新.env.example添加方案B外接API配置说明。APILLMProvider与BuiltinLLMProvider共享相同的OpenAI兼容接口调用逻辑，区别仅在于配置来源（用户自配 vs 软件方内置）。",
+    "requirement_ids": ["F3.3", "F3.3.1", "F3.3.2", "F3.3.5", "F3.3.6"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§7.4.2 APILLMProvider设计 — OpenAI兼容接口、支持讯飞星火/DeepSeek/通义千问等、与BuiltinLLMProvider共享调用逻辑"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§3.2 AM1交付物清单(LLMService含API Provider)、§3.3 Week2 Day5-7任务"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§3.3 LLM三路Provider降级策略、§5.3环境变量LLM_API_KEY/LLM_API_BASE/LLM_MODEL_NAME"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/llm_service.py",
+        "description": "task06已创建的LLM服务文件，包含LLMMode/LLMProvider/BuiltinLLMProvider/LLMService，本任务新增APILLMProvider并扩展LLMService.initialize()"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/config.py",
+        "description": "已有LLM_API_KEY/LLM_API_BASE/LLM_MODEL_NAME配置项，无需修改"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/services/llm_service.py",
+        "description": "task06产出的LLM服务骨架，包含LLMProvider抽象基类和BuiltinLLMProvider实现，APILLMProvider可复用相同的OpenAI兼容调用模式",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L1487-L1512",
+        "description": "§7.4.2 APILLMProvider设计代码，与BuiltinLLMProvider结构相同，仅配置来源不同",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/config.py",
+        "description": "已有LLM_API_KEY/LLM_API_BASE/LLM_MODEL_NAME三个外接API配置项",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "APILLMProvider",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "responsibility": "外接API Provider（中等优先级），支持用户自配第三方OpenAI兼容API",
+      "key_interfaces": [
+        {
+          "name": "__init__",
+          "signature": "def __init__(self, settings: Settings)",
+          "description": "创建openai.AsyncOpenAI客户端：api_key=settings.LLM_API_KEY, base_url=settings.LLM_API_BASE，存储model_name=settings.LLM_MODEL_NAME。需校验LLM_API_KEY非空，为空则raise ValueError"
+        },
+        {
+          "name": "generate",
+          "signature": "async def generate(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> str",
+          "description": "与BuiltinLLMProvider.generate()逻辑完全一致，调用client.chat.completions.create()"
+        },
+        {
+          "name": "generate_stream",
+          "signature": "async def generate_stream(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> AsyncIterator[str]",
+          "description": "与BuiltinLLMProvider.generate_stream()逻辑完全一致"
+        },
+        {
+          "name": "test_connection",
+          "signature": "async def test_connection(self) -> bool",
+          "description": "与BuiltinLLMProvider.test_connection()逻辑一致"
+        }
+      ]
+    },
+    {
+      "name": "LLMService.initialize()扩展",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "responsibility": "扩展initialize()方法，在AUTO模式下BuiltinLLMProvider失败后尝试APILLMProvider",
+      "key_interfaces": [
+        {
+          "name": "initialize",
+          "signature": "async def initialize(self) -> None",
+          "description": "扩展逻辑：1)先尝试BuiltinLLMProvider（同task06）；2)若Builtin失败且mode为AUTO或API，检查LLM_API_KEY非空，try创建APILLMProvider并test_connection，成功则设为active_provider；3)若Builtin成功但mode为AUTO，仍将APILLMProvider加入providers字典备用（降级时使用）"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "description": "新增APILLMProvider类；扩展LLMService.initialize()在AUTO/API模式下尝试APILLMProvider",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/.env.example",
+      "description": "补充方案B外接API配置说明：支持讯飞星火/DeepSeek/通义千问等OpenAI兼容端点的示例",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "APILLMProvider(LLMProvider)：mode属性返回'api'。__init__校验settings.LLM_API_KEY非空，为空则raise ValueError('LLM_API_KEY is required for API provider')。创建openai.AsyncOpenAI(api_key=settings.LLM_API_KEY, base_url=settings.LLM_API_BASE)，存储self.model_name=settings.LLM_MODEL_NAME",
+        "priority": "P0",
+        "acceptance_condition": "APILLMProvider(settings).mode == 'api'；LLM_API_KEY为空时抛出ValueError"
+      },
+      {
+        "id": "FR-002",
+        "description": "APILLMProvider.generate()实现：与BuiltinLLMProvider.generate()逻辑完全一致——调用self.client.chat.completions.create(model=self.model_name, messages=[{'role':'user','content':prompt}], max_tokens=max_tokens, temperature=temperature)，返回response.choices[0].message.content",
+        "priority": "P0",
+        "acceptance_condition": "配置DeepSeek API后generate('Hello')返回非空字符串"
+      },
+      {
+        "id": "FR-003",
+        "description": "APILLMProvider.generate_stream()实现：与BuiltinLLMProvider.generate_stream()逻辑一致——stream=True，async for chunk遍历，yield chunk.choices[0].delta.content（非空时）",
+        "priority": "P0",
+        "acceptance_condition": "配置API后generate_stream产出token序列"
+      },
+      {
+        "id": "FR-004",
+        "description": "APILLMProvider.test_connection()实现：与BuiltinLLMProvider.test_connection()逻辑一致——发送极短prompt验证连接",
+        "priority": "P0",
+        "acceptance_condition": "API可用时返回True；不可用时抛出异常"
+      },
+      {
+        "id": "FR-005",
+        "description": "LLMService.initialize()扩展：在现有BuiltinLLMProvider初始化逻辑之后，当mode为AUTO或API时：1)检查settings.LLM_API_KEY非空；2)try创建APILLMProvider(settings)并await test_connection()；3)成功则self.providers['api']=provider；4)若此时active_provider仍为None（Builtin失败），则设self.active_provider=provider、self._status='loaded'、logger.info('LLM: Using API provider')；5)若Builtin已成功且mode为AUTO，仅将API provider加入providers备用，logger.info('LLM: API provider available as fallback')；6)API失败则logger.warning(f'API provider failed: {e}')",
+        "priority": "P0",
+        "acceptance_condition": "AUTO模式下Builtin失败后自动尝试API Provider；API可用时降级成功"
+      },
+      {
+        "id": "FR-006",
+        "description": ".env.example补充方案B配置示例：在现有# 方案B区域添加具体API示例，如DeepSeek(api_base=https://api.deepseek.com/v1, model=deepseek-chat)、讯飞星火(OpenAI兼容模式)、通义千问等",
+        "priority": "P1",
+        "acceptance_condition": ".env.example包含至少2个外接API配置示例"
+      }
+    ],
+    "cross_system_consistency": null,
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          {"priority": 1, "name": "BuiltinLLMProvider", "description": "软件方云端模型服务（task06已实现）"},
+          {"priority": 2, "name": "APILLMProvider", "description": "用户自配第三方API（本任务实现）"},
+          {"priority": 3, "name": "LocalLLMProvider", "description": "用户本机部署开源模型（task08实现）"}
+        ],
+        "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider（task08实现）"
+      },
+      "agent_degradation": null
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "LLM_API_KEY通过环境变量注入，不在代码中硬编码。日志中禁止输出完整API Key"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        {"java": "educationLevel", "python": "education_level", "json": "education_level"},
+        {"java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level"},
+        {"java": "preferredStyle", "python": "preferred_style", "json": "preferred_style"},
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"}
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，LLM调用失败抛出LLMException，模型未加载抛出ModelNotLoadedException",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min"}
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/health", "/api/model/status"]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "在代码中硬编码LLM_API_KEY", "reason": "安全约束，必须通过环境变量注入", "severity": "critical"},
+    {"id": "FA-004", "action": "APILLMProvider使用同步openai客户端", "reason": "必须使用AsyncOpenAI避免阻塞事件循环", "severity": "high"},
+    {"id": "FA-005", "action": "LLM_API_KEY为空时仍创建APILLMProvider", "reason": "API Key为空时Provider无意义，应跳过并记录WARNING", "severity": "high"},
+    {"id": "FA-006", "action": "修改BuiltinLLMProvider已有实现", "reason": "task06已实现的代码不应被本任务修改", "severity": "high"},
+    {"id": "FA-007", "action": "在日志中打印完整的API Key", "reason": "安全约束", "severity": "critical"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "APILLMProvider初始化测试",
+        "description": "验证APILLMProvider(settings)创建后mode=='api'；LLM_API_KEY为空时抛出ValueError",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "APILLMProvider generate测试",
+        "description": "mock AsyncOpenAI客户端，验证generate()正确调用chat.completions.create并返回content",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "APILLMProvider generate_stream测试",
+        "description": "mock AsyncOpenAI客户端，验证generate_stream()逐chunk产出非空content",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "APILLMProvider test_connection测试",
+        "description": "mock AsyncOpenAI客户端，验证test_connection()成功返回True；异常时抛出",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "LLMService AUTO模式降级到API测试",
+        "description": "mock BuiltinLLMProvider.test_connection抛出异常，配置LLM_API_KEY，验证initialize()降级到APILLMProvider，status='loaded'",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "LLMService API模式强制使用API测试",
+        "description": "设置LLM_MODE='api'，配置LLM_API_KEY，验证initialize()跳过Builtin直接使用APILLMProvider",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.services.llm_service import APILLMProvider; from app.core.config import settings; print('OK')\"",
+        "expected_result": "输出 'OK'"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && pytest tests/test_llm.py -v -k 'api'",
+        "expected_result": "所有API相关测试通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "APILLMProvider继承LLMProvider，mode=='api'", "verified_by": "code_review"},
+    {"id": "AC-002", "criterion": "LLM_API_KEY为空时APILLMProvider.__init__抛出ValueError", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "APILLMProvider使用AsyncOpenAI客户端，配置从settings读取", "verified_by": "code_review"},
+    {"id": "AC-004", "criterion": "generate()和generate_stream()逻辑与BuiltinLLMProvider一致", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "LLMService.initialize()在AUTO模式下Builtin失败后尝试APILLMProvider", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "Builtin成功时APILLMProvider仍被加入providers字典备用", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": ".env.example包含外接API配置示例(DeepSeek/讯飞星火等)", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "日志中不输出完整API Key", "verified_by": "code_review"},
+    {"id": "AC-009", "criterion": "未修改BuiltinLLMProvider已有实现", "verified_by": "code_review"}
+  ]
+}

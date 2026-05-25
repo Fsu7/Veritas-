@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     EMBEDDING_API_BASE: str = ""
     EMBEDDING_API_MODEL: str = ""
 
+    DASHSCOPE_API_KEY: str = ""
+    DASHSCOPE_EMBEDDING_MODEL: str = "text-embedding-v4"
+    DASHSCOPE_EMBEDDING_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
     LLM_MODE: str = "auto"
     LLM_BUILTIN_URL: str = "https://llm.literature-assistant.com/v1"
     LLM_BUILTIN_API_KEY: str = "builtin"

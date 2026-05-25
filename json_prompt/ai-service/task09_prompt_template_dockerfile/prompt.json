@@ -1,0 +1,471 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / AM1：项目骨架与模型层就绪",
+    "requirement": "实现Prompt模板框架 + Dockerfile + 集成测试：1) 创建app/services/prompt_manager.py — PromptManager统一管理Prompt模板，支持load_templates()从prompts/目录加载.txt模板文件，get_prompt(agent_name, **kwargs)使用string.Template进行变量替换；2) 创建6个Agent的Prompt模板文件(coordinator.txt/retriever.txt/analyzer.txt/comparer.txt/generator.txt/reviewer.txt)到prompts/目录；3) 创建Dockerfile用于AI服务Docker镜像构建；4) 在events.py启动时加载PromptManager；5) 创建tests/test_prompt_manager.py和tests/test_integration.py集成测试；6) 更新.env.example和requirements.txt。",
+    "requirement_ids": ["F3.3.4", "F3.5", "F3.5.3", "F3.1.1", "F3.1.2", "F3.1.3", "F3.1.4", "F3.1.5", "F3.1.6"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§12 Prompt工程规范 — 模板目录结构、变量替换规范、analyzer.txt/generator.txt模板示例、§19.1 Dockerfile设计"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§3.2 AM1交付物清单(PromptManager、Dockerfile)、§3.3 Week2 Day7任务"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§8 Python AI服务开发规范 — Prompt管理规范、模板存prompts/目录、string.Template变量替换"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§3.1 Agent角色定义、§6项目目录结构prompts/目录"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services",
+        "description": "服务层目录，已有embedding_service.py/vector_store_service.py/llm_service.py，本任务新增prompt_manager.py"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "prompts/",
+        "description": "Prompt模板目录，当前仅有.gitkeep，本任务创建6个Agent的.txt模板文件"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/events.py",
+        "description": "启动/关闭事件，已有embedding/vector_store/llm_service加载，需添加PromptManager加载"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "tests/",
+        "description": "测试目录，已有test_embedding.py/test_vector_store.py，本任务新增test_prompt_manager.py和test_integration.py"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L2200-L2296",
+        "description": "§12 Prompt工程规范 — 完整的analyzer.txt和generator.txt模板示例，变量替换规范",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L2720-L2752",
+        "description": "§19.1 Dockerfile设计 — 完整的Dockerfile代码",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/embedding_service.py",
+        "description": "EmbeddingService的load_model模式可作为PromptManager.load_templates的参考",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/events.py",
+        "description": "已有on_startup/on_shutdown函数骨架，可直接扩展PromptManager加载",
+        "reuse_type": "extend"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PromptManager",
+      "path": "Veritas/ai-service/app/services/prompt_manager.py",
+      "responsibility": "统一管理Prompt模板，支持从文件加载和变量替换",
+      "key_interfaces": [
+        {
+          "name": "__init__",
+          "signature": "def __init__(self, prompts_dir: str = 'prompts')",
+          "description": "初始化：存储prompts_dir路径，self.templates: Dict[str, string.Template] = {}，self.status='initializing'"
+        },
+        {
+          "name": "load_templates",
+          "signature": "async def load_templates(self) -> None",
+          "description": "遍历prompts_dir下所有.txt文件，读取内容并创建string.Template对象存入self.templates字典（key为文件名去掉.txt后缀）。记录加载的模板数量日志"
+        },
+        {
+          "name": "get_prompt",
+          "signature": "def get_prompt(self, agent_name: str, **kwargs) -> str",
+          "description": "根据agent_name查找模板，使用string.Template.safe_substitute(**kwargs)进行变量替换，返回替换后的完整Prompt字符串。模板不存在时raise KeyError"
+        },
+        {
+          "name": "list_templates",
+          "signature": "def list_templates(self) -> list[str]",
+          "description": "返回所有已加载模板名称列表"
+        }
+      ]
+    },
+    {
+      "name": "Prompt模板文件",
+      "path": "Veritas/ai-service/prompts/",
+      "responsibility": "6个Agent的Prompt模板，使用$variable或${variable}格式的string.Template变量",
+      "key_interfaces": [
+        {
+          "name": "coordinator.txt",
+          "signature": "变量: $query, $user_profile",
+          "description": "协调者Agent Prompt：任务分解指令，要求将用户问题分解为检索/分析/对比/生成/审核子任务"
+        },
+        {
+          "name": "retriever.txt",
+          "signature": "变量: $topic, $top_k",
+          "description": "检索Agent Prompt：生成检索关键词和策略"
+        },
+        {
+          "name": "analyzer.txt",
+          "signature": "变量: $paper_title, $paper_abstract, $extra_instruction",
+          "description": "分析Agent Prompt：5维度结构化提取(研究问题/核心方法/主要实验/核心结论/局限性)，输出JSON格式"
+        },
+        {
+          "name": "comparer.txt",
+          "signature": "变量: $analysis_data",
+          "description": "对比Agent Prompt：多论文方法/结论对比，矛盾发现，输出对比表格"
+        },
+        {
+          "name": "generator.txt",
+          "signature": "变量: $personalization, $analysis_data, $comparison_data",
+          "description": "生成Agent Prompt：个性化综述生成，包含引言/研究现状/方法对比/研究趋势/参考文献结构"
+        },
+        {
+          "name": "reviewer.txt",
+          "signature": "变量: $report_content, $original_papers",
+          "description": "审核Agent Prompt：事实核查+引用核查，审核通过/修改建议"
+        }
+      ]
+    },
+    {
+      "name": "Dockerfile",
+      "path": "Veritas/ai-service/Dockerfile",
+      "responsibility": "AI服务Docker镜像构建文件",
+      "key_interfaces": [
+        {
+          "name": "build",
+          "signature": "FROM python:3.10-slim",
+          "description": "基于python:3.10-slim，安装系统依赖(build-essential, curl)，复制requirements.txt并pip install，复制应用代码，创建数据目录，EXPOSE 8000，HEALTHCHECK，CMD uvicorn启动"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/services/prompt_manager.py",
+      "description": "PromptManager统一管理类：load_templates/get_prompt/list_templates方法",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/prompts/coordinator.txt",
+      "description": "协调者Agent Prompt模板",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/prompts/retriever.txt",
+      "description": "检索Agent Prompt模板",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/prompts/analyzer.txt",
+      "description": "分析Agent Prompt模板（5维度结构化提取）",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/prompts/comparer.txt",
+      "description": "对比Agent Prompt模板",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/prompts/generator.txt",
+      "description": "生成Agent Prompt模板（个性化综述）",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/prompts/reviewer.txt",
+      "description": "审核Agent Prompt模板",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/Dockerfile",
+      "description": "AI服务Docker镜像构建文件",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_prompt_manager.py",
+      "description": "PromptManager单元测试",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_integration.py",
+      "description": "集成测试：验证服务启动/健康检查/Prompt加载/LLM初始化的端到端流程",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "description": "on_startup()中添加PromptManager实例化与load_templates()调用",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/main.py",
+      "description": "/health接口添加prompt_manager状态字段",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/requirements.txt",
+      "description": "确认string.Template(标准库无需添加)和其他必要依赖完整",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "PromptManager.__init__(prompts_dir='prompts')：存储self.prompts_dir=Path(prompts_dir)，self.templates: Dict[str, Template]={}，self.status='initializing'。prompts_dir支持相对路径和绝对路径",
+        "priority": "P0",
+        "acceptance_condition": "PromptManager().status == 'initializing'"
+      },
+      {
+        "id": "FR-002",
+        "description": "PromptManager.load_templates()异步方法：遍历self.prompts_dir.glob('*.txt')，对每个文件读取content=file.read_text(encoding='utf-8')，创建Template(content)存入self.templates[stem]（stem为文件名去掉.txt）。加载完成后self.status='loaded'，logger.info(f'Loaded {len(self.templates)} prompt templates')。目录不存在时logger.warning并创建目录",
+        "priority": "P0",
+        "acceptance_condition": "load_templates()后templates包含coordinator/retriever/analyzer/comparer/generator/reviewer六个key"
+      },
+      {
+        "id": "FR-003",
+        "description": "PromptManager.get_prompt(agent_name, **kwargs)：从self.templates[agent_name]获取模板，调用template.safe_substitute(**kwargs)替换变量，返回替换后字符串。agent_name不存在时raise KeyError(f'Prompt template not found: {agent_name}')。使用safe_substitute而非substitute，未替换变量保留原样（避免因缺少变量抛出异常）",
+        "priority": "P0",
+        "acceptance_condition": "get_prompt('analyzer', paper_title='Test', paper_abstract='Abstract', extra_instruction='')返回包含'Test'和'Abstract'的字符串"
+      },
+      {
+        "id": "FR-004",
+        "description": "PromptManager.list_templates()：返回sorted(self.templates.keys())列表",
+        "priority": "P1",
+        "acceptance_condition": "list_templates()返回['analyzer','comparer','coordinator','generator','retriever','reviewer']"
+      },
+      {
+        "id": "FR-005",
+        "description": "coordinator.txt模板：角色定位为项目经理，要求将用户问题分解为子任务（检索/分析/对比/生成/审核），变量：$query(用户问题)、$user_profile(用户画像JSON)。输出格式为子任务列表JSON",
+        "priority": "P0",
+        "acceptance_condition": "模板包含$query和$user_profile变量占位符"
+      },
+      {
+        "id": "FR-006",
+        "description": "retriever.txt模板：角色定位为图书管理员，要求生成检索关键词和策略，变量：$topic(研究主题)、$top_k(返回数量)。输出检索关键词列表",
+        "priority": "P0",
+        "acceptance_condition": "模板包含$topic和$top_k变量占位符"
+      },
+      {
+        "id": "FR-007",
+        "description": "analyzer.txt模板：角色定位为论文审稿人，5维度结构化提取(研究问题/核心方法/主要实验/核心结论/局限性)，变量：$paper_title、$paper_abstract、$extra_instruction。输出JSON格式，参照架构文档§12.2的analyzer.txt示例",
+        "priority": "P0",
+        "acceptance_condition": "模板包含5维度提取要求和JSON输出格式"
+      },
+      {
+        "id": "FR-008",
+        "description": "comparer.txt模板：角色定位为对比研究员，多论文方法/结论对比+矛盾发现，变量：$analysis_data(分析结果JSON)。输出对比表格+差异总结+矛盾列表",
+        "priority": "P0",
+        "acceptance_condition": "模板包含对比维度和矛盾发现要求"
+      },
+      {
+        "id": "FR-009",
+        "description": "generator.txt模板：角色定位为学术写手，个性化综述生成，变量：$personalization(个性化片段)、$analysis_data(分析数据)、$comparison_data(对比数据)。输出包含引言/研究现状/方法对比/研究趋势/参考文献的综述，参照架构文档§12.2的generator.txt示例",
+        "priority": "P0",
+        "acceptance_condition": "模板包含5个章节结构和引用标注要求"
+      },
+      {
+        "id": "FR-010",
+        "description": "reviewer.txt模板：角色定位为学术编辑，事实核查+引用核查，变量：$report_content(生成内容)、$original_papers(原始论文)。输出审核通过/修改建议+引用准确率",
+        "priority": "P0",
+        "acceptance_condition": "模板包含事实核查和引用核查要求"
+      },
+      {
+        "id": "FR-011",
+        "description": "Dockerfile：FROM python:3.10-slim；WORKDIR /app；RUN apt-get update && apt-get install -y build-essential curl && rm -rf /var/lib/apt/lists/*；COPY requirements.txt . && RUN pip install --no-cache-dir -r requirements.txt；COPY . .；RUN mkdir -p /app/data/papers /app/data/vector_db /app/logs；EXPOSE 8000；HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD curl -f http://localhost:8000/health || exit 1；CMD [\"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\", \"--workers\", \"1\"]",
+        "priority": "P0",
+        "acceptance_condition": "docker build -t ai-service . 成功构建镜像"
+      },
+      {
+        "id": "FR-012",
+        "description": "events.py更新：on_startup()中from app.services.prompt_manager import PromptManager，创建prompt_manager=PromptManager()，await prompt_manager.load_templates()。声明模块级变量prompt_manager=None",
+        "priority": "P0",
+        "acceptance_condition": "服务启动日志显示 'Loaded 6 prompt templates'"
+      },
+      {
+        "id": "FR-013",
+        "description": "main.py /health更新：添加'prompts': prompt_manager.status if prompt_manager else 'not_loaded'字段",
+        "priority": "P1",
+        "acceptance_condition": "curl /health返回 prompts:'loaded'"
+      },
+      {
+        "id": "FR-014",
+        "description": "test_prompt_manager.py：测试load_templates加载6个模板、get_prompt变量替换、list_templates返回排序列表、模板不存在时KeyError、safe_substitute未替换变量保留原样",
+        "priority": "P0",
+        "acceptance_condition": "pytest tests/test_prompt_manager.py 全部通过"
+      },
+      {
+        "id": "FR-015",
+        "description": "test_integration.py：集成测试验证1)服务启动后/health返回UP；2)embedding/chroma/llm/prompts各组件状态正确；3)PromptManager加载6个模板；4)LLMService初始化(至少一路Provider)。使用httpx.AsyncClient + pytest-asyncio",
+        "priority": "P1",
+        "acceptance_condition": "pytest tests/test_integration.py 全部通过"
+      }
+    ],
+    "cross_system_consistency": null,
+    "degradation_requirements": null,
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "Prompt模板中不包含硬编码的API Key或敏感信息。模板变量通过代码动态注入"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        {"java": "educationLevel", "python": "education_level", "json": "education_level"},
+        {"java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level"},
+        {"java": "preferredStyle", "python": "preferred_style", "json": "preferred_style"},
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"}
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中。PromptManager属于Service层"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，模板加载失败记录WARNING不阻塞启动，模板不存在时raise KeyError",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": []
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/health", "/api/model/status"]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "在Prompt模板中硬编码API Key或敏感信息", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-004", "action": "使用string.Template.substitute而非safe_substitute", "reason": "substitute在变量缺失时抛出KeyError，safe_substitute保留原样更安全", "severity": "medium"},
+    {"id": "FA-005", "action": "Prompt模板加载失败时阻塞服务启动", "reason": "模板加载失败应记录WARNING继续启动，不阻塞", "severity": "high"},
+    {"id": "FA-006", "action": "Dockerfile中使用latest标签", "reason": "必须使用明确版本标签(python:3.10-slim)确保构建可复现", "severity": "high"},
+    {"id": "FA-007", "action": "Dockerfile中不设置HEALTHCHECK", "reason": "Docker Compose依赖healthcheck确定启动顺序", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "PromptManager加载模板测试",
+        "description": "验证load_templates()成功加载6个模板文件，templates字典包含正确的key",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "PromptManager get_prompt变量替换测试",
+        "description": "验证get_prompt('analyzer', paper_title='Test', paper_abstract='Abstract', extra_instruction='')正确替换变量",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "PromptManager safe_substitute测试",
+        "description": "验证get_prompt()在缺少变量时不抛异常，未替换变量保留$variable原样",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "PromptManager模板不存在测试",
+        "description": "验证get_prompt('nonexistent')抛出KeyError",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "PromptManager list_templates测试",
+        "description": "验证list_templates()返回按字母排序的模板名列表",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "服务启动集成测试",
+        "description": "验证FastAPI应用启动后/health返回UP，各组件状态正确",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "Prompt+LLM端到端测试",
+        "description": "验证PromptManager加载模板 + LLMService初始化的端到端流程",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.services.prompt_manager import PromptManager; import asyncio; pm = PromptManager(); asyncio.run(pm.load_templates()); print(pm.list_templates())\"",
+        "expected_result": "输出包含6个模板名的列表"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && pytest tests/test_prompt_manager.py tests/test_integration.py -v",
+        "expected_result": "所有测试通过"
+      },
+      {
+        "layer": "other",
+        "command": "cd Veritas/ai-service && docker build -t ai-service .",
+        "expected_result": "Docker镜像构建成功"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "PromptManager提供load_templates/get_prompt/list_templates三个核心方法", "verified_by": "code_review"},
+    {"id": "AC-002", "criterion": "load_templates()成功加载6个Agent Prompt模板", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "get_prompt()使用safe_substitute进行变量替换", "verified_by": "code_review"},
+    {"id": "AC-004", "criterion": "analyzer.txt包含5维度结构化提取要求和JSON输出格式", "verified_by": "code_review"},
+    {"id": "AC-005", "criterion": "generator.txt包含5章节综述结构和引用标注要求", "verified_by": "code_review"},
+    {"id": "AC-006", "criterion": "6个Prompt模板文件均使用string.Template变量格式($variable)", "verified_by": "code_review"},
+    {"id": "AC-007", "criterion": "Dockerfile基于python:3.10-slim，包含HEALTHCHECK和uvicorn启动命令", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "events.py启动时加载PromptManager", "verified_by": "code_review"},
+    {"id": "AC-009", "criterion": "/health接口包含prompts状态字段", "verified_by": "automated_test"},
+    {"id": "AC-010", "criterion": "test_prompt_manager.py单元测试全部通过", "verified_by": "automated_test"},
+    {"id": "AC-011", "criterion": "test_integration.py集成测试全部通过", "verified_by": "automated_test"},
+    {"id": "AC-012", "criterion": "Prompt模板中不包含硬编码的敏感信息", "verified_by": "code_review"}
+  ]
+}

@@ -1,0 +1,454 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / AM1：项目骨架与模型层就绪",
+    "requirement": "实现LLM服务骨架与BuiltinLLMProvider（软件方模型）：1) 创建services/llm_service.py — 包含LLMMode枚举(auto/builtin/api/local)、LLMProvider抽象基类（定义generate/generate_stream/test_connection接口）、BuiltinLLMProvider实现类（使用OpenAI兼容接口调用软件方云端模型服务）、LLMService统一服务类（管理Provider实例、提供generate/generate_stream统一接口、status属性）；2) 在events.py启动时初始化LLMService（仅BuiltinLLMProvider）；3) 更新main.py /health接口返回真实LLM状态；4) 更新.env.example添加LLM配置注释。本任务仅实现BuiltinLLMProvider，APILLMProvider和LocalLLMProvider在后续任务中实现。",
+    "requirement_ids": ["F3.3", "F3.3.1", "F3.3.2", "F3.3.5", "F3.3.6"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§7 LLM服务模块(F3.3) — 三路并行架构设计、LLMService统一接口、BuiltinLLMProvider实现、降级时序图、功能清单"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§3.2 AM1交付物清单(LLMService骨架)、§3.3 Week2 Day5-7任务"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§8 Python AI服务开发规范 — Agent统一接口、异常处理、配置管理、异步规范"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§3.3 LLM三路Provider降级策略、§5.3环境变量、§9.2跨系统字段命名"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services",
+        "description": "服务层目录，已有embedding_service.py和vector_store_service.py，本任务新增llm_service.py"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/config.py",
+        "description": "Pydantic Settings配置类，已含LLM_MODE/LLM_BUILTIN_URL/LLM_BUILTIN_API_KEY/LLM_BUILTIN_MODEL/LLM_TIMEOUT/LLM_RETRY_COUNT/LLM_RETRY_INTERVAL等LLM配置项，无需修改"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/events.py",
+        "description": "启动/关闭事件，已有embedding_service和vector_store_service加载，需添加LLMService初始化"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/main.py",
+        "description": "FastAPI入口，/health中llm字段当前为硬编码'not_loaded'，需改为真实状态"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/exception.py",
+        "description": "已有LLMException异常类(code=503)，可直接复用"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L1252-L1428",
+        "description": "§7.3中已有LLMService完整类设计代码(含LLMMode枚举、initialize/generate/generate_stream/_fallback/unload_model方法)，以及BuiltinLLMProvider实现",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/config.py",
+        "description": "已有LLM_MODE/LLM_BUILTIN_URL/LLM_BUILTIN_API_KEY/LLM_BUILTIN_MODEL/LLM_TIMEOUT/LLM_RETRY_COUNT/LLM_RETRY_INTERVAL全部LLM配置项",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/exception.py",
+        "description": "已有LLMException(code=503)和ModelNotLoadedException(code=503)异常类",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/events.py",
+        "description": "已有on_startup/on_shutdown函数骨架，含embedding_service和vector_store_service加载逻辑，可直接扩展",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/embedding_service.py",
+        "description": "已有EmbeddingService实现(API优先+本地降级)，可作为LLMService实现的参考模式",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "LLMMode",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "responsibility": "LLM模式枚举，定义四种运行模式：AUTO(自动降级)、BUILTIN(软件方模型)、API(外接API)、LOCAL(本地模型)",
+      "key_interfaces": [
+        {
+          "name": "AUTO",
+          "signature": "AUTO = 'auto'",
+          "description": "自动模式，按优先级降级：BuiltinLLM → APILLM → LocalLLM"
+        },
+        {
+          "name": "BUILTIN",
+          "signature": "BUILTIN = 'builtin'",
+          "description": "强制使用软件方模型"
+        },
+        {
+          "name": "API",
+          "signature": "API = 'api'",
+          "description": "强制使用外接API"
+        },
+        {
+          "name": "LOCAL",
+          "signature": "LOCAL = 'local'",
+          "description": "强制使用本地模型"
+        }
+      ]
+    },
+    {
+      "name": "LLMProvider(ABC)",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "responsibility": "LLM Provider抽象基类，定义统一接口规范，所有Provider必须实现generate/generate_stream/test_connection",
+      "key_interfaces": [
+        {
+          "name": "mode",
+          "signature": "mode: str (abstract property)",
+          "description": "Provider模式标识，如'builtin'/'api'/'local'"
+        },
+        {
+          "name": "generate",
+          "signature": "async def generate(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> str",
+          "description": "同步生成，阻塞等待完整结果返回"
+        },
+        {
+          "name": "generate_stream",
+          "signature": "async def generate_stream(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> AsyncIterator[str]",
+          "description": "流式生成，逐Token产出"
+        },
+        {
+          "name": "test_connection",
+          "signature": "async def test_connection(self) -> bool",
+          "description": "测试Provider连接是否可用，发送极短prompt验证"
+        }
+      ]
+    },
+    {
+      "name": "BuiltinLLMProvider",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "responsibility": "软件方云端模型服务Provider（最高优先级），使用OpenAI兼容接口，开箱即用无需用户配置",
+      "key_interfaces": [
+        {
+          "name": "__init__",
+          "signature": "def __init__(self, settings: Settings)",
+          "description": "创建openai.AsyncOpenAI客户端：api_key=settings.LLM_BUILTIN_API_KEY, base_url=settings.LLM_BUILTIN_URL，存储model_name=settings.LLM_BUILTIN_MODEL"
+        },
+        {
+          "name": "generate",
+          "signature": "async def generate(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> str",
+          "description": "调用client.chat.completions.create(model, messages=[{role:user,content:prompt}], max_tokens, temperature)，返回response.choices[0].message.content"
+        },
+        {
+          "name": "generate_stream",
+          "signature": "async def generate_stream(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> AsyncIterator[str]",
+          "description": "调用client.chat.completions.create(stream=True)，逐chunk产出chunk.choices[0].delta.content"
+        },
+        {
+          "name": "test_connection",
+          "signature": "async def test_connection(self) -> bool",
+          "description": "发送极短prompt('Hello', max_tokens=5)验证连接可用，成功返回True，异常抛出"
+        }
+      ]
+    },
+    {
+      "name": "LLMService",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "responsibility": "统一LLM推理服务，管理Provider实例，提供generate/generate_stream统一接口，本任务仅初始化BuiltinLLMProvider",
+      "key_interfaces": [
+        {
+          "name": "__init__",
+          "signature": "def __init__(self, settings: Settings)",
+          "description": "构造函数，初始化self.settings、self.mode=settings.LLM_MODE、self.providers={}、self.active_provider=None、self.status='initializing'"
+        },
+        {
+          "name": "initialize",
+          "signature": "async def initialize(self) -> None",
+          "description": "初始化LLM服务：当mode为AUTO或BUILTIN时，尝试创建BuiltinLLMProvider并test_connection，成功则设为active_provider，status='loaded'；失败则记录WARNING日志，status='error'（本任务不实现降级，降级逻辑在task08中实现）"
+        },
+        {
+          "name": "generate",
+          "signature": "async def generate(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> str",
+          "description": "同步生成：检查active_provider非空，调用active_provider.generate()。active_provider为空时抛出ModelNotLoadedException。异常时记录ERROR日志并抛出LLMException"
+        },
+        {
+          "name": "generate_stream",
+          "signature": "async def generate_stream(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> AsyncIterator[str]",
+          "description": "流式生成：检查active_provider非空，调用active_provider.generate_stream()。active_provider为空时抛出ModelNotLoadedException"
+        },
+        {
+          "name": "status",
+          "signature": "@property def status(self) -> str",
+          "description": "返回当前LLM服务状态：'initializing'/'loaded'/'error'，以及active_provider的mode信息"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "description": "实现LLM服务骨架：LLMMode枚举、LLMProvider抽象基类、BuiltinLLMProvider实现、LLMService统一服务类（本任务仅支持BuiltinLLMProvider初始化）",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "description": "在on_startup()中添加LLMService实例化与initialize()调用；在on_shutdown()中添加LLM模型释放逻辑；声明llm_service模块级变量",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/main.py",
+      "description": "修改/health接口中llm字段：从硬编码'not_loaded'改为从llm_service获取真实状态",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/.env.example",
+      "description": "补充LLM配置注释说明：方案A软件方模型、方案B外接API、方案C本地模型的优先级和配置说明",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "LLMMode枚举(str, Enum)：AUTO='auto', BUILTIN='builtin', API='api', LOCAL='local'。继承str和Enum使其可序列化为JSON字符串",
+        "priority": "P0",
+        "acceptance_condition": "LLMMode.AUTO == 'auto' 且 isinstance(LLMMode.AUTO, str) 为True"
+      },
+      {
+        "id": "FR-002",
+        "description": "LLMProvider抽象基类(ABC)：定义abstract property mode: str、abstract async generate(prompt, max_tokens, temperature) -> str、abstract async generate_stream(prompt, max_tokens, temperature) -> AsyncIterator[str]、abstract async test_connection() -> bool。所有子类必须实现这4个接口",
+        "priority": "P0",
+        "acceptance_condition": "直接实例化LLMProvider抛出TypeError"
+      },
+      {
+        "id": "FR-003",
+        "description": "BuiltinLLMProvider(LLMProvider)：__init__创建openai.AsyncOpenAI(api_key=settings.LLM_BUILTIN_API_KEY, base_url=settings.LLM_BUILTIN_URL)，存储self.model_name=settings.LLM_BUILTIN_MODEL，self._mode='builtin'。generate()调用self.client.chat.completions.create(model=self.model_name, messages=[{'role':'user','content':prompt}], max_tokens=max_tokens, temperature=temperature)，返回response.choices[0].message.content。generate_stream()同上但stream=True，async for chunk遍历，yield chunk.choices[0].delta.content（非空时）。test_connection()发送messages=[{'role':'user','content':'Hello'}], max_tokens=5，成功返回True，异常时raise",
+        "priority": "P0",
+        "acceptance_condition": "BuiltinLLMProvider(settings).mode == 'builtin'；配置正确URL后generate('Hello')返回非空字符串"
+      },
+      {
+        "id": "FR-004",
+        "description": "LLMService.__init__(settings)：初始化self.settings、self.mode=settings.LLM_MODE、self.providers={}、self.active_provider=None、self._status='initializing'。status属性返回self._status",
+        "priority": "P0",
+        "acceptance_condition": "LLMService(settings).status == 'initializing'"
+      },
+      {
+        "id": "FR-005",
+        "description": "LLMService.initialize()：当self.mode为AUTO或BUILTIN时，try创建BuiltinLLMProvider(settings)并await test_connection()，成功则self.providers['builtin']=provider、self.active_provider=provider、self._status='loaded'，logger.info('LLM: Using builtin provider')。失败则logger.warning(f'Builtin provider failed: {e}')、self._status='error'。本任务不实现降级到API/Local（降级在task08中实现），但预留self.providers字典结构",
+        "priority": "P0",
+        "acceptance_condition": "软件方模型可用时initialize()后status='loaded'；不可用时status='error'且不抛异常（允许仅BuiltinProvider的系统启动失败）"
+      },
+      {
+        "id": "FR-006",
+        "description": "LLMService.generate(prompt, max_tokens=2048, temperature=0.7)：检查self.active_provider非空，为空则raise ModelNotLoadedException('LLM service not initialized')。调用await self.active_provider.generate(prompt, max_tokens, temperature)，异常时logger.error并raise LLMException(str(e))",
+        "priority": "P0",
+        "acceptance_condition": "active_provider已设置时generate返回字符串；未设置时抛出ModelNotLoadedException"
+      },
+      {
+        "id": "FR-007",
+        "description": "LLMService.generate_stream(prompt, max_tokens=2048, temperature=0.7)：检查self.active_provider非空，为空则raise ModelNotLoadedException。async for token in self.active_provider.generate_stream() yield token",
+        "priority": "P0",
+        "acceptance_condition": "active_provider已设置时generate_stream产出token序列；未设置时抛出ModelNotLoadedException"
+      },
+      {
+        "id": "FR-008",
+        "description": "events.py更新：1) 声明模块级变量llm_service=None；2) on_startup()中from app.services.llm_service import LLMService，创建llm_service=LLMService(settings)，try await llm_service.initialize()，except记录ERROR日志；3) on_shutdown()中若llm_service非空则logger.info('Releasing LLM service resources')",
+        "priority": "P0",
+        "acceptance_condition": "服务启动日志显示 'LLM: Using builtin provider' 或 'Builtin provider failed' 错误"
+      },
+      {
+        "id": "FR-009",
+        "description": "main.py /health更新：将'llm':'not_loaded'改为'llm': llm_service.status if llm_service else 'not_loaded'。需要从app.core.events导入llm_service",
+        "priority": "P0",
+        "acceptance_condition": "curl /health返回 llm:'loaded' 或 llm:'error'，而非'not_loaded'"
+      },
+      {
+        "id": "FR-010",
+        "description": ".env.example补充LLM配置注释：在现有LLM配置区域添加更详细的优先级说明、各方案适用场景说明。确保方案A/B/C的注释清晰",
+        "priority": "P1",
+        "acceptance_condition": ".env.example的LLM区域包含方案A(软件方)、方案B(外接API)、方案C(本地模型)的优先级和配置说明"
+      }
+    ],
+    "cross_system_consistency": null,
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          {"priority": 1, "name": "BuiltinLLMProvider", "description": "软件方云端模型服务，最高优先级，开箱即用"},
+          {"priority": 2, "name": "APILLMProvider", "description": "用户自配第三方API，中等优先级（task07实现）"},
+          {"priority": 3, "name": "LocalLLMProvider", "description": "用户本机部署开源模型，最低优先级（task08实现）"}
+        ],
+        "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider（task08实现）"
+      },
+      "agent_degradation": null
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "LLM_BUILTIN_API_KEY通过环境变量注入，不在代码中硬编码。日志中禁止输出完整API Key，仅输出前4位或脱敏后内容"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        {"java": "educationLevel", "python": "education_level", "json": "education_level"},
+        {"java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level"},
+        {"java": "preferredStyle", "python": "preferred_style", "json": "preferred_style"},
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"}
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中。LLMService属于Service层，被Agent层调用"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，LLM调用失败抛出LLMException，模型未加载抛出ModelNotLoadedException",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min"}
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/health", "/api/model/status"]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "在代码中硬编码LLM_BUILTIN_API_KEY", "reason": "安全约束，必须通过环境变量注入", "severity": "critical"},
+    {"id": "FA-004", "action": "在日志中打印完整的API Key", "reason": "安全约束，日志不应包含完整密钥", "severity": "critical"},
+    {"id": "FA-005", "action": "BuiltinLLMProvider使用同步openai客户端", "reason": "FastAPI异步框架中必须使用AsyncOpenAI，避免阻塞事件循环", "severity": "high"},
+    {"id": "FA-006", "action": "LLMService.initialize()中实现降级逻辑", "reason": "降级逻辑在task08中实现，本任务仅初始化BuiltinLLMProvider", "severity": "high"},
+    {"id": "FA-007", "action": "generate()方法不处理异常直接抛出", "reason": "必须捕获底层异常并包装为LLMException，记录ERROR日志", "severity": "high"},
+    {"id": "FA-008", "action": "generate_stream()中不检查delta.content是否为None", "reason": "流式响应中delta.content可能为None（如role chunk），必须判空", "severity": "medium"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "LLMMode枚举测试",
+        "description": "验证LLMMode.AUTO=='auto', LLMMode.BUILTIN=='builtin', LLMMode.API=='api', LLMMode.LOCAL=='local'，且均可序列化为字符串",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "LLMProvider抽象基类测试",
+        "description": "验证直接实例化LLMProvider抛出TypeError，子类必须实现generate/generate_stream/test_connection",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "BuiltinLLMProvider初始化测试",
+        "description": "验证BuiltinLLMProvider(settings)创建后mode=='builtin'，client和model_name正确初始化",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "BuiltinLLMProvider generate测试",
+        "description": "mock AsyncOpenAI客户端，验证generate()正确调用chat.completions.create并返回content",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "BuiltinLLMProvider generate_stream测试",
+        "description": "mock AsyncOpenAI客户端，验证generate_stream()逐chunk产出非空content",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "BuiltinLLMProvider test_connection测试",
+        "description": "mock AsyncOpenAI客户端，验证test_connection()成功返回True；mock异常时验证抛出异常",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "LLMService初始化测试",
+        "description": "验证LLMService(settings)创建后status=='initializing'，providers为空，active_provider为None",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "LLMService未初始化generate异常测试",
+        "description": "未调用initialize()时调用generate()，验证抛出ModelNotLoadedException",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.services.llm_service import LLMService, LLMMode, BuiltinLLMProvider; from app.core.config import settings; print(LLMMode.AUTO, LLMMode.BUILTIN)\"",
+        "expected_result": "输出 'auto builtin'"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.services.llm_service import LLMService; from app.core.config import settings; svc = LLMService(settings); print(svc.status)\"",
+        "expected_result": "输出 'initializing'"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && pytest tests/test_llm.py -v",
+        "expected_result": "所有测试通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "llm_service.py包含LLMMode枚举(AUTO/BUILTIN/API/LOCAL)、LLMProvider抽象基类、BuiltinLLMProvider实现、LLMService统一服务类", "verified_by": "code_review"},
+    {"id": "AC-002", "criterion": "LLMProvider定义4个抽象接口：mode属性、generate()、generate_stream()、test_connection()", "verified_by": "code_review"},
+    {"id": "AC-003", "criterion": "BuiltinLLMProvider使用openai.AsyncOpenAI客户端，base_url和api_key从settings读取", "verified_by": "code_review"},
+    {"id": "AC-004", "criterion": "BuiltinLLMProvider.generate()返回完整文本字符串", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "BuiltinLLMProvider.generate_stream()逐Token产出，跳过None content", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "LLMService.initialize()尝试初始化BuiltinLLMProvider，成功设为active_provider", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "LLMService.generate()在active_provider为空时抛出ModelNotLoadedException", "verified_by": "automated_test"},
+    {"id": "AC-008", "criterion": "events.py启动时创建全局llm_service实例并调用initialize()", "verified_by": "code_review"},
+    {"id": "AC-009", "criterion": "/health接口返回真实LLM状态而非硬编码'not_loaded'", "verified_by": "automated_test"},
+    {"id": "AC-010", "criterion": "日志中不输出完整API Key，LLM初始化成功/失败有明确INFO/WARNING日志", "verified_by": "code_review"},
+    {"id": "AC-011", "criterion": "单元测试全部通过，覆盖正常流程和异常流程", "verified_by": "automated_test"}
+  ]
+}

@@ -1,0 +1,329 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / AM1：项目骨架与模型层就绪",
+    "requirement": "实现ChromaDB初始化与VectorStoreService：1) 实现services/vector_store_service.py — VectorStoreService向量数据库服务，使用chromadb.PersistentClient连接本地ChromaDB，管理papers collection(HNSW cosine索引)；2) 在events.py启动时初始化VectorStoreService；3) 更新main.py健康检查返回真实chroma状态。",
+    "requirement_ids": ["F4.3", "F4.3.1", "F4.3.2", "F3.2.2"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§10 向量数据库模块(F4.3) — 完整VectorStoreService类设计(initialize/add_papers/search/delete_papers/count/close方法)、ChromaDB Schema(HNSW参数cosine/M=16/ef=200)、元数据Schema"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§3.2 AM1交付物清单(VectorStoreService、ChromaDB连接)、§3.3 Week2 Day3-4任务"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§8 Python AI服务开发规范 — 配置管理、异步规范、异常处理"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7.3 ChromaDB配置(HNSW M=16/construction_ef=200/cosine)、§5.1向量维度768"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services",
+        "description": "服务层目录，已有__init__.py和任务6创建的embedding_service.py，本任务新增vector_store_service.py"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/config.py",
+        "description": "Pydantic Settings配置类，已含CHROMA_PATH=\"./data/vector_db\"，无需新增配置"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/events.py",
+        "description": "启动/关闭事件，任务6已添加EmbeddingService加载，本任务再添加VectorStoreService初始化"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/main.py",
+        "description": "FastAPI入口，/health已含hardcoded chroma状态，需改为真实状态"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L1960-L2068",
+        "description": "§10.1中已有VectorStoreService完整类设计代码(含initialize/add_papers/search/delete_papers/count/close)，以及§10.2的ChromaDB Schema",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/config.py",
+        "description": "已有CHROMA_PATH配置项，值为'./data/vector_db'",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/events.py",
+        "description": "已有on_startup/on_shutdown函数，任务6已添加EmbeddingService加载",
+        "reuse_type": "modify"
+      },
+      {
+        "file_path": "Veritas/ai-service/requirements.txt",
+        "description": "已含chromadb==0.5.0依赖",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "VectorStoreService",
+      "path": "Veritas/ai-service/app/services/vector_store_service.py",
+      "responsibility": "Chroma向量数据库服务 — 初始化连接、管理papers collection、向量存储/检索/删除、元数据过滤",
+      "key_interfaces": [
+        {
+          "name": "__init__",
+          "signature": "def __init__(self, settings: Settings)",
+          "description": "构造函数，接收Settings配置对象，初始化client=None, collection=None, status='disconnected'"
+        },
+        {
+          "name": "initialize",
+          "signature": "async def initialize(self) -> None",
+          "description": "初始化ChromaDB：1)创建chromadb.PersistentClient(path=CHROMA_PATH)；2)get_or_create_collection('papers', metadata={hnsw:space:'cosine', hnsw:M:16, hnsw:construction_ef:200})；3)记录papers collection当前数量；4)设置status='connected'"
+        },
+        {
+          "name": "add_papers",
+          "signature": "async def add_papers(self, paper_ids: list, embeddings: list, metadatas: list, documents: list) -> None",
+          "description": "添加论文向量：批量写入paper_ids(如['arxiv_2024_001'])、embeddings(每条768维list)、metadatas(含paper_id/title/year/venue等)、documents(标题+摘要文本)。调用self.collection.add()，记录添加数量"
+        },
+        {
+          "name": "search",
+          "signature": "async def search(self, embedding: list, top_k: int = 10, filters: dict = None) -> list",
+          "description": "向量相似度检索：1)构建where过滤条件(解析yearFrom/yearTo/venue)；2)调用collection.query(query_embeddings=[embedding], n_results=top_k, where=where_filter, include=['metadatas','distances','documents'])；3)格式化结果为[{paperId,title,abstract,score(1-distance),year,venue}]列表"
+        },
+        {
+          "name": "delete_papers",
+          "signature": "async def delete_papers(self, paper_ids: list) -> None",
+          "description": "批量删除论文向量：调用collection.delete(ids=paper_ids)"
+        },
+        {
+          "name": "count",
+          "signature": "async def count(self) -> int",
+          "description": "获取当前collection中的向量数量：return self.collection.count()"
+        },
+        {
+          "name": "close",
+          "signature": "async def close(self) -> None",
+          "description": "关闭ChromaDB连接：设置self.client=None, self.status='disconnected'"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/services/vector_store_service.py",
+      "description": "实现VectorStoreService向量数据库服务：PersistentClient连接、papers collection管理、add_papers批量写入、search语义检索(含元数据过滤)、delete_papers、count、close",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "description": "启动时创建全局vector_store_service实例并调用initialize()；关闭时调用close()释放连接",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/main.py",
+      "description": "/health接口中chroma字段从硬编码'not_connected'改为动态获取vector_store_service.status",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "VectorStoreService.__init__接收Settings对象，初始化self.settings、self.client=None、self.collection=None、self.status='disconnected'",
+        "priority": "P0",
+        "acceptance_condition": "VectorStoreService(settings).status == 'disconnected'"
+      },
+      {
+        "id": "FR-002",
+        "description": "VectorStoreService.initialize()异步方法：1)创建chromadb.PersistentClient(path=self.settings.CHROMA_PATH)，如果目录不存在自动创建；2)调用client.get_or_create_collection(name='papers', metadata={'hnsw:space':'cosine', 'hnsw:M':16, 'hnsw:construction_ef':200})；3)记录当前collection中已有向量数量logger.info(f'ChromaDB initialized, papers count={count}')；4)设置self.status='connected'。如连接失败catch异常，设置status='error'，raise VectorStoreException",
+        "priority": "P0",
+        "acceptance_condition": "initialize()调用后status为'connected'，collection name='papers'，HNSW参数cosine/M=16/ef=200"
+      },
+      {
+        "id": "FR-003",
+        "description": "VectorStoreService.add_papers()异步方法：参数paper_ids:List[str](论文唯一ID)、embeddings:List[List[float]](每条768维向量)、metadatas:List[dict](含paper_id/title/year/venue/citation_count/chunk_index/chunk_type)、documents:List[str](标题+摘要文本)。调用self.collection.add(ids=paper_ids, embeddings=embeddings, metadatas=metadatas, documents=documents)。参数长度必须一致，不一致时raise ValueError。成功后logger.info(f'Added {len(paper_ids)} papers to ChromaDB')",
+        "priority": "P0",
+        "acceptance_condition": "add_papers(['p001'],[[0.1]*768],[{'paper_id':'p001','title':'Test','year':2024,'venue':'ACL'}],['Test abstract']) 成功且count+1"
+      },
+      {
+        "id": "FR-004",
+        "description": "VectorStoreService.search()异步方法：参数embedding:List[float](查询向量768维)、top_k:int=10(返回数量)、filters:Optional[dict]=None(元数据过滤条件，含yearFrom/yearTo/venue可选字段)。构建where_filter：filters中yearFrom→{$gte:yearFrom}、yearTo→{$lte:yearTo}、venue→{$eq:venue}，多条件用{$and:[...]}组合。调用collection.query(query_embeddings=[embedding], n_results=top_k, where=where_filter, include=['metadatas','distances','documents'])。格式化结果：score=1-distance(cosine距离转相似度，范围0-1)。返回format为[{paperId,title,abstract,score,year,venue},...]列表",
+        "priority": "P0",
+        "acceptance_condition": "search(向量,top_k=5)返回5条结果，每条含paperId/title/abstract/score/year/venue字段"
+      },
+      {
+        "id": "FR-005",
+        "description": "VectorStoreService.delete_papers()异步方法：参数paper_ids:List[str]。调用self.collection.delete(ids=paper_ids)。成功后记录日志，不抛异常(即使部分ID不存在也正常执行chromadb的幂等删除)",
+        "priority": "P1",
+        "acceptance_condition": "delete_papers(['p001'])后count相应减少"
+      },
+      {
+        "id": "FR-006",
+        "description": "VectorStoreService.count()异步方法：返回self.collection.count()获取collection中向量总数。如果collection为None则返回0",
+        "priority": "P0",
+        "acceptance_condition": "count()返回非负整数"
+      },
+      {
+        "id": "FR-007",
+        "description": "VectorStoreService.close()异步方法：设置self.client=None, self.collection=None, self.status='disconnected'。不抛异常，可在服务关闭时安全调用",
+        "priority": "P0",
+        "acceptance_condition": "close()后status为'disconnected'"
+      },
+      {
+        "id": "FR-008",
+        "description": "events.py添加VectorStoreService初始化和关闭：在on_startup()中(EmbeddingService加载之后)创建vector_store_service实例并调用await vector_store_service.initialize()；在on_shutdown()中(日志记录之前)调用await vector_store_service.close()。vector_store_service需要声明为模块级变量供main.py引用",
+        "priority": "P0",
+        "acceptance_condition": "启动日志显示 'ChromaDB initialized, papers count=X'"
+      },
+      {
+        "id": "FR-009",
+        "description": "main.py /health接口更新：将'chroma':'not_connected'改为动态获取vector_store_service.status。导入方式与embedding_service类似",
+        "priority": "P0",
+        "acceptance_condition": "curl /health返回 chroma:'connected'"
+      }
+    ],
+    "cross_system_consistency": null,
+    "degradation_requirements": null,
+    "security_requirements": []
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中。VectorStoreService属于Service层"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" }
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/health", "/api/model/status"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "使用chromadb.EphemeralClient(内存模式)", "reason": "必须使用PersistentClient确保数据持久化到磁盘CHROMA_PATH", "severity": "critical" },
+    { "id": "FA-004", "action": "HNSW参数使用默认值(M=16必须, ef=200必须, space=cosine必须)", "reason": "索引参数影响检索精度和性能，必须与文档规范一致", "severity": "high" },
+    { "id": "FA-005", "action": "search()返回的score使用distance原值", "reason": "ChromaDB返回的是cosine距离(0-2)，需转换为相似度(1-distance)，使score范围0-1且越大越相似", "severity": "high" },
+    { "id": "FA-006", "action": "add_papers()不校验参数长度一致性", "reason": "ids/embeddings/metadatas/documents长度不一致会导致ChromaDB报错", "severity": "high" },
+    { "id": "FA-007", "action": "initialize()失败后不设置status='error'", "reason": "健康检查依赖status字段返回正确状态", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "VectorStoreService初始化测试",
+        "description": "验证initialize()创建PersistentClient，get_or_create_collection('papers')成功，status='connected'，HNSW参数正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "add_papers和count测试",
+        "description": "添加3条论文向量，验证count()返回3；参数长度不一致验证抛出ValueError",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "search相似度检索测试",
+        "description": "添加3篇论文后，用与第2篇高度相似查询向量检索top_k=2，验证第2篇score最高(>0.8)，结果格式完整",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "search元数据过滤测试",
+        "description": "添加多年份/多venue论文后，用filters={'yearFrom':2022,'yearTo':2023}检索，验证结果均满足过滤条件",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "delete_papers测试",
+        "description": "添加3篇论文，删除1篇，验证count()=2，search不再返回被删除论文",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "空collection检索测试",
+        "description": "空papers collection下search()返回空列表[]，count()返回0",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.services.vector_store_service import VectorStoreService; from app.core.config import settings; import asyncio; async def t(): svc=VectorStoreService(settings); await svc.initialize(); print(svc.status, await svc.count()); await svc.close(); asyncio.run(t())\"",
+        "expected_result": "输出 'connected 0'(或已有论文数)"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && uvicorn app.main:app --host 0.0.0.0 --port 8000 & sleep 5 && curl -s http://localhost:8000/health",
+        "expected_result": "health中chroma字段为'connected'"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && ls -la data/vector_db/ 2>/dev/null || echo 'vector_db dir will be auto-created'",
+        "expected_result": "data/vector_db目录存在或将被自动创建"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "VectorStoreService使用chromadb.PersistentClient持久化存储，路径读取settings.CHROMA_PATH", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "papers collection设置HNSW参数：cosine相似度、M=16、construction_ef=200", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "add_papers可正确批量写入论文向量和元数据，参数长度校验", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "search()返回格式化结果含paperId/title/abstract/score/year/venue，score=1-distance范围0-1", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "search()支持filters参数(yearFrom/yearTo/venue)，正确构建where条件", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "delete_papers删除后count相应减少，search不再返回", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "count()返回collection中向量总数，空collection返回0", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "events.py启动时创建vector_store_service实例并initialize()；关闭时close()", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "/health接口chroma字段动态返回vector_store_service.status", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "initialize失败时设置status='error'并抛出VectorStoreException", "verified_by": "automated_test" }
+  ]
+}

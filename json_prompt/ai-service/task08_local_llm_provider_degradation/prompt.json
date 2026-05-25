@@ -1,0 +1,394 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / AM1：项目骨架与模型层就绪",
+    "requirement": "在task06/task07基础上，实现LocalLLMProvider（本地模型）+ 完整自动降级逻辑：1) 在services/llm_service.py中新增LocalLLMProvider类（继承LLMProvider），支持用户本机部署开源模型(Qwen2-7B/Qwen2-1.5B等Transformers兼容模型)；2) 实现LLMService完整自动降级逻辑：initialize()中三路Provider按优先级初始化(AUTO模式)，generate()/generate_stream()中运行时降级(_fallback方法)；3) 实现降级状态跟踪(_degradation_state)和定时恢复机制(_recovery_task)；4) 在events.py shutdown中添加LLM模型释放(unload_model)；5) 更新.env.example添加方案C本地模型配置说明。",
+    "requirement_ids": ["F3.3", "F3.3.1", "F3.3.2", "F3.3.3", "F3.3.5", "F3.3.7"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§7.4.3 LocalLLMProvider设计 — Transformers模型加载/推理/流式/释放、§7.5自动降级时序图、§7.6功能清单"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§3.2 AM1交付物清单(完整LLM降级机制)、§3.3 Week2 Day5-7任务"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-003 LLM三级降级决策 — 降级触发条件、恢复策略"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§3.3 LLM三路Provider降级策略(触发条件/恢复策略)、§5.3环境变量LLM_LOCAL_MODEL_PATH"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/llm_service.py",
+        "description": "task06/task07已创建的LLM服务文件，包含LLMMode/LLMProvider/BuiltinLLMProvider/APILLMProvider/LLMService，本任务新增LocalLLMProvider并完善LLMService降级逻辑"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/config.py",
+        "description": "已有LLM_LOCAL_MODEL_PATH/LLM_TIMEOUT/LLM_RETRY_COUNT/LLM_RETRY_INTERVAL配置项，无需修改"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/events.py",
+        "description": "已有llm_service初始化，需扩展on_shutdown()添加unload_model调用"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/services/llm_service.py",
+        "description": "task06/task07产出的LLM服务，包含BuiltinLLMProvider和APILLMProvider，LLMService.initialize()已支持两路降级",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L1514-L1592",
+        "description": "§7.4.3 LocalLLMProvider完整实现代码(含load_model/generate/generate_stream/unload_model)，以及TextIteratorStreamer流式生成",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L1594-L1628",
+        "description": "§7.5自动降级时序图 — 启动时自动检测和运行时降级的完整流程",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "LocalLLMProvider",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "responsibility": "本地模型Provider（最低优先级），支持用户本机部署Transformers兼容模型",
+      "key_interfaces": [
+        {
+          "name": "__init__",
+          "signature": "def __init__(self, settings: Settings)",
+          "description": "存储self.model_path=settings.LLM_LOCAL_MODEL_PATH，self.model=None，self.tokenizer=None。需校验LLM_LOCAL_MODEL_PATH非空"
+        },
+        {
+          "name": "load_model",
+          "signature": "async def load_model(self) -> None",
+          "description": "异步加载本地模型：from transformers import AutoModelForCausalLM, AutoTokenizer；self.tokenizer=AutoTokenizer.from_pretrained(model_path)；self.model=AutoModelForCausalLM.from_pretrained(model_path, torch_dtype='auto', device_map='auto')。使用run_in_executor避免阻塞事件循环"
+        },
+        {
+          "name": "generate",
+          "signature": "async def generate(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> str",
+          "description": "本地推理：tokenizer.encode → model.generate(max_new_tokens, temperature, do_sample=True) → tokenizer.decode(skip_special_tokens=True)。使用run_in_executor包装CPU密集操作"
+        },
+        {
+          "name": "generate_stream",
+          "signature": "async def generate_stream(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> AsyncIterator[str]",
+          "description": "流式生成：使用TextIteratorStreamer + threading.Thread实现，async for遍历streamer产出token"
+        },
+        {
+          "name": "test_connection",
+          "signature": "async def test_connection(self) -> bool",
+          "description": "检查self.model和self.tokenizer非空即返回True"
+        },
+        {
+          "name": "unload_model",
+          "signature": "async def unload_model(self) -> None",
+          "description": "释放GPU显存：del self.model, del self.tokenizer, gc.collect(), torch.cuda.empty_cache()"
+        }
+      ]
+    },
+    {
+      "name": "LLMService降级逻辑",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "responsibility": "完整的三路自动降级机制：initialize()启动时降级 + generate()运行时降级 + 定时恢复",
+      "key_interfaces": [
+        {
+          "name": "initialize",
+          "signature": "async def initialize(self) -> None",
+          "description": "完整三路初始化：1)BuiltinLLMProvider(优先级1)；2)APILLMProvider(优先级2)；3)LocalLLMProvider(优先级3，需await load_model())。AUTO模式按顺序尝试，至少一路成功即可。强制模式仅初始化指定Provider"
+        },
+        {
+          "name": "_fallback",
+          "signature": "async def _fallback(self) -> None",
+          "description": "运行时降级：按priority=['builtin','api','local']顺序查找下一个可用Provider，test_connection验证后切换active_provider，记录WARNING日志"
+        },
+        {
+          "name": "generate(增强)",
+          "signature": "async def generate(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> str",
+          "description": "增强版：try active_provider.generate()，失败时await _fallback()降级后重试一次。记录降级事件到_degradation_state"
+        },
+        {
+          "name": "_degradation_state",
+          "signature": "self._degradation_state: dict",
+          "description": "降级状态跟踪：{current_provider, fallback_count, last_fallback_at, consecutive_failures}。连续3次失败触发降级"
+        },
+        {
+          "name": "_start_recovery_task",
+          "signature": "def _start_recovery_task(self) -> None",
+          "description": "启动后台定时恢复任务：每5分钟尝试恢复到更高级别Provider。使用asyncio.create_task"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "description": "新增LocalLLMProvider类；完善LLMService.initialize()三路降级；实现_fallback()运行时降级；实现_degradation_state跟踪；实现_recovery_task定时恢复；增强generate()/generate_stream()降级重试",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "description": "on_shutdown()中添加llm_service.unload_model()调用（释放本地模型GPU显存）",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/.env.example",
+      "description": "补充方案C本地模型配置说明：Qwen2-7B(需GPU≥16GB)/Qwen2-1.5B(CPU可运行)等示例",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "LocalLLMProvider(LLMProvider)：mode属性返回'local'。__init__校验settings.LLM_LOCAL_MODEL_PATH非空，为空则raise ValueError('LLM_LOCAL_MODEL_PATH is required for local provider')。初始化self.model=None, self.tokenizer=None, self.model_path=settings.LLM_LOCAL_MODEL_PATH",
+        "priority": "P0",
+        "acceptance_condition": "LocalLLMProvider(settings).mode == 'local'；LLM_LOCAL_MODEL_PATH为空时抛出ValueError"
+      },
+      {
+        "id": "FR-002",
+        "description": "LocalLLMProvider.load_model()异步方法：使用asyncio.get_event_loop().run_in_executor(None, self._sync_load_model)包装同步加载。_sync_load_model中：from transformers import AutoModelForCausalLM, AutoTokenizer；self.tokenizer=AutoTokenizer.from_pretrained(self.model_path)；self.model=AutoModelForCausalLM.from_pretrained(self.model_path, torch_dtype='auto', device_map='auto')。加载成功logger.info(f'Local model loaded: {self.model_path}')",
+        "priority": "P0",
+        "acceptance_condition": "配置有效模型路径后load_model()成功加载，self.model和self.tokenizer非空"
+      },
+      {
+        "id": "FR-003",
+        "description": "LocalLLMProvider.generate()异步方法：使用run_in_executor包装同步推理。同步部分：inputs=self.tokenizer(prompt, return_tensors='pt').to(self.model.device)；outputs=self.model.generate(**inputs, max_new_tokens=max_tokens, temperature=temperature, do_sample=True)；return self.tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)",
+        "priority": "P0",
+        "acceptance_condition": "本地模型加载后generate('Hello')返回非空字符串"
+      },
+      {
+        "id": "FR-004",
+        "description": "LocalLLMProvider.generate_stream()异步方法：使用transformers.TextIteratorStreamer + threading.Thread实现流式生成。创建streamer=TextIteratorStreamer(self.tokenizer, skip_special_tokens=True)，启动Thread执行model.generate(**inputs, streamer=streamer, ...)，async for text in streamer yield text（使用asyncio.to_thread或queue适配）",
+        "priority": "P1",
+        "acceptance_condition": "本地模型加载后generate_stream()逐Token产出"
+      },
+      {
+        "id": "FR-005",
+        "description": "LocalLLMProvider.test_connection()：检查self.model和self.tokenizer均非空返回True，否则raise ModelNotLoadedException('Local model not loaded')",
+        "priority": "P0",
+        "acceptance_condition": "模型加载后test_connection()返回True；未加载时抛出ModelNotLoadedException"
+      },
+      {
+        "id": "FR-006",
+        "description": "LocalLLMProvider.unload_model()异步方法：del self.model, del self.tokenizer, self.model=None, self.tokenizer=None；import gc; gc.collect()；if torch.cuda.is_available(): torch.cuda.empty_cache()。logger.info('Local model unloaded, GPU memory released')",
+        "priority": "P0",
+        "acceptance_condition": "调用后self.model和self.tokenizer为None"
+      },
+      {
+        "id": "FR-007",
+        "description": "LLMService.initialize()完整三路降级：在现有Builtin+API逻辑之后，当mode为AUTO或LOCAL时：1)检查LLM_LOCAL_MODEL_PATH非空；2)try创建LocalLLMProvider并await load_model()和test_connection()；3)成功则self.providers['local']=provider；4)若active_provider仍为None则设为local provider；5)失败则logger.warning。最终检查：若active_provider仍为None则self._status='error'，raise RuntimeError('No LLM provider available')",
+        "priority": "P0",
+        "acceptance_condition": "AUTO模式下三路均不可用时抛出RuntimeError；至少一路可用时status='loaded'"
+      },
+      {
+        "id": "FR-008",
+        "description": "LLMService._fallback()运行时降级：按priority=['builtin','api','local']顺序，跳过current provider，对每个可用provider try await test_connection()，成功则切换active_provider，logger.warning(f'LLM fallback: {current} → {new}')，更新_degradation_state，return。所有provider均不可用则raise LLMException('All LLM providers failed')",
+        "priority": "P0",
+        "acceptance_condition": "Builtin失败后_fallback()切换到API provider；API也失败则切换到Local"
+      },
+      {
+        "id": "FR-009",
+        "description": "LLMService.generate()增强降级重试：try await self.active_provider.generate()，except Exception时：1)logger.error(f'LLM generation failed: {e}')；2)更新_degradation_state(consecutive_failures+1)；3)若consecutive_failures<3则await self._fallback()降级后重试一次；4)重试仍失败则raise LLMException。generate_stream()同理",
+        "priority": "P0",
+        "acceptance_condition": "active_provider调用失败时自动降级到下一个provider重试"
+      },
+      {
+        "id": "FR-010",
+        "description": "LLMService._degradation_state跟踪：初始化为{current_provider: None, fallback_count: 0, last_fallback_at: None, consecutive_failures: {provider_name: 0}}。每次降级更新fallback_count和last_fallback_at。连续3次失败触发自动降级",
+        "priority": "P1",
+        "acceptance_condition": "降级事件被正确记录在_degradation_state中"
+      },
+      {
+        "id": "FR-011",
+        "description": "LLMService._start_recovery_task()定时恢复：使用asyncio.create_task启动后台协程，每300秒(5分钟)尝试恢复到更高级别Provider。从当前active_provider向上查找，test_connection成功则切换回去，logger.info(f'LLM recovered: {low} → {high}')。恢复失败则静默继续等待下次",
+        "priority": "P1",
+        "acceptance_condition": "降级后5分钟内若高级别Provider恢复则自动切回"
+      },
+      {
+        "id": "FR-012",
+        "description": "events.py on_shutdown()更新：若llm_service非空，调用await llm_service.unload_model()释放本地模型GPU显存",
+        "priority": "P0",
+        "acceptance_condition": "服务关闭时日志显示 'Local model unloaded, GPU memory released'"
+      }
+    ],
+    "cross_system_consistency": null,
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          {"priority": 1, "name": "BuiltinLLMProvider", "description": "软件方云端模型（task06）"},
+          {"priority": 2, "name": "APILLMProvider", "description": "外接第三方API（task07）"},
+          {"priority": 3, "name": "LocalLLMProvider", "description": "本地开源模型（本任务实现）"}
+        ],
+        "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider，test_connection成功则切回"
+      },
+      "agent_degradation": null
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "本地模型路径通过环境变量注入。日志中不输出敏感信息"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        {"java": "educationLevel", "python": "education_level", "json": "education_level"},
+        {"java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level"},
+        {"java": "preferredStyle", "python": "preferred_style", "json": "preferred_style"},
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"}
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，LLM调用失败触发降级，所有Provider失败抛出LLMException",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min"}
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/health", "/api/model/status"]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "LocalLLMProvider.load_model()阻塞事件循环", "reason": "模型加载是CPU/IO密集操作，必须使用run_in_executor", "severity": "critical"},
+    {"id": "FA-004", "action": "LocalLLMProvider.generate()阻塞事件循环", "reason": "模型推理是CPU密集操作，必须使用run_in_executor", "severity": "critical"},
+    {"id": "FA-005", "action": "LLM_LOCAL_MODEL_PATH为空时仍创建LocalLLMProvider", "reason": "路径为空时Provider无意义，应跳过", "severity": "high"},
+    {"id": "FA-006", "action": "修改BuiltinLLMProvider/APILLMProvider已有实现", "reason": "task06/07已实现的代码不应被本任务修改", "severity": "high"},
+    {"id": "FA-007", "action": "忽略降级场景", "reason": "所有Provider失败时必须有明确错误处理，不能静默失败", "severity": "critical"},
+    {"id": "FA-008", "action": "unload_model()中不释放GPU显存", "reason": "必须调用gc.collect()和torch.cuda.empty_cache()", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "LocalLLMProvider初始化测试",
+        "description": "验证LocalLLMProvider(settings)创建后mode=='local'；LLM_LOCAL_MODEL_PATH为空时抛出ValueError",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "LocalLLMProvider load_model测试",
+        "description": "mock transformers加载过程，验证load_model()成功后model和tokenizer非空",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "LocalLLMProvider generate测试",
+        "description": "mock model和tokenizer，验证generate()正确调用model.generate并返回解码文本",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "LocalLLMProvider unload_model测试",
+        "description": "验证unload_model()后model和tokenizer为None",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "LLMService三路降级初始化测试",
+        "description": "mock三个Provider，验证AUTO模式下按优先级初始化：Builtin成功则使用Builtin；Builtin失败API成功则使用API；都失败Local成功则使用Local；都失败抛出RuntimeError",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "degradation"]
+      },
+      {
+        "test_name": "LLMService运行时降级测试",
+        "description": "mock active_provider.generate()抛出异常，验证_fallback()切换到下一个可用Provider",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "LLMService降级状态跟踪测试",
+        "description": "验证降级事件被正确记录在_degradation_state中(fallback_count, last_fallback_at)",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "LLMService所有Provider失败测试",
+        "description": "mock所有Provider均失败，验证generate()抛出LLMException('All LLM providers failed')",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.services.llm_service import LocalLLMProvider, LLMService; from app.core.config import settings; print('OK')\"",
+        "expected_result": "输出 'OK'"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && pytest tests/test_llm.py -v",
+        "expected_result": "所有LLM测试通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "LocalLLMProvider继承LLMProvider，mode=='local'", "verified_by": "code_review"},
+    {"id": "AC-002", "criterion": "LLM_LOCAL_MODEL_PATH为空时__init__抛出ValueError", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "load_model()使用run_in_executor避免阻塞事件循环", "verified_by": "code_review"},
+    {"id": "AC-004", "criterion": "generate()使用run_in_executor包装CPU密集推理", "verified_by": "code_review"},
+    {"id": "AC-005", "criterion": "generate_stream()使用TextIteratorStreamer实现流式输出", "verified_by": "code_review"},
+    {"id": "AC-006", "criterion": "unload_model()释放GPU显存(gc.collect+torch.cuda.empty_cache)", "verified_by": "code_review"},
+    {"id": "AC-007", "criterion": "LLMService.initialize()实现完整三路降级(Builtin→API→Local)", "verified_by": "automated_test"},
+    {"id": "AC-008", "criterion": "_fallback()运行时降级按优先级切换Provider", "verified_by": "automated_test"},
+    {"id": "AC-009", "criterion": "generate()失败时自动降级重试一次", "verified_by": "automated_test"},
+    {"id": "AC-010", "criterion": "所有Provider失败时抛出LLMException", "verified_by": "automated_test"},
+    {"id": "AC-011", "criterion": "_degradation_state正确跟踪降级事件", "verified_by": "automated_test"},
+    {"id": "AC-012", "criterion": "_recovery_task每5分钟尝试恢复到更高级别Provider", "verified_by": "code_review"},
+    {"id": "AC-013", "criterion": "events.py on_shutdown调用unload_model释放资源", "verified_by": "code_review"},
+    {"id": "AC-014", "criterion": "未修改BuiltinLLMProvider/APILLMProvider已有实现", "verified_by": "code_review"}
+  ]
+}

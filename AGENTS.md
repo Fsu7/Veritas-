@@ -80,7 +80,7 @@ graph LR
         C6[JWT黑名单]
     end
     subgraph Chroma[ChromaDB 0.5+]
-        V1[papers collection<br/>768维向量<br/>cosine相似度]
+        V1[papers collection<br/>1024维向量<br/>cosine相似度]
     end
     subgraph Neo4j[Neo4j 5.x]
         G1[Paper/Method/Concept/Author节点<br/>USES/IMPROVES/CITES等关系]
@@ -205,7 +205,7 @@ STYLE_MAP = {
 | 数据库 | Redis | 7.0 |
 | 向量库 | ChromaDB | 0.5+ |
 | 图数据库 | Neo4j | 5.x Community |
-| Embedding | bge-large-zh-v1.5 | 768维 |
+| Embedding | bge-large-zh-v1.5 | 1024维 |
 | 部署 | Docker Compose | — |
 
 ### 5.2 本机环境
@@ -257,11 +257,14 @@ Veritas(求真)/
 │   │   │   ├── client/                      # 外部服务客户端
 │   │   │   ├── mapper/                      # MapStruct映射器
 │   │   │   ├── filter/                      # 过滤器/拦截器
+│   │   │   │   └── RequestIdFilter.java     # 请求ID过滤器（MDC注入）
 │   │   │   ├── exception/                   # 异常定义
 │   │   │   ├── enums/                       # 枚举定义
 │   │   │   ├── aspect/                      # 切面
 │   │   │   └── util/                        # 工具类
 │   │   └── src/main/resources/application.yml
+│   │   └── src/main/resources/application-prod.yml
+│   │   └── src/test/resources/application-test.yml
 │   ├── ai-service/                          # Python AI服务
 │   │   ├── app/
 │   │   │   ├── main.py                      # FastAPI入口
@@ -337,7 +340,7 @@ Veritas(求真)/
 ### 7.3 ChromaDB
 
 - Collection: `papers`
-- 向量维度: 768 (bge-large-zh-v1.5)
+- 向量维度: 1024 (bge-large-zh-v1.5)
 - 相似度: cosine
 - HNSW参数: M=16, construction_ef=200
 - 元数据: paper_id, title, year, venue, citation_count, chunk_index, chunk_type
@@ -484,7 +487,7 @@ data: {"agent_name": "retriever", "status": "running", "progress": 0.6, "interme
 
 ```mermaid
 graph TD
-    Q[用户查询] --> EMB[bge-large-zh-v1.5<br/>768维向量]
+    Q[用户查询] --> EMB[bge-large-zh-v1.5<br/>1024维向量]
     EMB -->|语义检索| CHROMA[ChromaDB<br/>Top20]
     Q -->|关键词检索| MYSQL[MySQL FULLTEXT<br/>ngram parser<br/>Top20]
     CHROMA --> RRF[RRF融合<br/>k=60]
@@ -518,7 +521,7 @@ graph TD
 
 | 里程碑 | 时间 | 核心交付 | 状态 |
 |--------|------|---------|------|
-| **M1 基础设施就绪** | Week 1-2 | 数据库+模型+3个项目骨架+Docker Compose | ⬜ |
+| **M1 基础设施就绪** | Week 1-2 | 数据库+模型+3个项目骨架+Docker Compose | 🔄 JM1✅ |
 | **M2 单Agent可用** | Week 3-4 | RAG检索+检索/分析/生成3个Agent+LangGraph基础流程 | ⬜ |
 | **M3 前后端联调** | Week 5-6 | 用户认证+论文管理+前端基础页面+全链路联调 | ⬜ |
 | **M4 多Agent协同** | Week 7-8 | 6-Agent完整工作流+降级机制+个性化引擎+SSE推送 | ⬜ |

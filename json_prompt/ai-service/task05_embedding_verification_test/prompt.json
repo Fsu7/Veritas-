@@ -1,0 +1,365 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / AM1：项目骨架与模型层就绪",
+    "requirement": "编写批量向量化测试与连接验证代码：1) 创建tests/conftest.py —— pytest测试配置与共享fixture(提供EmbeddingService和VectorStoreService实例)；2) 创建tests/test_embedding.py —— EmbeddingService单元测试(API连接验证、单条/批量向量化、模型降级)；3) 创建tests/test_vector_store.py —— VectorStoreService单元测试(ChromaDB连接验证、向量增删查)。所有测试覆盖正常流程+异常流程+边界条件。",
+    "requirement_ids": ["F5.2.3", "F4.3.1", "F4.3.2"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§9 Embedding模型模块(F5.2) — EmbeddingService API接口定义、encode/encode_batch方法签名、性能目标100条/10秒；§10 向量数据库模块(F4.3) — VectorStoreService API接口定义、search/add_papers/delete_papers方法签名"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§3.2 AM1交付物清单(EmbeddingService单元测试、VectorStoreService单元测试)、§3.3 Week2 Day5任务"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§8 Python AI服务开发规范 — pytest测试规范"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§5.1 Embedding模型768维、§7.3 ChromaDB配置、§11 性能指标"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/embedding_service.py",
+        "description": "任务6创建的EmbeddingService，提供encode/encode_batch/load_model方法"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/vector_store_service.py",
+        "description": "任务7创建的VectorStoreService，提供initialize/search/add_papers/delete_papers/count/close方法"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "tests/",
+        "description": "测试目录，已有__init__.py(空)，本任务新增conftest.py/test_embedding.py/test_vector_store.py"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/services/embedding_service.py",
+        "description": "任务6实现，提供EmbeddingService(text→768维向量)、load_model(API优先+本地降级)、encode、encode_batch方法",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/vector_store_service.py",
+        "description": "任务7实现，提供VectorStoreService(PersistentClient连接)、initialize、add_papers、search、delete_papers、count、close方法",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/requirements.txt",
+        "description": "已含pytest==8.1.0和pytest-asyncio==0.23.0",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/tests/__init__.py",
+        "description": "空__init__.py，tests包已就绪",
+        "reuse_type": "extend"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "conftest.py (pytest配置与fixture)",
+      "path": "Veritas/ai-service/tests/conftest.py",
+      "responsibility": "pytest全局配置和共享fixture：提供embedding_service(本地模型模式)和vector_store_service(临时目录模式)实例",
+      "key_interfaces": [
+        {
+          "name": "embedding_service fixture",
+          "signature": "@pytest.fixture(scope='module')\nasync def embedding_service()",
+          "description": "创建EmbeddingService实例，load_model()加载本地bge-large-zh-v1.5(不依赖阿里云API)，yield返回实例。scope='module'复用同模块内多测试"
+        },
+        {
+          "name": "vector_store_service fixture",
+          "signature": "@pytest.fixture(scope='function')\nasync def vector_store_service(tmp_path)",
+          "description": "使用pytest tmp_path创建临时ChromaDB目录，创建VectorStoreService实例(修改settings.CHROMA_PATH指向临时目录)，initialize()连接，yield返回，teardown时close()并清理"
+        }
+      ]
+    },
+    {
+      "name": "test_embedding.py",
+      "path": "Veritas/ai-service/tests/test_embedding.py",
+      "responsibility": "EmbeddingService单元测试：API连接验证、单条/批量向量化、模型降级行为、异常处理",
+      "key_interfaces": [
+        {
+          "name": "TestEmbeddingServiceInit",
+          "signature": "class TestEmbeddingServiceInit",
+          "description": "初始化测试类：验证EmbeddingService创建后初始状态(dimension=768,status='initializing',model=None)"
+        },
+        {
+          "name": "TestEmbeddingServiceLocal",
+          "signature": "class TestEmbeddingServiceLocal",
+          "description": "本地模型测试类：load_model加载bge-large-zh-v1.5、encode单条/批量、encode_batch分批、向量维度正确性"
+        },
+        {
+          "name": "TestEmbeddingServiceAPI",
+          "signature": "class TestEmbeddingServiceAPI",
+          "description": "阿里云百炼API测试类(条件执行)：DASHSCOPE_API_KEY存在时验证API连接、encode返回768维、encode_batch性能"
+        },
+        {
+          "name": "TestEmbeddingServiceError",
+          "signature": "class TestEmbeddingServiceError",
+          "description": "异常测试类：未load_model直接encode抛ModelNotLoadedException、本地模型路径不正确抛RuntimeError"
+        }
+      ]
+    },
+    {
+      "name": "test_vector_store.py",
+      "path": "Veritas/ai-service/tests/test_vector_store.py",
+      "responsibility": "VectorStoreService单元测试：ChromaDB连接验证、向量增删查、空collection边界",
+      "key_interfaces": [
+        {
+          "name": "TestVectorStoreInit",
+          "signature": "class TestVectorStoreInit",
+          "description": "初始化测试：initialize后status='connected'、collection='papers'、空collection时count=0"
+        },
+        {
+          "name": "TestVectorStoreCRUD",
+          "signature": "class TestVectorStoreCRUD",
+          "description": "增删查测试：add_papers批量写入、count验证、search返回格式化结果+score计算正确、delete_papers后count减少"
+        },
+        {
+          "name": "TestVectorStoreSearch",
+          "signature": "class TestVectorStoreSearch",
+          "description": "检索测试：search top_k截断、score范围0-1、元数据过滤(yearFrom/yearTo/venue)、空结果处理"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/conftest.py",
+      "description": "pytest配置与共享fixture：提供embedding_service(function scope本地模式)和vector_store_service(function scope临时目录模式)实例fixture",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_embedding.py",
+      "description": "EmbeddingService单元测试：初始化状态验证、本地模型加载、encode单条/多条/批量、API连接(条件执行)、模型未加载异常、维度校验",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_vector_store.py",
+      "description": "VectorStoreService单元测试：初始化连接、add_papers/count、search检索+score校验、元数据过滤、delete_papers、空collection搜索、参数长度不一致异常",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "conftest.py定义embedding_service fixture(function级别)：创建EmbeddingService(settings)实例，调用await load_model()加载本地模型(不依赖DASHSCOPE_API_KEY)。确保EMBEDDING_DEVICE='cpu'。加载成功后yield实例，teardown无需特殊清理。使用@pytest.fixture(scope='function')避免模块级scope导致测试间状态干扰",
+        "priority": "P0",
+        "acceptance_condition": "pytest --collect-only 识别到所有测试函数并正确注入embedding_service fixture"
+      },
+      {
+        "id": "FR-002",
+        "description": "conftest.py定义vector_store_service fixture(function级别)：使用pytest内置tmp_path fixture创建临时目录作为CHROMA_PATH。创建VectorStoreService实例前临时修改settings.CHROMA_PATH=str(tmp_path/'chroma_test')。调用initialize()。yield实例。teardown调用await close()，清空客户端引用。使用@pytest.fixture(scope='function')确保每次测试独立的数据库实例",
+        "priority": "P0",
+        "acceptance_condition": "每个测试函数获得独立的ChromaDB临时目录，测试间互不干扰"
+      },
+      {
+        "id": "FR-003",
+        "description": "test_embedding.py TestEmbeddingServiceInit：1)test_initial_state: 验证EmbeddingService(settings).dimension==768, .status=='initializing', .model is None；2)test_load_local_model: 调用load_model()后status=='loaded_local', .model非空",
+        "priority": "P0",
+        "acceptance_condition": "pytest tests/test_embedding.py::TestEmbeddingServiceInit -v 全部通过"
+      },
+      {
+        "id": "FR-004",
+        "description": "test_embedding.py TestEmbeddingServiceLocal：1)test_encode_single: encode('测试文本')返回shape(768,)的float32 np.ndarray；2)test_encode_list: encode(['a','b','c'])返回shape(3,768)；3)test_encode_batch: encode_batch(10条文本,batch_size=3)拆分4批(3+3+3+1)，返回shape(10,768)；4)test_vector_dimension: 验证输出向量维度==768；5)test_vector_normalized: 验证向量的L2范数≈1.0(容差0.01)，因为encode传入normalize_embeddings=True",
+        "priority": "P0",
+        "acceptance_condition": "pytest tests/test_embedding.py::TestEmbeddingServiceLocal -v 全部通过"
+      },
+      {
+        "id": "FR-005",
+        "description": "test_embedding.py TestEmbeddingServiceAPI(条件执行)：使用pytest.mark.skipif装饰器，当环境变量DASHSCOPE_API_KEY未设置时跳过全部测试。1)test_api_connection: load_model()后status=='loaded_api'；2)test_api_encode_single: encode('你好世界')返回shape(768,)；3)test_api_encode_batch_performance: encode_batch(20条)耗时<5秒。如果DASHSCOPE_API_KEY存在则执行，否则skip并提示设置环境变量",
+        "priority": "P1",
+        "acceptance_condition": "未设API Key时测试被skip不报错；设置后全部通过"
+      },
+      {
+        "id": "FR-006",
+        "description": "test_embedding.py TestEmbeddingServiceError：1)test_encode_without_load: 不调用load_model直接encode()，验证抛出ModelNotLoadedException(code=503)；2)test_load_local_model_invalid_path: 临时设置settings.EMBEDDING_MODEL_PATH='/nonexistent'后load_model()，验证抛出RuntimeError或设置status='error'",
+        "priority": "P0",
+        "acceptance_condition": "异常测试全部通过，正确捕获和验证异常类型/code"
+      },
+      {
+        "id": "FR-007",
+        "description": "test_vector_store.py TestVectorStoreInit：1)test_initialize: vector_store_service fixture自动initialize，验证status=='connected'；2)test_collection_name: 验证self.collection.name=='papers'；3)test_empty_count: 刚初始化空collection count()==0",
+        "priority": "P0",
+        "acceptance_condition": "pytest tests/test_vector_store.py::TestVectorStoreInit -v 全部通过"
+      },
+      {
+        "id": "FR-008",
+        "description": "test_vector_store.py TestVectorStoreCRUD：1)test_add_papers_and_count: 用3条假论文数据(ids=['p001','p002','p003']，embeddings为3个随机768维单位向量，metadatas含paper_id/title/year/venue/citation_count)调用add_papers()后count()==3；2)test_add_papers_invalid_lengths: paper_ids(3条)与embeddings(2条)长度不一致，验证raise ValueError；3)test_delete_papers: 添加3条后删除1条(['p001'])，count()==2；4)test_add_after_delete: 删除后再添加1条，count()==3(验证幂等恢复)",
+        "priority": "P0",
+        "acceptance_condition": "CRUD测试全部通过"
+      },
+      {
+        "id": "FR-009",
+        "description": "test_vector_store.py TestVectorStoreSearch：1)test_search_basic: 添加3条论文后用中间一篇的向量(embeddings[1])作为查询向量search(top_k=2)，验证返回2条结果，第一结果的paper_id=='p002'(自身最相似)，score>0.9；2)test_search_score_range: 验证所有返回结果的score在0-1之间；3)test_search_year_filter: 添加多年份论文(2020/2022/2024各1条)，search(filters={'yearFrom':2021,'yearTo':2023})验证仅返回2022年的论文；4)test_search_venue_filter: search(filters={'venue':'ACL'})验证返回结果venue全为'ACL'；5)test_search_empty_result: 查询向量与已有论文差异极大时search返回空或低score",
+        "priority": "P0",
+        "acceptance_condition": "search测试全部通过"
+      },
+      {
+        "id": "FR-010",
+        "description": "所有测试函数使用@pytest.mark.asyncio装饰器支持async/await。使用pytest.raises验证异常。测试文件顶部添加pytestmark = pytest.mark.asyncio(或逐函数装饰)",
+        "priority": "P0",
+        "acceptance_condition": "pytest tests/ -v 全部17+个测试通过或skip，无error"
+      }
+    ],
+    "cross_system_consistency": null,
+    "degradation_requirements": null,
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "测试代码中不硬编码DASHSCOPE_API_KEY。API测试通过环境变量获取，未设置时skip。使用np.random生成随机测试向量而非真实API调用结果"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "caching": null,
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/health", "/api/model/status"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行测试代码", "severity": "critical" },
+    { "id": "FA-002", "action": "测试保护真实ChromaDB数据目录", "reason": "必须使用tmp_path临时目录，不得污染data/vector_db/中的已有数据", "severity": "critical" },
+    { "id": "FA-003", "action": "硬编码DASHSCOPE_API_KEY在测试代码中", "reason": "API Key敏感信息必须通过环境变量注入", "severity": "critical" },
+    { "id": "FA-004", "action": "module级fixture共享受状态(embedding事务)", "reason": "function级fixture确保每个测试隔离，避免测试间状态污染导致的flaky test", "severity": "high" },
+    { "id": "FA-005", "action": "VectorStoreService fixture不调用close()", "reason": "fixture teardown必须释放资源close()，避免临时目录残留", "severity": "high" },
+    { "id": "FA-006", "action": "API测试在无Key时直接失败", "reason": "API测试应使用pytest.mark.skipif优雅跳过，不应因缺少环境变量而fail", "severity": "high" },
+    { "id": "FA-007", "action": "添加论文后不清理测试数据", "reason": "function级fixture+临时目录确保自动清理；如果使用非临时目录必须手动delete", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "EmbeddingService初始状态测试",
+        "description": "验证未经load_model的EmbeddingService状态：dimension=768, status='initializing', model=None",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "EmbeddingService本地模型encode测试",
+        "description": "验证bge-large-zh-v1.5加载后encode返回768维float32数组，L2范数≈1.0，encode_batch正确分批拼接",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "EmbeddingService API连接测试(条件执行)",
+        "description": "DASHSCOPE_API_KEY存在时验证text-embedding-v4 API连接和向量化，不存在时pytest.skip",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "EmbeddingService异常测试",
+        "description": "未加载模型encode抛ModelNotLoadedException；无效路径load_model抛RuntimeError",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "VectorStoreService初始化测试",
+        "description": "验证PersistentClient连接(临时目录)，collection.name='papers'，status='connected'，count=0",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "VectorStoreService CRUD测试",
+        "description": "add_papers(3条)→count=3→delete 1条→count=2→search正常、参数长度校验、score范围0-1",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "VectorStoreService search过滤测试",
+        "description": "元数据过滤(yearFrom/yearTo/venue)、多条件and组合、过滤后结果符合预期",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "Embedding+VectorStore集成流程",
+        "description": "1)embedding_service.encode('Multi-Agent协同决策')→查询向量；2)vector_store_service.search(查询向量,top_k=3)→检索结果。验证端到端检索流程正确性",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && pytest tests/test_embedding.py -v --tb=short 2>&1 | head -50",
+        "expected_result": "所有test_函数通过或skip，无FAILED"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && pytest tests/test_vector_store.py -v --tb=short 2>&1 | head -50",
+        "expected_result": "所有test_函数通过，无FAILED"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && pytest tests/ -v --tb=short 2>&1 | tail -20",
+        "expected_result": "显示passed/skipped/failed统计，无FAILED/ERROR"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && pytest tests/test_embedding.py -v -k 'test_encode_single or test_encode_batch' --tb=short",
+        "expected_result": "指定测试函数通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "conftest.py提供embedding_service fixture：加载本地bge-large-zh-v1.5(无API依赖)", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "conftest.py提供vector_store_service fixture：使用tmp_path临时目录，teardown调用close()", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "test_embedding.py TestEmbeddingServiceLocal：encode单条768维、encode多条(N,768)、encode_batch分批、向量归一化验证", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "test_embedding.py TestEmbeddingServiceAPI：使用skipif条件执行，DASHSCOPE_API_KEY不存在时优雅跳过", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "test_embedding.py TestEmbeddingServiceError：未load_model抛ModelNotLoadedException，无效路径异常处理", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "test_vector_store.py TestVectorStoreInit：initialize成功status='connected', collection='papers', count=0", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "test_vector_store.py TestVectorStoreCRUD：add 3条→count 3→delete 1条→count 2，参数不一致raise ValueError", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "test_vector_store.py TestVectorStoreSearch：search score 0-1、year过滤、venue过滤、空结果边界", "verified_by": "automated_test" },
+    { "id": "AC-009", "criterion": "所有测试函数使用@pytest.mark.asyncio，async/await正确执行", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "pytest tests/ -v 全部通过(不含API测试skip)，覆盖率>80%关键路径", "verified_by": "automated_test" },
+    { "id": "AC-011", "criterion": "VectorStore测试不污染data/vector_db/(均使用tmp_path临时目录)", "verified_by": "code_review" },
+    { "id": "AC-012", "criterion": "测试代码中不硬编码API Key、密码等敏感信息", "verified_by": "code_review" }
+  ]
+}

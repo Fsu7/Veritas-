@@ -1,0 +1,372 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.1",
+    "milestone": "M1：基础设施就绪 / AM1：项目骨架与模型层就绪",
+    "requirement": "实现阿里云百炼API Embedding配置与EmbeddingService：1) 在core/config.py中新增阿里云百炼DashScope Embedding专用配置项(DASHSCOPE_API_KEY、DASHSCOPE_EMBEDDING_MODEL、DASHSCOPE_EMBEDDING_BASE_URL)；2) 实现services/embedding_service.py — EmbeddingService文本向量化服务，优先使用阿里云百炼text-embedding-v4 API(768维)，备选本地bge-large-zh-v1.5模型；3) 在events.py启动时加载EmbeddingService；4) 更新.env.example添加阿里云百炼API配置项；5) 更新main.py健康检查返回真实的embedding状态。",
+    "requirement_ids": ["F5.2", "F5.2.1", "F5.2.2", "F5.2.3"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§9 Embedding模型模块(F5.2) — 完整类设计(EmbeddingService)、文本向量化encode/encode_batch方法签名、阿里云百炼text-embedding-v4 API配置、本地bge-large-zh-v1.5备选、性能目标100条/10秒"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§3.2 AM1交付物清单(EmbeddingService、ChromaDB连接)、§3.3 Week2 Day3-4任务"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§8 Python AI服务开发规范 — Agent统一接口、异常处理、配置管理、异步规范"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§5.1 Embedding模型(bge-large-zh-v1.5 768维)、§5.3环境变量、§9.2跨系统字段命名"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services",
+        "description": "服务层目录，已有__init__.py，本任务新增embedding_service.py"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/config.py",
+        "description": "Pydantic Settings配置类，已含EMBEDDING_MODEL_PATH/EMBEDDING_API_KEY等通用配置，需新增阿里云百炼专用配置"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/events.py",
+        "description": "启动/关闭事件，当前仅有日志初始化，需添加EmbeddingService加载"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/main.py",
+        "description": "FastAPI入口，健康检查/health当前返回硬编码'not_loaded'，需改为真实状态"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L1844-L1942",
+        "description": "§9.2中已有EmbeddingService完整类设计代码(含encode/encode_batch/_encode_via_api方法)",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/config.py",
+        "description": "已有EMBEDDING_MODEL_PATH/EMBEDDING_API_KEY/EMBEDDING_API_BASE/EMBEDDING_API_MODEL通用配置项",
+        "reuse_type": "modify"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/events.py",
+        "description": "已有on_startup/on_shutdown函数骨架(仅日志初始化)，可直接扩展",
+        "reuse_type": "modify"
+      },
+      {
+        "file_path": "Veritas/ai-service/.env.example",
+        "description": "已有Embedding通用配置注释，需新增阿里云百炼专用配置",
+        "reuse_type": "modify"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "EmbeddingService",
+      "path": "Veritas/ai-service/app/services/embedding_service.py",
+      "responsibility": "文本向量化服务 — 优先阿里云百炼text-embedding-v4 API(768维)，备选本地bge-large-zh-v1.5(768维)，支持单条和批量encode",
+      "key_interfaces": [
+        {
+          "name": "__init__",
+          "signature": "def __init__(self, settings: Settings)",
+          "description": "构造函数，接收Settings配置对象，初始化model=None, dimension=768, status='initializing', _api_client=None"
+        },
+        {
+          "name": "load_model",
+          "signature": "async def load_model(self) -> None",
+          "description": "异步初始化Embedding：优先尝试连接阿里云百炼DashScope API(OpenAI兼容模式)；失败则降级加载本地bge-large-zh-v1.5；都失败则设置status='error'并抛出异常"
+        },
+        {
+          "name": "encode",
+          "signature": "async def encode(self, text: Union[str, list]) -> np.ndarray",
+          "description": "文本向量化：若本地模型已加载则self.model.encode()；若API客户端已初始化则调用_encode_via_api()；返回shape为(768,)或(N, 768)的numpy数组，normalize_embeddings=True"
+        },
+        {
+          "name": "encode_batch",
+          "signature": "async def encode_batch(self, texts: list, batch_size: int = 32) -> np.ndarray",
+          "description": "批量向量化：分批调用encode()，批量拼接，目标性能100条/10秒"
+        },
+        {
+          "name": "_encode_via_api",
+          "signature": "async def _encode_via_api(self, text: Union[str, list]) -> np.ndarray",
+          "description": "通过阿里云百炼DashScope API获取向量(OpenAI兼容接口embeddings.create)，model使用text-embedding-v4"
+        },
+        {
+          "name": "_init_dashscope_client",
+          "signature": "def _init_dashscope_client(self) -> None",
+          "description": "初始化阿里云百炼DashScope OpenAI兼容客户端：base_url=DASHSCOPE_EMBEDDING_BASE_URL, api_key=DASHSCOPE_API_KEY"
+        }
+      ]
+    },
+    {
+      "name": "Settings配置扩展",
+      "path": "Veritas/ai-service/app/core/config.py",
+      "responsibility": "新增阿里云百炼DashScope Embedding专用配置项",
+      "key_interfaces": [
+        {
+          "name": "DASHSCOPE_API_KEY",
+          "signature": "DASHSCOPE_API_KEY: str = Field(default='', description='阿里云百炼DashScope API Key')",
+          "description": "阿里云百炼API密钥，用于调用text-embedding-v4等模型"
+        },
+        {
+          "name": "DASHSCOPE_EMBEDDING_MODEL",
+          "signature": "DASHSCOPE_EMBEDDING_MODEL: str = Field(default='text-embedding-v4', description='阿里云百炼Embedding模型名')",
+          "description": "阿里云百炼Embedding模型名称，默认text-embedding-v4(768维)"
+        },
+        {
+          "name": "DASHSCOPE_EMBEDDING_BASE_URL",
+          "signature": "DASHSCOPE_EMBEDDING_BASE_URL: str = Field(default='https://dashscope.aliyuncs.com/compatible-mode/v1', description='阿里云百炼DashScope OpenAI兼容API地址')",
+          "description": "阿里云百炼OpenAI兼容模式API端点URL"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/services/embedding_service.py",
+      "description": "实现EmbeddingService文本向量化服务：优先阿里云百炼text-embedding-v4 API(OpenAI兼容模式，768维)，备选本地bge-large-zh-v1.5。包含load_model/encode/encode_batch/_encode_via_api/_init_dashscope_client方法",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/config.py",
+      "description": "新增3个阿里云百炼DashScope Embedding配置项：DASHSCOPE_API_KEY、DASHSCOPE_EMBEDDING_MODEL(text-embedding-v4)、DASHSCOPE_EMBEDDING_BASE_URL(https://dashscope.aliyuncs.com/compatible-mode/v1)",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "description": "在on_startup()中添加EmbeddingService实例化与load_model()调用；在on_shutdown()中添加资源释放日志",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/.env.example",
+      "description": "新增阿里云百炼DashScope配置区域：DASHSCOPE_API_KEY(含注释说明)、DASHSCOPE_EMBEDDING_MODEL、DASHSCOPE_EMBEDDING_BASE_URL",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/main.py",
+      "description": "修改/health接口中embedding字段：从硬编码'not_loaded'改为从embedding_service.status获取真实状态",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "config.py新增3个阿里云百炼配置项：1)DASHSCOPE_API_KEY:str=''(阿里云百炼API密钥)；2)DASHSCOPE_EMBEDDING_MODEL:str='text-embedding-v4'(模型名)；3)DASHSCOPE_EMBEDDING_BASE_URL:str='https://dashscope.aliyuncs.com/compatible-mode/v1'(OpenAI兼容API端点)。字段使用UPPER_SNAKE_CASE（Python配置规范）",
+        "priority": "P0",
+        "acceptance_condition": "settings.DASHSCOPE_API_KEY 可正常读取环境变量"
+      },
+      {
+        "id": "FR-002",
+        "description": "EmbeddingService.__init__接收Settings对象，初始化self.settings、self.model=None、self.dimension=768、self.status='initializing'、self._api_client=None。不在此阶段加载模型，遵循延迟初始化原则",
+        "priority": "P0",
+        "acceptance_condition": "EmbeddingService(settings).dimension == 768"
+      },
+      {
+        "id": "FR-003",
+        "description": "EmbeddingService.load_model()异步方法实现两级策略：第一优先级——检查DASHSCOPE_API_KEY是否非空，非空则调用_init_dashscope_client()创建OpenAI兼容客户端，设置status='loaded_api'、dimension=768；第二优先级(降级)——API不可用时加载本地模型SentenceTransformer(EMBEDDING_MODEL_PATH, device=EMBEDDING_DEVICE)，设置self.dimension=模型维度、status='loaded_local'。都失败则status='error'，raise RuntimeError('No embedding service available')。每个分支记录logger.info",
+        "priority": "P0",
+        "acceptance_condition": "配置DASHSCOPE_API_KEY后load_model成功连接API；不配置且本地模型可用时降级加载本地模型"
+      },
+      {
+        "id": "FR-004",
+        "description": "EmbeddingService.encode()异步方法：若self.model非空(本地模型)则调用self.model.encode(text, normalize_embeddings=True)；若self._api_client非空(API模式)则调用self._encode_via_api(text)。若两者都不可用抛出ModelNotLoadedException。输入text支持str和list[str]，返回np.ndarray",
+        "priority": "P0",
+        "acceptance_condition": "embedding_service.encode('测试文本') 返回shape(768,)的float32数组；encode_batch(['a','b','c'])返回shape(3,768)数组"
+      },
+      {
+        "id": "FR-005",
+        "description": "EmbeddingService.encode_batch()异步方法：遍历texts列表，按batch_size分批调用encode()，使用np.vstack拼接所有批次结果。len(texts)<=batch_size时直接调用encode()不做分片。每批处理后记录DEBUG日志(batch索引、进度百分比)",
+        "priority": "P0",
+        "acceptance_condition": "encode_batch(100条文本) 成功返回shape(100,768)数组，处理时间<10秒"
+      },
+      {
+        "id": "FR-006",
+        "description": "EmbeddingService._init_dashscope_client()创建openai.AsyncOpenAI客户端：api_key=self.settings.DASHSCOPE_API_KEY、base_url=self.settings.DASHSCOPE_EMBEDDING_BASE_URL。存储在self._api_client",
+        "priority": "P0",
+        "acceptance_condition": "客户端创建成功后可调用embeddings.create方法"
+      },
+      {
+        "id": "FR-007",
+        "description": "EmbeddingService._encode_via_api()通过阿里云百炼OpenAI兼容接口向量化：调用self._api_client.embeddings.create(model=DASHSCOPE_EMBEDDING_MODEL, input=text)。input为str时包装为list。从response.data逐个提取embedding，返回np.array(embeddings)。注意text-embedding-v4输出768维，与本地bge-large-zh-v1.5维度一致",
+        "priority": "P0",
+        "acceptance_condition": "API返回向量维度768，encode('hello')返回shape(768,)的numpy数组"
+      },
+      {
+        "id": "FR-008",
+        "description": "events.py的on_startup()函数中创建全局embedding_service实例并调用load_model()：from app.services.embedding_service import EmbeddingService 导入，实例化 embedding_service = EmbeddingService(settings)，然后 await embedding_service.load_model()。使用logger记录加载结果。需要将embedding_service声明为模块级变量供main.py引用",
+        "priority": "P0",
+        "acceptance_condition": "服务启动日志显示 'Embedding model loaded via DashScope API' 或 'Embedding model loaded via local bge-large-zh-v1.5'"
+      },
+      {
+        "id": "FR-009",
+        "description": "main.py的/health接口更新：将'embedding':'not_loaded'改为从app.core.events.embedding_service.status获取真实状态。需要导入embedding_service(动态获取early import会有问题，改用直接from app.core.events import embedding_service导入或延迟获取)",
+        "priority": "P0",
+        "acceptance_condition": "curl /health返回 embedding:'loaded_api' 或 embedding:'loaded_local'"
+      },
+      {
+        "id": "FR-010",
+        "description": ".env.example新增阿里云百炼DashScope配置区域(在现有Embedding配置下方或独立区域)：\\n# --- 阿里云百炼/DashScope Embedding配置(优先) ---\\n# DASHSCOPE_API_KEY=          # 阿里云百炼API Key，用于text-embedding-v4，敏感值请勿提交\\n# DASHSCOPE_EMBEDDING_MODEL=   # 模型名，默认text-embedding-v4(768维)\\n# DASHSCOPE_EMBEDDING_BASE_URL= # API端点，默认https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "priority": "P1",
+        "acceptance_condition": ".env.example包含上述3个配置项及注释"
+      }
+    ],
+    "cross_system_consistency": null,
+    "degradation_requirements": {
+      "llm_degradation": null,
+      "agent_degradation": null
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "DASHSCOPE_API_KEY通过环境变量注入，不在代码中硬编码。.env.example中API Key备注'敏感值请勿提交'。日志中禁止输出完整API Key，仅输出前4位或脱敏后内容"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中。EmbeddingService属于Service层，不直接操作数据库或文件系统"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" }
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/health", "/api/model/status"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "在代码中硬编码DASHSCOPE_API_KEY", "reason": "安全约束，必须通过环境变量注入", "severity": "critical" },
+    { "id": "FA-004", "action": "在日志中打印完整的API Key", "reason": "安全约束，日志不应包含完整密钥", "severity": "critical" },
+    { "id": "FA-005", "action": "load_model时阻塞事件循环", "reason": "load_model是I/O操作，必须使用async/await", "severity": "high" },
+    { "id": "FA-006", "action": "encode()返回非numpy数组类型", "reason": "下游检索模块依赖numpy数组计算余弦相似度", "severity": "high" },
+    { "id": "FA-007", "action": "忽略阿里云百炼API调用异常", "reason": "API调用失败时应抛出明确异常，记录日志，由调用方或降级机制处理", "severity": "high" },
+    { "id": "FA-008", "action": "阿里云百炼API base_url写错", "reason": "OpenAI兼容模式端点必须是 /compatible-mode/v1，否则embeddings接口不可用", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "EmbeddingService初始化测试",
+        "description": "验证EmbeddingService(settings)创建后dimension=768, status='initializing', model为None",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "阿里云百炼API连接测试",
+        "description": "设置DASHSCOPE_API_KEY后调用load_model()，验证status变为'loaded_api'，调用encode('测试')返回768维向量",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "本地模型降级测试",
+        "description": "不设DASHSCOPE_API_KEY，验证load_model降级加载本地bge-large-zh-v1.5，status='loaded_local'",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "encode/encode_batch测试",
+        "description": "验证encode('单条文本')返回(768,)数组；encode(['a','b','c'])返回(3,768)数组；encode_batch(5条文本,batch_size=2)分批执行并正确拼接",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "模型未加载异常测试",
+        "description": "未调用load_model时直接调用encode()，验证抛出ModelNotLoadedException",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.core.config import settings; print(settings.DASHSCOPE_EMBEDDING_MODEL, settings.DASHSCOPE_EMBEDDING_BASE_URL)\"",
+        "expected_result": "输出 'text-embedding-v4 https://dashscope.aliyuncs.com/compatible-mode/v1'"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && DASHSCOPE_API_KEY=sk-test python -c \"from app.services.embedding_service import EmbeddingService; from app.core.config import settings; import asyncio; svc = EmbeddingService(settings); asyncio.run(svc.load_model()); print(svc.status)\"",
+        "expected_result": "status为'loaded_api'(API连通时)或'loaded_local'(降级)"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && uvicorn app.main:app --host 0.0.0.0 --port 8000 & sleep 5 && curl -s http://localhost:8000/health | python -m json.tool",
+        "expected_result": "health中embedding字段值为'loaded_api'或'loaded_local'，非'not_loaded'"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "config.py包含DASHSCOPE_API_KEY/DASHSCOPE_EMBEDDING_MODEL/DASHSCOPE_EMBEDDING_BASE_URL三个配置项", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "DASHSCOPE_EMBEDDING_BASE_URL默认值为https://dashscope.aliyuncs.com/compatible-mode/v1(OpenAI兼容端点)", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "EmbeddingService提供load_model异步方法，优先API后本地模型的降级策略", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "encode('单条文本')返回shape为(768,)的float32 numpy数组", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "encode(['a','b'])返回shape为(2,768)的numpy数组", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "encode_batch(100条文本)返回(100,768)数组，分batch处理", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "API调用前先检查DASHSCOPE_API_KEY是否非空，为空则跳过API直接降级本地", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "events.py启动时创建全局embedding_service实例并调用load_model()", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "/health接口返回真实embedding状态而非硬编码'not_loaded'", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": ".env.example包含阿里云百炼配置区域及注释", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "日志中不输出完整DASHSCOPE_API_KEY，model加载成功/失败有明确INFO/WARNING日志", "verified_by": "code_review" },
+    { "id": "AC-012", "criterion": "API调用异常时有明确错误日志和异常抛出，非静默失败", "verified_by": "code_review" }
+  ]
+}

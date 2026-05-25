@@ -1,10 +1,10 @@
 package com.literatureassistant.entity;
 
 import com.literatureassistant.enums.SessionStatus;
+import com.literatureassistant.enums.SessionStatusConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -38,7 +38,7 @@ public class Session {
     @Column(length = 500)
     private String topic;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = SessionStatusConverter.class)
     @Column(nullable = false, length = 20)
     private SessionStatus status;
 

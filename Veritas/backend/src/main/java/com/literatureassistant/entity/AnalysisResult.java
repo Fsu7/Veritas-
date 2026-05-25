@@ -1,11 +1,12 @@
 package com.literatureassistant.entity;
 
 import com.literatureassistant.enums.AnalysisStatus;
+import com.literatureassistant.enums.AnalysisStatusConverter;
 import com.literatureassistant.enums.AnalysisType;
+import com.literatureassistant.enums.AnalysisTypeConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -36,14 +37,14 @@ public class AnalysisResult {
     @Column(name = "session_id", nullable = false, length = 100)
     private String sessionId;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = AnalysisTypeConverter.class)
     @Column(nullable = false, length = 20)
     private AnalysisType type;
 
     @Column(nullable = false, columnDefinition = "JSON")
     private String result;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = AnalysisStatusConverter.class)
     @Column(nullable = false, length = 20)
     private AnalysisStatus status;
 
