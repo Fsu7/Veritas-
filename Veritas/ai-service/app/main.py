@@ -7,16 +7,16 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.api.router import api_router
-from app.core import events
 from app.core.config import settings
+from app.core.events import embedding_service, llm_service, on_shutdown, on_startup, prompt_manager, vector_store_service
 from app.exception import AIServiceException
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await events.on_startup()
+    await on_startup()
     yield
-    await events.on_shutdown()
+    await on_shutdown()
 
 
 app = FastAPI(
@@ -30,33 +30,14 @@ app.include_router(api_router, prefix="/api")
 
 @app.get("/health")
 async def health_check():
-    llm_status = events.app_state.llm_service.status if events.app_state.llm_service else "not_loaded"
-    embedding_status = events.app_state.embedding_service.status if events.app_state.embedding_service else "not_loaded"
-    chroma_status = events.app_state.vector_store_service.status if events.app_state.vector_store_service else "not_connected"
-    prompts_status = events.app_state.prompt_manager.status if events.app_state.prompt_manager else "not_loaded"
-
-    components = {
-        "llm": llm_status,
-        "embedding": embedding_status,
-        "chroma": chroma_status,
-        "prompts": prompts_status,
+    return {
+        "status": "UP",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "llm": llm_service.status if llm_service else "not_loaded",
+        "embedding": embedding_service.status if embedding_service else "not_loaded",
+        "chroma": vector_store_service.status if vector_store_service else "not_connected",
+        "prompts": prompt_manager.status if prompt_manager else "not_loaded",
     }
-
-    critical_ok = (
-        llm_status == "loaded"
-        and embedding_status in ("loaded_api", "loaded_local")
-        and chroma_status == "connected"
-    )
-    overall = "UP" if critical_ok else "DEGRADED"
-
-    return JSONResponse(
-        status_code=200 if critical_ok else 503,
-        content={
-            "status": overall,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            **components,
-        },
-    )
 
 
 @app.exception_handler(AIServiceException)
