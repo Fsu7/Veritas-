@@ -1,0 +1,60 @@
+{
+  "total_papers": 25,
+  "dimension_check": {
+    "passed": true,
+    "total": 25,
+    "abnormal_count": 0,
+    "abnormal_ids": []
+  },
+  "metadata_check": {
+    "passed": true,
+    "total": 25,
+    "incomplete_count": 0,
+    "incomplete_records": []
+  },
+  "duplicate_check": {
+    "passed": false,
+    "total": 25,
+    "duplicate_count": 10,
+    "duplicate_ids": [
+      "arxiv_2605.26114",
+      "arxiv_2605.26112",
+      "arxiv_2605.26111",
+      "arxiv_2605.26100",
+      "arxiv_2605.26099",
+      "arxiv_2605.26092",
+      "arxiv_2605.26089",
+      "arxiv_2605.26086",
+      "arxiv_2605.26081",
+      "arxiv_2605.26074"
+    ]
+  },
+  "search_quality_check": {
+    "passed": false,
+    "query_results": [
+      {
+        "query": "Multi-Agent协同决策",
+        "top1_score": 0.3606,
+        "top10_count": 10,
+        "passed": false
+      },
+      {
+        "query": "大语言模型",
+        "top1_score": 0.4484,
+        "top10_count": 10,
+        "passed": false
+      },
+      {
+        "query": "检索增强生成",
+        "top1_score": 0.485,
+        "top10_count": 10,
+        "passed": false
+      }
+    ]
+  },
+  "passed": false,
+  "issues": [
+    "Duplicate check failed: 10 duplicate paper_ids",
+    "Search quality check failed: some queries below threshold"
+  ]
+}

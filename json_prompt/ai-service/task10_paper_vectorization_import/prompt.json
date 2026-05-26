@@ -1,0 +1,456 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2：单Agent可用 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "实现论文向量化脚本与批量入库功能：1) 创建scripts/import_papers.py — 论文数据导入脚本，支持从arXiv API下载AI/Agent领域论文元数据，数据清洗（去重、格式统一），文本分块（500-1000字/块，重叠50-100字），调用EmbeddingService向量化，调用VectorStoreService批量入库ChromaDB；2) 扩展vector_store_service.py — 新增add_papers_batch()方法支持大批量分批写入（每批50条），新增get_paper_by_id()方法，新增update_paper_metadata()方法；3) 创建app/utils/text_processing.py — 文本处理工具（分块、清洗）；4) 创建tests/test_import_papers.py和tests/test_text_processing.py测试。",
+    "requirement_ids": ["F4.4", "F4.4.1", "F4.4.2", "F4.4.3", "F4.4.4", "F3.2.1", "F3.2.2", "F4.3.1", "F4.3.4"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§11 论文数据采集模块(F4.4)完整import_papers.py代码(fetch_papers/clean_papers/import_to_vector_db函数)、§6 RAG检索模块文档分块规范(500-1000字/块，重叠50-100字)、§10 VectorStoreService现有add_papers方法"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§4.2 AM2交付物清单(论文向量化入库、import_papers.py)、§4.3 Week3 Day1任务"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§8 Python AI服务开发规范 — 配置管理、异步规范、异常处理"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7.3 ChromaDB配置(HNSW参数M=16/construction_ef=200/cosine)、§6项目目录结构scripts/目录"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/vector_store_service.py",
+        "description": "已有VectorStoreService，含initialize/add_papers/search/delete_papers/count/close方法，本任务扩展add_papers_batch/get_paper_by_id/update_paper_metadata"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/embedding_service.py",
+        "description": "已有EmbeddingService，含load_model/encode/encode_batch方法，本任务直接复用"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/config.py",
+        "description": "已有CHROMA_PATH/EMBEDDING/DASHSCOPE配置项，无需新增配置"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/utils",
+        "description": "已有__init__.py，本任务新增text_processing.py文本处理工具"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "scripts",
+        "description": "已有.gitkeep，本任务新增import_papers.py论文导入脚本"
+      },
+      {
+        "layer": "data_layer",
+        "module_path": "ChromaDB papers collection",
+        "description": "已有papers collection(cosine/M=16/ef=200)，本任务通过批量导入填充数据"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "docs/ai-service/AI服务模块系统架构文档.md#L2158-L2233",
+        "description": "§11.1中已有import_papers.py参考代码(含fetch_papers/clean_papers/import_to_vector_db函数)，可作为实现参考但需按本任务FR要求增强(分块、CLI参数、dry-run、JSON源、重试等)",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/vector_store_service.py",
+        "description": "已有VectorStoreService完整实现(initialize/add_papers/search/delete_papers/count/close)，本任务在其基础上新增add_papers_batch/get_paper_by_id/update_paper_metadata三个方法",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/embedding_service.py",
+        "description": "已有EmbeddingService完整实现(load_model/encode/encode_batch/_encode_via_api)，import脚本直接调用encode_batch进行向量化",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/config.py",
+        "description": "已有CHROMA_PATH='./data/vector_db'、DASHSCOPE_API_KEY等配置项，无需新增",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/requirements.txt",
+        "description": "已含arxiv==2.1.0依赖，无需新增",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/tests/conftest.py",
+        "description": "已有embedding_service和vector_store_service的pytest fixture，本任务新增测试可直接复用",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "import_papers脚本",
+      "path": "Veritas/ai-service/scripts/import_papers.py",
+      "responsibility": "论文数据导入脚本 — 从arXiv API或本地JSON下载论文元数据，数据清洗去重，文本分块，向量化，批量入库ChromaDB",
+      "key_interfaces": [
+        {
+          "name": "main",
+          "signature": "def main() -> None",
+          "description": "CLI入口，argparse解析参数(--count/--category/--source/--dry-run/--batch-size)，编排fetch→clean→chunk→embed→import流程"
+        },
+        {
+          "name": "fetch_papers_from_arxiv",
+          "signature": "async def fetch_papers_from_arxiv(category: str, count: int) -> list",
+          "description": "从arXiv API搜索cat:{category}论文，按SubmittedDate排序，返回[{paper_id,title,authors,abstract,year,venue,keywords,pdf_url}]列表，含重试机制(3次，间隔5s)"
+        },
+        {
+          "name": "fetch_papers_from_json",
+          "signature": "def fetch_papers_from_json(data_dir: str) -> list",
+          "description": "从data/papers/目录读取本地JSON文件导入，每个JSON文件包含论文列表"
+        },
+        {
+          "name": "clean_papers",
+          "signature": "def clean_papers(papers: list) -> list",
+          "description": "数据清洗：按title去重、strip空白、统一paper_id格式(arxiv_{entry_id})"
+        },
+        {
+          "name": "import_to_vector_db",
+          "signature": "async def import_to_vector_db(papers: list, embedding_service: EmbeddingService, vector_store_service: VectorStoreService, batch_size: int = 50) -> dict",
+          "description": "对每篇论文：1)标题+摘要拼接为document；2)调用chunk_text分块；3)调用embedding_service.encode_batch批量向量化；4)构建metadatas；5)调用vector_store_service.add_papers_batch分批写入。返回统计{total,success,failed}"
+        }
+      ]
+    },
+    {
+      "name": "VectorStoreService扩展",
+      "path": "Veritas/ai-service/app/services/vector_store_service.py",
+      "responsibility": "向量数据库服务扩展 — 新增批量分批写入、按ID查询、元数据更新方法",
+      "key_interfaces": [
+        {
+          "name": "add_papers_batch",
+          "signature": "async def add_papers_batch(self, paper_ids: list, embeddings: list, metadatas: list, documents: list, batch_size: int = 50) -> None",
+          "description": "大批量分批写入：按batch_size分批调用collection.add()，每批之间sleep 0.5s避免API限流，记录每批进度日志"
+        },
+        {
+          "name": "get_paper_by_id",
+          "signature": "async def get_paper_by_id(self, paper_id: str) -> Optional[dict]",
+          "description": "按ID查询单篇论文：调用collection.get(ids=[paper_id], include=['metadatas','documents'])，返回{paper_id,title,year,venue,document}或None"
+        },
+        {
+          "name": "update_paper_metadata",
+          "signature": "async def update_paper_metadata(self, paper_id: str, metadata: dict) -> None",
+          "description": "更新论文元数据：调用collection.update(ids=[paper_id], metadatas=[metadata])"
+        }
+      ]
+    },
+    {
+      "name": "text_processing工具",
+      "path": "Veritas/ai-service/app/utils/text_processing.py",
+      "responsibility": "文本处理工具 — 分块、清洗、截断，供import脚本和后续Agent使用",
+      "key_interfaces": [
+        {
+          "name": "chunk_text",
+          "signature": "def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> list",
+          "description": "按chunk_size分块，块间overlap字符重叠，返回[{chunk_index, chunk_type, content}]。chunk_type: 首块'title_abstract'，后续'continuation'"
+        },
+        {
+          "name": "clean_text",
+          "signature": "def clean_text(text: str) -> str",
+          "description": "清洗文本：去除多余空白/换行/特殊字符，保留中英文和基本标点"
+        },
+        {
+          "name": "truncate_text",
+          "signature": "def truncate_text(text: str, max_length: int) -> str",
+          "description": "按max_length截断，优先在句号/换行处截断"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/scripts/import_papers.py",
+      "description": "论文数据导入脚本：arXiv API下载+清洗+分块+向量化+入库，支持CLI参数(--count/--category/--source/--dry-run/--batch-size)，含重试机制和dry-run模式",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/services/vector_store_service.py",
+      "description": "新增add_papers_batch(分批50条写入，sleep 0.5s限流)、get_paper_by_id(按ID查询单篇)、update_paper_metadata(更新元数据)三个方法",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/utils/text_processing.py",
+      "description": "文本处理工具：chunk_text(分块800字/重叠100字)、clean_text(清洗特殊字符/空白)、truncate_text(截断超长文本)",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_import_papers.py",
+      "description": "import_papers脚本测试：fetch_papers_from_arxiv(mock arxiv库)、clean_papers去重、import_to_vector_db批量写入、dry-run模式、JSON源导入",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_text_processing.py",
+      "description": "text_processing工具测试：chunk_text(正常/边界/重叠)、clean_text(空白/特殊字符)、truncate_text(句号截断/超长截断)",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "import_papers.py CLI入口：使用argparse定义5个参数——--count(int,默认200,下载论文数量)、--category(str,默认'cs.AI',arXiv分类)、--source(str,默认'arxiv',可选'arxiv'或'json')、--dry-run(flag,仅下载清洗不入库)、--batch-size(int,默认50,批量写入大小)。main()函数解析参数后编排fetch→clean→chunk→embed→import流程",
+        "priority": "P0",
+        "acceptance_condition": "python scripts/import_papers.py --dry-run --count 5 正常执行并输出论文数量和示例数据"
+      },
+      {
+        "id": "FR-002",
+        "description": "fetch_papers_from_arxiv(category, count)异步函数：使用arxiv库创建Client()，构建Search(query=f'cat:{category}', max_results=count, sort_by=arxiv.SortCriterion.SubmittedDate)。遍历results构建[{paper_id:'arxiv_{entry_id最后一段}',title,authors:[a.name for a in result.authors],abstract(result.summary替换换行为空格),year:result.published.year,venue:result.primary_category,keywords:result.categories,pdf_url:result.pdf_url}]。含重试机制：arxiv.API调用失败时最多重试3次，每次间隔5秒，使用tenacity或手动try-except+sleep实现",
+        "priority": "P0",
+        "acceptance_condition": "fetch_papers_from_arxiv('cs.AI', 5)返回5条论文元数据，每条含paper_id/title/authors/abstract/year/venue字段"
+      },
+      {
+        "id": "FR-003",
+        "description": "clean_papers(papers)函数：1)按title去重(使用set记录已见title)；2)strip()去除title和abstract首尾空白；3)统一paper_id格式为arxiv_{entry_id.split('/')[-1].split('v')[0]}(去除版本号如v1/v2)；4)abstract中连续多个空白替换为单个空格。返回清洗后列表",
+        "priority": "P0",
+        "acceptance_condition": "输入含重复title的列表，输出去重后列表；paper_id格式统一为arxiv_XXXX"
+      },
+      {
+        "id": "FR-004",
+        "description": "chunk_text(text, chunk_size=800, overlap=100)函数：按chunk_size字符数分块，块间overlap字符重叠。返回[{chunk_index:int(从0开始), chunk_type:str(首块'title_abstract',后续'continuation'), content:str}]。分块逻辑：从位置0开始，每次取chunk_size字符，下次起始位置前移overlap字符。最后一块若不足chunk_size的20%则合并到前一块",
+        "priority": "P0",
+        "acceptance_condition": "chunk_text('A'*2000, chunk_size=800, overlap=100)返回3个chunk，第2块开头与第1块结尾有100字符重叠"
+      },
+      {
+        "id": "FR-005",
+        "description": "import_to_vector_db(papers, embedding_service, vector_store_service, batch_size=50)异步函数：对每篇论文：1)调用clean_text清洗title+abstract，拼接为document=f'{title}. {abstract}'；2)若document长度>chunk_size则调用chunk_text分块，否则作为单块[{chunk_index:0, chunk_type:'title_abstract', content:document}]；3)收集所有块文本调用embedding_service.encode_batch批量向量化；4)构建metadatas(paper_id/title/year/venue/citation_count:0/chunk_index/chunk_type)；5)构建ids为f'{paper_id}_chunk_{chunk_index}'；6)调用vector_store_service.add_papers_batch分批写入。单篇论文失败不阻塞后续，记录failed计数。返回统计{total:int, success:int, failed:int, errors:list}",
+        "priority": "P0",
+        "acceptance_condition": "import_to_vector_db(3篇论文)返回{total:3,success:3,failed:0}，ChromaDB中可检索到3篇论文"
+      },
+      {
+        "id": "FR-006",
+        "description": "VectorStoreService.add_papers_batch()异步方法：参数与add_papers一致(paper_ids/embeddings/metadatas/documents)加batch_size:int=50。逻辑：1)先校验参数长度一致性(与add_papers相同)；2)校验embedding维度(与add_papers相同)；3)按batch_size分批切片，每批调用self.collection.add()；4)每批之间await asyncio.sleep(0.5)避免API限流；5)每批完成后logger.info记录进度'Batch {i}/{total_batches} added, {added_count} papers total'；6)全部完成后logger.info记录总数",
+        "priority": "P0",
+        "acceptance_condition": "add_papers_batch(120条数据, batch_size=50)分3批写入(50+50+20)，日志显示3批进度"
+      },
+      {
+        "id": "FR-007",
+        "description": "VectorStoreService.get_paper_by_id(paper_id)异步方法：调用self.collection.get(ids=[paper_id], include=['metadatas','documents'])。若结果为空返回None；否则返回{paper_id:metadatas[0].get('paper_id'), title:metadatas[0].get('title'), year:metadatas[0].get('year'), venue:metadatas[0].get('venue'), citation_count:metadatas[0].get('citation_count'), chunk_index:metadatas[0].get('chunk_index'), chunk_type:metadatas[0].get('chunk_type'), document:documents[0]}",
+        "priority": "P1",
+        "acceptance_condition": "get_paper_by_id('arxiv_2401_0001')返回论文详情dict或None(不存在时)"
+      },
+      {
+        "id": "FR-008",
+        "description": "VectorStoreService.update_paper_metadata(paper_id, metadata)异步方法：调用self.collection.update(ids=[paper_id], metadatas=[metadata])。若paper_id不存在chromadb会抛异常，需try-except捕获并logger.warning记录",
+        "priority": "P1",
+        "acceptance_condition": "update_paper_metadata('p001', {'citation_count': 50})后get_paper_by_id('p001')返回更新后的citation_count"
+      },
+      {
+        "id": "FR-009",
+        "description": "text_processing.py的clean_text(text)函数：1)re.sub(r'\\s+', ' ', text)将连续空白替换为单空格；2)strip()去除首尾空白；3)保留中英文、数字、基本标点(.,;:!?()[]{}\"'-)，去除其他特殊字符(如\\x00-\\x1f控制字符)；4)多个换行替换为单个换行。返回清洗后文本",
+        "priority": "P0",
+        "acceptance_condition": "clean_text('  Hello\\n\\n\\n  World  \\x00  ') 返回 'Hello\\nWorld'"
+      },
+      {
+        "id": "FR-010",
+        "description": "text_processing.py的truncate_text(text, max_length)函数：1)若len(text)<=max_length直接返回；2)在max_length范围内查找最后一个句号(.)或换行(\\n)位置，在该处截断；3)找不到则直接在max_length处截断；4)截断后strip()去除尾部空白",
+        "priority": "P1",
+        "acceptance_condition": "truncate_text('Hello world. This is a test.', 15) 返回 'Hello world.'"
+      },
+      {
+        "id": "FR-011",
+        "description": "import_papers.py支持--source json模式：当source='json'时，调用fetch_papers_from_json(data_dir)函数，从data/papers/目录读取所有.json文件，每个文件解析为论文列表(格式与arxiv返回一致)。data_dir默认为'./data/papers/'，可通过环境变量PAPERS_DATA_DIR覆盖",
+        "priority": "P1",
+        "acceptance_condition": "python scripts/import_papers.py --source json --dry-run 从data/papers/读取JSON文件并输出论文数量"
+      },
+      {
+        "id": "FR-012",
+        "description": "--dry-run模式：仅执行fetch和clean步骤，不调用EmbeddingService和VectorStoreService。输出：1)获取论文总数；2)清洗后论文数；3)前3篇论文的title和paper_id示例；4)预计分块数量。使用logger.info输出，格式清晰",
+        "priority": "P0",
+        "acceptance_condition": "python scripts/import_papers.py --dry-run --count 5 输出论文数量和示例，不调用embedding/vector_store"
+      }
+    ],
+    "cross_system_consistency": null,
+    "degradation_requirements": null,
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "arXiv API无需API Key，但若未来扩展其他数据源需通过环境变量注入凭证。日志中禁止输出完整API Key。import脚本日志仅输出论文元数据，不输出embedding向量原始数据"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" },
+        { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+        { "java": "chunkIndex", "python": "chunk_index", "json": "chunk_index" },
+        { "java": "chunkType", "python": "chunk_type", "json": "chunk_type" }
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中。import_papers.py是独立脚本(非API路由)，直接调用Service层。text_processing.py是utils工具层，不依赖Service层"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，单篇论文导入失败不阻塞后续论文，记录failed计数和错误信息",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" }
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志（但add_papers_batch每批进度日志除外，这是关键业务日志）",
+        "在日志中输出敏感信息（密码、Token、API Key）",
+        "在日志中输出embedding向量原始数据（数据量过大）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/health", "/api/model/status"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更，仅修改指定的5个文件", "severity": "high" },
+    { "id": "FA-003", "action": "在代码中硬编码API Key", "reason": "安全约束，arXiv虽无需Key但若扩展其他源必须通过环境变量", "severity": "critical" },
+    { "id": "FA-004", "action": "分块时不设置overlap导致上下文断裂", "reason": "分块必须有overlap(默认100字符)，否则跨块语义断裂影响检索质量", "severity": "high" },
+    { "id": "FA-005", "action": "批量入库时不分批导致内存溢出", "reason": "大批量数据必须分批写入(默认50条/批)，否则embedding和ChromaDB写入可能OOM", "severity": "high" },
+    { "id": "FA-006", "action": "arXiv API调用无重试机制", "reason": "arXiv API可能因限流或网络问题失败，必须实现重试(3次，间隔5s)", "severity": "medium" },
+    { "id": "FA-007", "action": "import脚本不支持--dry-run模式", "reason": "dry-run模式是调试和验证数据质量的关键功能，必须支持", "severity": "medium" },
+    { "id": "FA-008", "action": "修改VectorStoreService已有方法(add_papers/search等)的签名或行为", "reason": "已有方法被其他模块依赖，仅新增方法不修改已有方法", "severity": "high" },
+    { "id": "FA-009", "action": "chunk_text返回的chunk_type使用非规范值", "reason": "chunk_type必须为'title_abstract'或'continuation'，与ChromaDB元数据Schema一致", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "chunk_text正常分块测试",
+        "description": "验证chunk_text('A'*2000, chunk_size=800, overlap=100)返回3个chunk，chunk_index递增，首块chunk_type='title_abstract'，后续'continuation'，第2块开头与第1块结尾有100字符重叠",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "chunk_text边界条件测试",
+        "description": "1)空文本返回空列表；2)文本长度<chunk_size返回单块；3)文本长度恰好等于chunk_size返回单块；4)最后一块不足20%时合并到前一块",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "chunk_text重叠验证测试",
+        "description": "验证overlap参数生效：第N块开头N个字符与第N-1块结尾N个字符相同(overlap=N)",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "clean_text测试",
+        "description": "1)连续空白替换为单空格；2)去除控制字符(\\x00-\\x1f)；3)保留中英文和基本标点；4)strip首尾空白；5)多个换行替换为单个换行",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "truncate_text测试",
+        "description": "1)短文本不截断；2)在句号处截断；3)在换行处截断；4)无句号/换行时硬截断；5)截断后strip尾部空白",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "add_papers_batch分批写入测试",
+        "description": "mock ChromaDB collection，验证120条数据按batch_size=50分3批调用collection.add()，每批之间有sleep，参数长度校验",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "get_paper_by_id测试",
+        "description": "1)存在时返回论文详情dict；2)不存在时返回None；3)mock collection.get验证调用参数",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "update_paper_metadata测试",
+        "description": "1)存在时更新成功；2)不存在时warning日志不抛异常；3)mock collection.update验证调用参数",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "clean_papers去重测试",
+        "description": "1)重复title去重；2)paper_id格式统一为arxiv_XXX(去除版本号)；3)strip空白；4)abstract连续空白替换",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "import_to_vector_db单篇失败不阻塞测试",
+        "description": "mock embedding_service对第2篇论文抛异常，验证第1和第3篇正常入库，返回{total:3,success:2,failed:1}",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_text_processing.py -v",
+        "expected_result": "所有text_processing单元测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_import_papers.py -v",
+        "expected_result": "所有import_papers单元测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_vector_store.py -v -k 'batch or get_paper or update'",
+        "expected_result": "新增的VectorStoreService方法测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python scripts/import_papers.py --dry-run --count 5",
+        "expected_result": "输出5篇论文的元数据和统计信息，不调用embedding/vector_store"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "import_papers.py支持CLI参数--count/--category/--source/--dry-run/--batch-size", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "fetch_papers_from_arxiv()成功从arXiv下载论文元数据，含重试机制(3次)", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "clean_papers()按title去重并统一paper_id格式为arxiv_XXX", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "chunk_text()按800字分块，100字重叠，返回[{chunk_index, chunk_type, content}]", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "import_to_vector_db()分批写入ChromaDB，单篇失败不阻塞后续", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "add_papers_batch()分批50条写入，每批间sleep 0.5s，有进度日志", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "get_paper_by_id()按ID查询返回论文详情dict或None", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "update_paper_metadata()更新元数据成功，不存在时warning不抛异常", "verified_by": "automated_test" },
+    { "id": "AC-009", "criterion": "--dry-run模式仅下载清洗不入库，输出论文数量和示例数据", "verified_by": "manual_test" },
+    { "id": "AC-010", "criterion": "clean_text()正确清洗空白、控制字符，保留中英文和基本标点", "verified_by": "automated_test" },
+    { "id": "AC-011", "criterion": "truncate_text()优先在句号/换行处截断", "verified_by": "automated_test" },
+    { "id": "AC-012", "criterion": "--source json模式从data/papers/读取本地JSON文件", "verified_by": "automated_test" },
+    { "id": "AC-013", "criterion": "VectorStoreService已有方法(add_papers/search/delete_papers/count/close)签名和行为未被修改", "verified_by": "code_review" }
+  ]
+}

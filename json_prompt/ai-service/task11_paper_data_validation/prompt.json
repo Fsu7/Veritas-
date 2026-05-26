@@ -1,0 +1,383 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2：单Agent可用 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "实现200+篇论文导入ChromaDB并完成数据验证：1) 使用task10创建的import_papers.py脚本执行实际论文导入，目标200+篇AI/Agent领域论文；2) 创建scripts/validate_papers.py — 数据验证脚本，验证ChromaDB中论文数据完整性（向量维度、元数据字段、去重、检索可用性）；3) 创建scripts/build_vector_db.py — 向量数据库构建脚本（全量重建/增量更新）；4) 验证语义检索质量（输入\"Multi-Agent\"返回Top10论文，相关性>80%）。",
+    "requirement_ids": ["F4.4", "F4.4.1", "F4.4.4", "F3.2.1", "F3.2.2", "F3.2.3", "F4.3.1", "F4.3.2", "F4.3.4"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "§10 VectorStoreService(已有add_papers/search/count方法)、§11 论文数据采集模块(F4.4)、§6 RAG检索模块(语义检索验收标准)"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "§4.2 AM2交付物清单(200+篇论文向量入库、数据验证)、§4.3 Week3 Day2任务、§4.4验收检查点(Chroma collection.count()≥200、语义检索相关性>80%)"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "§8 Python AI服务开发规范 — 配置管理、异步规范、异常处理、脚本规范"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7.3 ChromaDB配置(HNSW M=16/construction_ef=200/cosine/1024维)、§18验收标准(智能检索Top10相关性>80%、检索响应≤3秒)"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/vector_store_service.py",
+        "description": "已有VectorStoreService，含add_papers/search/count/delete_papers方法，使用chromadb.PersistentClient，papers collection(HNSW cosine/M=16/ef=200)"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/embedding_service.py",
+        "description": "已有EmbeddingService，含encode/encode_batch方法，支持DashScope API和本地BAAI/bge-m3模型，输出1024维向量"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "scripts/import_papers.py",
+        "description": "task10创建的论文导入脚本，含fetch_papers/clean_papers/import_to_vector_db函数，从arXiv API采集论文并导入ChromaDB"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/utils/text_processing.py",
+        "description": "task10创建的文本处理工具，含clean_text/chunk_text/normalize_metadata等函数"
+      },
+      {
+        "layer": "data_layer",
+        "module_path": "data/vector_db",
+        "description": "ChromaDB持久化存储目录，papers collection存储论文向量和元数据"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/scripts/import_papers.py",
+        "description": "task10创建的论文导入脚本，含fetch_papers(count, category)/clean_papers(raw_papers)/import_to_vector_db(papers, chroma_path)函数，从arXiv API采集论文并导入ChromaDB",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/vector_store_service.py",
+        "description": "已有VectorStoreService，含add_papers/search/count/delete_papers方法，EXPECTED_DIMENSION=1024，使用PersistentClient和HNSW cosine索引",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/embedding_service.py",
+        "description": "已有EmbeddingService，含encode(text)/encode_batch(texts, batch_size)方法，输出1024维numpy数组",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/utils/text_processing.py",
+        "description": "task10创建的文本处理工具，含clean_text/chunk_text/normalize_metadata等函数",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "VectorStoreService",
+      "path": "Veritas/ai-service/app/services/vector_store_service.py",
+      "responsibility": "ChromaDB向量数据库服务 — 初始化连接、papers collection管理、向量存储/检索/删除",
+      "key_interfaces": [
+        {
+          "name": "add_papers",
+          "signature": "async def add_papers(self, paper_ids: List[str], embeddings: List[List[float]], metadatas: List[dict], documents: List[str]) -> None",
+          "description": "批量添加论文向量到ChromaDB，校验参数长度一致性和向量维度1024"
+        },
+        {
+          "name": "search",
+          "signature": "async def search(self, embedding: List[float], top_k: int = 10, filters: Optional[Dict] = None) -> List[dict]",
+          "description": "语义检索，返回[{paperId, title, abstract, score(1-distance), year, venue}]列表，支持yearFrom/yearTo/venue过滤"
+        },
+        {
+          "name": "count",
+          "signature": "async def count(self) -> int",
+          "description": "返回collection中向量总数"
+        },
+        {
+          "name": "delete_papers",
+          "signature": "async def delete_papers(self, paper_ids: List[str]) -> None",
+          "description": "批量删除论文向量"
+        }
+      ]
+    },
+    {
+      "name": "EmbeddingService",
+      "path": "Veritas/ai-service/app/services/embedding_service.py",
+      "responsibility": "文本向量化服务 — 支持DashScope API和本地bge-m3模型，输出1024维向量",
+      "key_interfaces": [
+        {
+          "name": "encode",
+          "signature": "async def encode(self, text: Union[str, list]) -> np.ndarray",
+          "description": "单条/批量文本编码为1024维向量"
+        },
+        {
+          "name": "encode_batch",
+          "signature": "async def encode_batch(self, texts: list, batch_size: int = 32) -> np.ndarray",
+          "description": "大批量文本编码，自动分批处理"
+        }
+      ]
+    },
+    {
+      "name": "import_papers",
+      "path": "Veritas/ai-service/scripts/import_papers.py",
+      "responsibility": "论文数据采集与导入脚本 — 从arXiv API采集论文、清洗数据、导入ChromaDB",
+      "key_interfaces": [
+        {
+          "name": "fetch_papers",
+          "signature": "async def fetch_papers(count: int, category: str = None) -> List[dict]",
+          "description": "从arXiv API采集指定数量的论文数据"
+        },
+        {
+          "name": "clean_papers",
+          "signature": "def clean_papers(raw_papers: List[dict]) -> List[dict]",
+          "description": "清洗论文数据，标准化字段格式"
+        },
+        {
+          "name": "import_to_vector_db",
+          "signature": "async def import_to_vector_db(papers: List[dict], chroma_path: str = None) -> int",
+          "description": "将清洗后的论文导入ChromaDB，返回成功导入数量"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/scripts/validate_papers.py",
+      "description": "数据验证脚本：CLI入口(argparse --chroma-path/--verbose/--fix)，验证向量维度(1024)、元数据完整性(paper_id/title/year非空)、去重(paper_id唯一)、检索可用性(cosine相似度>0.5)，输出JSON格式验证报告，验证失败exit(1)",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/scripts/build_vector_db.py",
+      "description": "向量数据库构建脚本：CLI入口(argparse --mode rebuild/incremental --count --category --dry-run)，rebuild模式删除旧collection后全量重建，incremental模式仅导入新论文",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_validate_papers.py",
+      "description": "验证脚本单元测试：测试validate_vector_dimensions/validate_metadata_integrity/validate_no_duplicates/generate_validation_report函数，使用mock collection",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/data/papers/sample_papers.json",
+      "description": "5篇AI/Agent领域论文样本数据，每篇含paper_id/title/authors/abstract/year/venue/keywords字段，用于测试和验证",
+      "layer": "data_layer"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "validate_papers.py CLI入口：使用argparse定义--chroma-path(默认./data/vector_db)、--verbose(详细输出，默认False)、--fix(自动修复可修复问题，默认False)三个参数。main()函数：1)解析参数；2)创建chromadb.PersistentClient连接；3)获取papers collection；4)依次执行4项验证；5)生成验证报告；6)输出报告到stdout和文件(validation_report.json)；7)验证不通过时sys.exit(1)",
+        "priority": "P0",
+        "acceptance_condition": "python scripts/validate_papers.py --chroma-path ./data/vector_db 正常执行并输出JSON报告"
+      },
+      {
+        "id": "FR-002",
+        "description": "validate_vector_dimensions(collection)函数：1)使用collection.get(include=['embeddings'])获取所有向量；2)遍历每条向量，验证维度为1024(与bge-m3对齐)；3)记录维度异常的paper_id列表；4)返回{passed: bool, total: int, abnormal_count: int, abnormal_ids: List[str]}。注意：collection.get()可能分批返回，需处理分页(limit/offset)或使用collection.peek()检查前几条",
+        "priority": "P0",
+        "acceptance_condition": "所有向量维度为1024时passed=True；存在非1024维向量时passed=False并输出异常paper_id"
+      },
+      {
+        "id": "FR-003",
+        "description": "validate_metadata_integrity(collection)函数：1)使用collection.get(include=['metadatas'])获取所有元数据；2)验证每条记录的metadata包含必填字段：paper_id(非空字符串)、title(非空字符串)、year(非空且为有效年份整数)；3)记录缺失字段的记录列表[{paper_id, missing_fields}]；4)返回{passed: bool, total: int, incomplete_count: int, incomplete_records: List[dict]}",
+        "priority": "P0",
+        "acceptance_condition": "所有记录元数据完整时passed=True；存在缺失字段时passed=False并输出具体缺失字段"
+      },
+      {
+        "id": "FR-004",
+        "description": "validate_no_duplicates(collection)函数：1)使用collection.get(include=['metadatas'])获取所有记录；2)从metadata中提取所有paper_id；3)检查paper_id是否有重复；4)返回{passed: bool, total: int, duplicate_count: int, duplicate_ids: List[str]}。注意：ChromaDB的id是chunk级别(如paper_id_chunk_0)，需从metadata.paper_id提取论文级别ID去重",
+        "priority": "P0",
+        "acceptance_condition": "无重复paper_id时passed=True；存在重复时passed=False并输出重复的paper_id"
+      },
+      {
+        "id": "FR-005",
+        "description": "validate_search_quality(embedding_service, vector_store_service, test_queries)函数：1)预定义测试查询列表：[{query: 'Multi-Agent协同决策', min_top1_score: 0.5}, {query: '大语言模型', min_top1_score: 0.5}, {query: '检索增强生成', min_top1_score: 0.5}]；2)对每个查询：a)调用embedding_service.encode(query)获取向量；b)调用vector_store_service.search(embedding, top_k=10)获取结果；c)验证Top1结果cosine相似度>0.5(score>0.5)；d)验证Top10结果非空；3)返回{passed: bool, query_results: [{query, top1_score, top10_count, passed}]}",
+        "priority": "P0",
+        "acceptance_condition": "所有测试查询Top1相似度>0.5且Top10非空时passed=True"
+      },
+      {
+        "id": "FR-006",
+        "description": "generate_validation_report(results)函数：1)接收4项验证结果dict；2)汇总为{total_papers: int, dimension_check: dict, metadata_check: dict, duplicate_check: dict, search_quality_check: dict, passed: bool(全部passed时为True), issues: List[str](所有不通过项的描述)}；3)使用json.dumps(report, indent=2, ensure_ascii=False)格式化输出；4)同时写入validation_report.json文件",
+        "priority": "P0",
+        "acceptance_condition": "生成完整JSON报告，包含total_papers/4项检查结果/passed/issues字段"
+      },
+      {
+        "id": "FR-007",
+        "description": "build_vector_db.py CLI入口：使用argparse定义--mode(rebuild/incremental，必填)、--count(导入数量，默认200)、--category(arXiv分类，默认cs.AI)、--chroma-path(默认./data/vector_db)、--dry-run(试运行不实际导入，默认False)五个参数。main()函数：根据mode调用对应构建函数",
+        "priority": "P0",
+        "acceptance_condition": "python scripts/build_vector_db.py --mode rebuild --count 5 --dry-run 正常执行"
+      },
+      {
+        "id": "FR-008",
+        "description": "rebuild模式(rebuild_vector_db函数)：1)创建chromadb.PersistentClient连接；2)删除现有papers collection(client.delete_collection('papers'))；3)重新创建collection(metadata={hnsw:space:cosine, hnsw:M:16, hnsw:construction_ef:200})；4)调用import_papers.import_to_vector_db全量导入指定数量论文；5)输出重建结果日志。dry-run模式仅输出将要执行的操作不实际执行",
+        "priority": "P0",
+        "acceptance_condition": "rebuild后collection.count()>=导入数量，HNSW参数正确(cosine/M=16/ef=200)"
+      },
+      {
+        "id": "FR-009",
+        "description": "incremental模式(incremental_update函数)：1)创建chromadb.PersistentClient连接；2)获取现有papers collection中所有paper_id集合(从metadata提取)；3)调用import_papers.fetch_papers下载新论文；4)调用import_papers.clean_papers清洗数据；5)过滤已存在的paper_id；6)仅导入新论文到ChromaDB；7)输出增量更新结果日志。dry-run模式仅输出将要导入的新论文数量不实际导入",
+        "priority": "P0",
+        "acceptance_condition": "incremental模式仅导入不存在的论文，不重复导入已有论文"
+      },
+      {
+        "id": "FR-010",
+        "description": "sample_papers.json：包含5篇AI/Agent领域论文样本数据，每篇包含字段：paper_id(格式arxiv_YYYY_NNN)、title(英文标题)、authors(作者列表)、abstract(英文摘要，100-300字)、year(2023-2024)、venue(如NeurIPS/ICML/ACL/AAAI)、keywords(3-5个关键词)。论文主题覆盖：Multi-Agent系统、大语言模型Agent、检索增强生成、知识图谱推理、人机协作。用于validate_papers.py和build_vector_db.py的测试验证",
+        "priority": "P1",
+        "acceptance_condition": "5篇样本论文数据格式正确，字段完整，可用于导入和验证测试"
+      }
+    ],
+    "cross_system_consistency": null,
+    "degradation_requirements": null,
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "sample_papers.json禁止包含硬编码API Key；脚本中API Key必须从环境变量或settings读取"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "脚本属于scripts/目录，可导入app/services和app/utils模块，但不修改它们；验证逻辑封装为独立函数，CLI入口调用验证函数"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except包裹每项验证，单项验证失败不阻塞后续验证，错误信息记录到验证报告issues列表",
+        "agent_error_handling": "不适用(本任务无Agent)"
+      }
+    },
+    "caching": {
+      "pattern": "本任务不涉及Redis缓存",
+      "ttl_layers": []
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "database": {
+      "chromadb": {
+        "client": "chromadb.PersistentClient(path=CHROMA_PATH)",
+        "collection_name": "papers",
+        "hnsw_config": "space=cosine, M=16, construction_ef=200",
+        "vector_dimension": 1024,
+        "metadata_required_fields": ["paper_id", "title", "year"],
+        "id_format": "paper_id_chunk_index (如 arxiv_2024_001_chunk_0)"
+      }
+    },
+    "security": {
+      "password_storage": "不适用",
+      "auth_mechanism": "不适用(脚本无需认证)",
+      "data_isolation": "不适用(脚本操作全量数据)",
+      "ai_content_label": "不适用",
+      "public_endpoints": []
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块(如修改vector_store_service.py/embedding_service.py/import_papers.py)", "reason": "避免引入无关变更，本任务仅创建新脚本和测试", "severity": "high" },
+    { "id": "FA-003", "action": "validate脚本在非--fix模式下修改ChromaDB数据", "reason": "验证脚本默认只读，--fix模式才允许修复操作", "severity": "high" },
+    { "id": "FA-004", "action": "rebuild模式不删除旧collection直接覆盖导入", "reason": "直接覆盖会导致旧数据残留，必须先delete_collection再重建", "severity": "high" },
+    { "id": "FA-005", "action": "验证脚本无退出码(验证失败应exit(1))", "reason": "CI/CD流程依赖退出码判断验证是否通过", "severity": "medium" },
+    { "id": "FA-006", "action": "sample_papers.json包含硬编码API Key", "reason": "安全约束，API Key必须从环境变量读取", "severity": "critical" },
+    { "id": "FA-007", "action": "collection.get()不分批处理(数据量大时可能OOM)", "reason": "ChromaDB collection.get()默认limit=100，200+篇论文需分批获取", "severity": "high" },
+    { "id": "FA-008", "action": "使用chromadb.EphemeralClient(内存模式)", "reason": "必须使用PersistentClient确保数据持久化", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "validate_vector_dimensions测试",
+        "description": "测试validate_vector_dimensions函数：1)mock collection返回1024维向量→passed=True；2)mock collection返回非1024维向量→passed=False, abnormal_ids非空；3)mock collection返回空→正常处理",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "validate_metadata_integrity测试",
+        "description": "测试validate_metadata_integrity函数：1)mock collection返回完整metadata→passed=True；2)mock collection返回缺失paper_id/title/year的metadata→passed=False, incomplete_records非空；3)mock collection返回空metadata→正常处理",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "validate_no_duplicates测试",
+        "description": "测试validate_no_duplicates函数：1)mock collection返回无重复paper_id→passed=True；2)mock collection返回重复paper_id→passed=False, duplicate_ids非空；3)mock collection返回空→正常处理",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "generate_validation_report测试",
+        "description": "测试generate_validation_report函数：1)所有验证通过→passed=True, issues为空；2)部分验证失败→passed=False, issues非空；3)验证报告JSON格式正确，包含total_papers/dimension_check/metadata_check/duplicate_check/search_quality_check/passed/issues字段",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python scripts/validate_papers.py --chroma-path ./data/vector_db",
+        "expected_result": "输出JSON验证报告，包含total_papers/dimension_check/metadata_check/duplicate_check/search_quality_check/passed/issues字段"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python scripts/validate_papers.py --chroma-path ./data/vector_db --verbose",
+        "expected_result": "输出详细验证过程日志，最终输出JSON验证报告"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python scripts/build_vector_db.py --mode rebuild --count 5 --dry-run",
+        "expected_result": "输出dry-run模式日志，显示将要执行的操作但不实际导入"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python scripts/build_vector_db.py --mode incremental --count 10 --dry-run",
+        "expected_result": "输出dry-run模式日志，显示将要增量导入的论文数量"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && pytest tests/test_validate_papers.py -v",
+        "expected_result": "所有单元测试通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "validate_papers.py支持--chroma-path/--verbose/--fix三个CLI参数", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "validate_vector_dimensions验证向量维度1024，异常时输出具体paper_id列表", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "validate_metadata_integrity验证元数据完整性(paper_id/title/year非空)，缺失时输出具体记录", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "validate_no_duplicates验证无重复paper_id，重复时输出重复ID列表", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "validate_search_quality验证检索质量(Top1相似度>0.5，Top10非空)", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "generate_validation_report生成JSON格式验证报告，含total_papers/4项检查/passed/issues", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "build_vector_db.py支持--mode rebuild/incremental/--count/--category/--dry-run参数", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "rebuild模式先delete_collection再重建，HNSW参数cosine/M=16/ef=200", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "incremental模式仅导入新论文，不重复导入已有paper_id", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "sample_papers.json包含5篇AI/Agent领域样本论文，字段完整", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "验证失败时脚本exit(1)，验证通过时exit(0)", "verified_by": "automated_test" },
+    { "id": "AC-012", "criterion": "test_validate_papers.py单元测试全部通过", "verified_by": "automated_test" }
+  ]
+}

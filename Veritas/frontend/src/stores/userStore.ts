@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { userApi } from '@/api/user'
-import type { UserProfile, LoginResponse } from '@/types/user'
+import type { UserProfile, LoginResponse, UserInfo } from '@/types/user'
 
 const TOKEN_KEY = 'token'
 const USER_ID_KEY = 'userId'
@@ -12,6 +12,7 @@ export const useUserStore = defineStore('user', () => {
   const userId = ref<string>(localStorage.getItem(USER_ID_KEY) || '')
   const username = ref<string>(localStorage.getItem(USERNAME_KEY) || '')
   const profile = ref<UserProfile | null>(null)
+  const userInfo = ref<UserInfo | null>(null)
 
   const isLoggedIn = computed(() => !!token.value)
   const hasProfile = computed(() => !!profile.value)
@@ -38,6 +39,7 @@ export const useUserStore = defineStore('user', () => {
     userId.value = ''
     username.value = ''
     profile.value = null
+    userInfo.value = null
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(USER_ID_KEY)
     localStorage.removeItem(USERNAME_KEY)
@@ -73,9 +75,18 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  async function getUserInfo() {
+    const res = await userApi.getUserInfo(userId.value)
+    userInfo.value = res
+  }
+
+  async function register(user: string, email: string, password: string) {
+    await userApi.register({ username: user, email, password })
+  }
+
   return {
-    token, userId, username, profile,
+    token, userId, username, profile, userInfo,
     isLoggedIn, hasProfile,
-    login, logout, fetchProfile, saveProfile
+    login, logout, fetchProfile, saveProfile, getUserInfo, register
   }
 })

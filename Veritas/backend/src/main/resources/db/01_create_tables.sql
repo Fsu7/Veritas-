@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- -----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS user_profiles (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id VARCHAR(100) NOT NULL COMMENT '关联用户ID',
+    user_id VARCHAR(100) UNIQUE NOT NULL COMMENT '关联用户ID',
     education_level ENUM('undergraduate', 'master', 'phd', 'faculty') COMMENT '学历层次',
     research_field VARCHAR(200) COMMENT '研究方向（如NLP/CV/RL）',
     knowledge_level ENUM('beginner', 'intermediate', 'advanced', 'expert') COMMENT '知识水平',

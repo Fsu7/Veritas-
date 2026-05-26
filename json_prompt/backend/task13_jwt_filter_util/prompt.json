@@ -1,0 +1,371 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M3：前后端联调 / JM2：用户认证与论文管理",
+    "requirement": "完善JwtAuthFilter和JwtUtil两个核心安全组件。JwtAuthFilter需增加：白名单路径跳过JWT验证、MDC注入userId用于请求链路追踪、请求URI DEBUG日志、SecurityContext和MDC请求后清理、Token提取边界情况处理（空Token/畸形Header）。JwtUtil需增加：blacklistToken方法（提取jti写入Redis黑名单，TTL=Token剩余有效期）、isTokenExpired方法（不抛异常判断Token是否过期）、parseToken错误处理增强（返回具体错误类型便于日志区分）、generateToken增加token_type声明区分access/refresh Token（预留未来扩展）。",
+    "requirement_ids": ["F2.1.2", "F2.1.3"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§13 安全架构（JWT鉴权7步流程、Token黑名单机制、MDC请求追踪）"
+      },
+      {
+        "path": "docs/database/数据库设计文档.md",
+        "purpose": "§4.3 缓存空间详情（JWT黑名单Key格式auth:blacklist:{tokenHash}、TTL=Token剩余有效期）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7.2 Redis缓存Key（JWT黑名单TTL=Token剩余有效期）、§10 安全规范（JWT+Redis黑名单）、§9.2 Java后端规范（SLF4J日志、MDC注入）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.filter",
+        "description": "过滤器包，包含JwtAuthFilter（JWT认证过滤器）和RequestIdFilter（请求ID过滤器，MDC注入requestId）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.util",
+        "description": "工具类包，包含JwtUtil（JWT生成/解析/验证/黑名单检查）和RedisKeyUtil（Redis Key命名工具）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.config",
+        "description": "配置包，包含SecurityConfig（白名单路径、JWT过滤器注册、CORS配置）"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/filter/JwtAuthFilter.java",
+        "description": "当前JwtAuthFilter：从Authorization头提取Bearer Token，调用JwtUtil验证+黑名单检查，设置SecurityContext。缺少白名单跳过、MDC userId注入、SecurityContext清理、边界情况处理",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/JwtUtil.java",
+        "description": "当前JwtUtil：generateToken(userId,username)、parseToken(token)、validateToken(token)、isTokenBlacklisted(token)、getUserIdFromToken(token)、getUsernameFromToken(token)、getTokenJti(token)、getTokenRemainingTime(token)、maskToken(token)。缺少blacklistToken、isTokenExpired、token_type声明、parseToken错误类型返回",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/filter/RequestIdFilter.java",
+        "description": "RequestIdFilter：MDC注入requestId的参考实现（MDC.put/remove + try-finally清理模式），JwtAuthFilter的MDC userId注入应遵循相同模式",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+        "description": "RedisKeyUtil：authBlacklistKey(tokenHash)返回auth:blacklist:{tokenHash}格式，blacklistToken方法需使用此工具类",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/SecurityConfig.java",
+        "description": "SecurityConfig：白名单路径定义（/api/users/register、/api/users/login、/health、/actuator/**、/error），JwtAuthFilter的白名单应与SecurityConfig保持一致",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/CustomAuthenticationEntryPoint.java",
+        "description": "CustomAuthenticationEntryPoint：返回ApiResponse<Void>格式的401响应，JwtAuthFilter验证失败时由Spring Security调用此EntryPoint",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/backend/src/test/java/com/literatureassistant/filter/JwtAuthFilterTest.java",
+        "description": "现有JwtAuthFilterTest：5个测试用例（有效Token、无效Token、黑名单Token、无Auth头、非Bearer格式），需扩展新增白名单跳过、MDC验证、SecurityContext清理、边界情况测试",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/backend/src/test/java/com/literatureassistant/util/JwtUtilTest.java",
+        "description": "现有JwtUtilTest：12个测试用例（生成/解析/验证/黑名单/jti/剩余时间/密钥校验），需扩展新增blacklistToken、isTokenExpired、token_type声明、parseToken错误类型测试",
+        "reuse_type": "extend"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "JwtAuthFilter",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/filter/JwtAuthFilter.java",
+      "responsibility": "JWT认证过滤器：提取Bearer Token、验证Token有效性、检查黑名单、设置SecurityContext、MDC注入userId、白名单路径跳过",
+      "key_interfaces": [
+        {
+          "name": "doFilterInternal",
+          "signature": "@Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException",
+          "description": "核心过滤方法：白名单路径直接放行，非白名单路径提取验证Token，设置SecurityContext和MDC，请求结束后清理"
+        },
+        {
+          "name": "shouldNotFilter",
+          "signature": "@Override protected boolean shouldNotFilter(HttpServletRequest request)",
+          "description": "白名单路径判断：注册/登录/健康检查/Actuator/错误页面路径跳过JWT验证"
+        }
+      ]
+    },
+    {
+      "name": "JwtUtil",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/JwtUtil.java",
+      "responsibility": "JWT工具类：Token生成/解析/验证/黑名单管理/过期检查，HS256签名，Redis黑名单存储",
+      "key_interfaces": [
+        {
+          "name": "generateToken",
+          "signature": "public String generateToken(String userId, String username)",
+          "description": "生成JWT Token，包含sub(userId)、username claim、jti(UUID)、iat/exp、token_type(access)"
+        },
+        {
+          "name": "blacklistToken",
+          "signature": "public boolean blacklistToken(String token)",
+          "description": "将Token加入Redis黑名单，Key=auth:blacklist:{jti}，TTL=Token剩余有效期，返回是否成功"
+        },
+        {
+          "name": "isTokenExpired",
+          "signature": "public boolean isTokenExpired(String token)",
+          "description": "判断Token是否过期，不抛异常，过期/无效返回true"
+        },
+        {
+          "name": "parseToken",
+          "signature": "public Claims parseToken(String token)",
+          "description": "解析Token返回Claims，失败返回null，日志区分不同错误类型（过期/签名无效/格式错误等）"
+        },
+        {
+          "name": "validateToken",
+          "signature": "public boolean validateToken(String token)",
+          "description": "验证Token有效性（非null、未过期、签名正确）"
+        },
+        {
+          "name": "isTokenBlacklisted",
+          "signature": "public boolean isTokenBlacklisted(String token)",
+          "description": "检查Token是否在Redis黑名单中"
+        },
+        {
+          "name": "getTokenJti",
+          "signature": "public String getTokenJti(String token)",
+          "description": "提取Token的jti（唯一ID）"
+        },
+        {
+          "name": "getTokenRemainingTime",
+          "signature": "public long getTokenRemainingTime(String token)",
+          "description": "获取Token剩余有效时间（毫秒），无效Token返回0"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/filter/JwtAuthFilter.java",
+      "description": "JwtAuthFilter完善：增加白名单路径shouldNotFilter、MDC userId注入与清理、请求URI DEBUG日志、SecurityContext finally清理、Token提取边界情况处理（空Token/畸形Header）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/JwtUtil.java",
+      "description": "JwtUtil完善：增加blacklistToken方法（Redis黑名单+TTL=剩余有效期）、isTokenExpired方法（不抛异常）、generateToken增加token_type声明、parseToken错误日志增强（区分错误类型）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/filter/JwtAuthFilterTest.java",
+      "description": "JwtAuthFilterTest扩展：新增白名单路径跳过、MDC userId设置/清理、SecurityContext清理、空Token、畸形Header、过期Token测试用例",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/util/JwtUtilTest.java",
+      "description": "JwtUtilTest扩展：新增blacklistToken、isTokenExpired、token_type声明验证、parseToken错误类型区分测试用例",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "JwtAuthFilter白名单路径跳过：重写shouldNotFilter(HttpServletRequest request)方法，判断请求URI是否匹配白名单路径（/api/users/register、/api/users/login、/health、/actuator/**、/error）。白名单路径直接跳过JWT验证，不提取Token、不设置SecurityContext、不注入MDC userId。使用AntPathMatcher匹配actuator/**通配符路径。白名单路径列表定义为private static final List<String> WHITELIST_PATHS，与SecurityConfig保持一致。",
+        "priority": "P0",
+        "acceptance_condition": "白名单路径请求不进入JWT验证逻辑，非白名单路径正常验证Token"
+      },
+      {
+        "id": "FR-002",
+        "description": "JwtAuthFilter MDC userId注入：在Token验证成功后，通过MDC.put(\"userId\", userId)注入userId到MDC，便于后续日志关联用户。在doFilterInternal的finally块中通过MDC.remove(\"userId\")清理，确保请求结束后MDC不残留。MDC key定义为private static final String MDC_USER_ID_KEY = \"userId\"。注意：RequestIdFilter已注入requestId到MDC，JwtAuthFilter注入userId不会冲突，两者共存。",
+        "priority": "P0",
+        "acceptance_condition": "Token验证成功时MDC包含userId，请求结束后MDC中userId被清理"
+      },
+      {
+        "id": "FR-003",
+        "description": "JwtAuthFilter SecurityContext清理：在doFilterInternal方法中，将chain.doFilter(request, response)和后续清理逻辑包裹在try-finally块中。finally块中执行：(1) SecurityContextHolder.clearContext()清理SecurityContext；(2) MDC.remove(MDC_USER_ID_KEY)清理MDC userId。确保无论请求处理是否异常，SecurityContext和MDC都会被清理，避免线程池复用导致的安全上下文泄漏。",
+        "priority": "P0",
+        "acceptance_condition": "请求结束后SecurityContext被清理，无论请求是否抛出异常"
+      },
+      {
+        "id": "FR-004",
+        "description": "JwtAuthFilter请求URI DEBUG日志：在doFilterInternal方法入口处，添加log.debug(\"处理请求: {}\", request.getRequestURI())记录请求URI。仅DEBUG级别输出，不影响生产性能。",
+        "priority": "P1",
+        "acceptance_condition": "DEBUG级别日志输出请求URI"
+      },
+      {
+        "id": "FR-005",
+        "description": "JwtAuthFilter Token提取边界情况处理：(1) Bearer前缀后Token为空字符串（authHeader = \"Bearer \"）→跳过验证，不设置SecurityContext；(2) Authorization头值不以Bearer开头（如Basic认证）→跳过验证；(3) Authorization头值为\"Bearer\"（无空格后缀）→跳过验证。所有边界情况均不抛异常，仅跳过JWT验证让请求继续传递给后续过滤器。",
+        "priority": "P0",
+        "acceptance_condition": "空Token/畸形Header不抛异常，不设置SecurityContext，请求继续传递"
+      },
+      {
+        "id": "FR-006",
+        "description": "JwtUtil blacklistToken方法：public boolean blacklistToken(String token)。实现逻辑：(1) 调用getTokenJti(token)提取jti；(2) 若jti为null返回false（无效Token无法加入黑名单）；(3) 调用getTokenRemainingTime(token)获取Token剩余有效时间；(4) 若剩余时间<=0返回false（Token已过期无需加入黑名单）；(5) 使用RedisKeyUtil.authBlacklistKey(jti)构建Redis Key；(6) 通过redisTemplate.opsForValue().set(key, \"1\", Duration.ofMillis(remainingTime))写入Redis，TTL=Token剩余有效期；(7) 返回true表示成功加入黑名单。日志：log.debug(\"Token加入黑名单: jti={}, remainingTime={}ms\", maskJti(jti), remainingTime)，禁止输出完整jti。",
+        "priority": "P0",
+        "acceptance_condition": "blacklistToken将jti写入Redis黑名单，TTL=Token剩余有效期，过期Token不入黑名单"
+      },
+      {
+        "id": "FR-007",
+        "description": "JwtUtil isTokenExpired方法：public boolean isTokenExpired(String token)。实现逻辑：(1) 若token为null或空字符串，返回true；(2) 尝试调用parseToken(token)获取Claims；(3) 若Claims为null（解析失败），返回true；(4) 检查Claims.getExpiration()是否在当前时间之前，是则返回true，否则返回false；(5) 整个方法不抛出任何异常，所有异常情况均返回true（保守策略：无法判断时视为已过期）。",
+        "priority": "P0",
+        "acceptance_condition": "isTokenExpired不抛异常，过期/无效Token返回true，有效Token返回false"
+      },
+      {
+        "id": "FR-008",
+        "description": "JwtUtil generateToken增加token_type声明：在现有generateToken(String userId, String username)方法中，添加.claim(\"token_type\", \"access\")声明，用于区分access Token和refresh Token（refresh Token在后续版本实现）。现有方法签名不变，保持向后兼容。token_type值定义为private static final String TOKEN_TYPE_ACCESS = \"access\"。",
+        "priority": "P1",
+        "acceptance_condition": "生成的Token包含token_type=access声明，parseToken可提取token_type值"
+      },
+      {
+        "id": "FR-009",
+        "description": "JwtUtil parseToken错误日志增强：当前parseToken已捕获5种异常类型（ExpiredJwtException、UnsupportedJwtException、MalformedJwtException、SecurityException、IllegalArgumentException），但日志消息相同格式。增强：每种异常类型使用不同的日志消息前缀，便于日志搜索和问题定位。例如：ExpiredJwtException→\"JWT token已过期\"、MalformedJwtException→\"JWT token格式错误\"、SecurityException→\"JWT签名无效\"、UnsupportedJwtException→\"不支持的JWT token\"、IllegalArgumentException→\"JWT token为空\"。日志级别保持DEBUG，token仍使用maskToken脱敏。",
+        "priority": "P1",
+        "acceptance_condition": "不同异常类型产生不同的日志消息，便于日志搜索区分"
+      }
+    ],
+    "security_requirements": [
+      {
+        "category": "jwt_auth",
+        "requirement": "JwtAuthFilter必须在finally块中清理SecurityContext，防止线程池复用导致的安全上下文泄漏"
+      },
+      {
+        "category": "jwt_auth",
+        "requirement": "黑名单Token的Redis TTL必须等于Token剩余有效期，Token过期后黑名单自动清除，避免Redis存储无限增长"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "日志中禁止输出完整Token、JWT Secret、Redis密码等敏感信息，Token使用maskToken脱敏（仅显示前8字符+...），jti使用maskJti脱敏"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "MDC中的userId仅用于日志链路追踪，不得包含Token或密码等敏感信息"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE",
+        "config_key": "kebab-case"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key、完整jti）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)", "token_type(access/refresh)"],
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行Java代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块（SecurityConfig、RedisConfig等）", "reason": "避免引入无关变更，仅修改JwtAuthFilter和JwtUtil及其测试", "severity": "high" },
+    { "id": "FA-003", "action": "在日志中输出完整Token、JWT Secret或Redis密码", "reason": "安全约束，敏感信息必须脱敏", "severity": "critical" },
+    { "id": "FA-004", "action": "JwtAuthFilter不在finally块中清理SecurityContext", "reason": "线程池复用会导致安全上下文泄漏到其他请求", "severity": "critical" },
+    { "id": "FA-005", "action": "blacklistToken使用固定TTL而非Token剩余有效期", "reason": "固定TTL会导致已过期Token的黑名单残留在Redis中，或未过期Token黑名单提前清除", "severity": "high" },
+    { "id": "FA-006", "action": "isTokenExpired方法抛出异常", "reason": "调用方期望布尔返回值，抛异常破坏API契约", "severity": "high" },
+    { "id": "FA-007", "action": "白名单路径仍执行JWT验证逻辑", "reason": "白名单路径（注册/登录）无需Token，执行验证是无效开销且可能导致误拦截", "severity": "critical" },
+    { "id": "FA-008", "action": "MDC userId在请求结束后未清理", "reason": "MDC基于ThreadLocal，线程池复用会导致userId泄漏到其他请求的日志中", "severity": "high" },
+    { "id": "FA-009", "action": "修改generateToken方法签名或破坏现有Token兼容性", "reason": "新增token_type声明必须向后兼容，现有Token仍需能正常解析", "severity": "high" },
+    { "id": "FA-010", "action": "使用System.out.println或非SLF4J日志", "reason": "项目统一使用SLF4J + Logback", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "JwtAuthFilterTest",
+        "description": "JwtAuthFilter单元测试：白名单路径跳过验证、有效Token设置SecurityContext和MDC、无效Token不设置SecurityContext、黑名单Token不设置SecurityContext、过期Token不设置SecurityContext、无Authorization头不设置SecurityContext、畸形Header（非Bearer格式）不设置SecurityContext、空Token（Bearer后无内容）不设置SecurityContext、MDC userId在请求后清理、SecurityContext在请求后清理、请求URI DEBUG日志输出",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "JwtUtilTest",
+        "description": "JwtUtil单元测试：blacklistToken成功加入Redis黑名单（验证Key格式和TTL）、blacklistToken对无效Token返回false、blacklistToken对已过期Token返回false、isTokenExpired对有效Token返回false、isTokenExpired对过期Token返回true、isTokenExpired对null Token返回true、isTokenExpired对无效Token返回true、generateToken包含token_type=access声明、parseToken错误类型日志区分（过期/签名无效/格式错误）、现有测试用例不受影响",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，JwtAuthFilter和JwtUtil无错误"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=JwtAuthFilterTest,JwtUtilTest",
+        "expected_result": "所有单元测试通过"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test",
+        "expected_result": "全量测试通过，无回归"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "白名单路径（/api/users/register、/api/users/login、/health、/actuator/**、/error）跳过JWT验证，不提取Token、不设置SecurityContext、不注入MDC userId", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "有效Token验证成功后，SecurityContext包含userId作为Principal，MDC包含userId", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "黑名单Token不设置SecurityContext，请求由Spring Security返回401（CustomAuthenticationEntryPoint处理）", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "MDC在Token验证成功时注入userId，请求结束后（finally块）清理userId", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "SecurityContext在请求结束后（finally块）被清理，无论请求是否抛出异常", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "blacklistToken方法提取jti，以auth:blacklist:{jti}为Key写入Redis，Value为\"1\"，TTL=Token剩余有效期（毫秒精度）", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "isTokenExpired方法不抛异常：有效Token返回false，过期/无效/null Token返回true", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "日志中不包含完整Token、JWT Secret、完整jti等敏感信息，Token使用maskToken脱敏", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "generateToken生成的Token包含token_type=access声明，现有Token解析不受影响", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "parseToken对不同异常类型输出不同日志消息前缀（已过期/格式错误/签名无效等）", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "空Token（Bearer后无内容）和畸形Header不抛异常，不设置SecurityContext", "verified_by": "automated_test" },
+    { "id": "AC-012", "criterion": "所有单元测试通过，无回归", "verified_by": "automated_test" }
+  ]
+}

@@ -1,0 +1,254 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "FM2: 用户+检索页面",
+    "requirement": "实现用户中心页面UserCenterView.vue和userStore完整实现，包含3大区块：用户信息展示区（el-descriptions展示用户名/邮箱/注册时间）、用户画像编辑区（复用UserProfileForm组件）、历史记录区（el-timeline展示最近会话记录+el-empty空状态）。同时完善userStore添加register方法和getUserInfo方法",
+    "requirement_ids": ["F1.1.3", "F1.1.4"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "UserCenterView页面设计规范（4.2.3节）、3大区块布局、功能清单" },
+      { "path": "AGENTS.md", "purpose": "API契约（/api/users/{userId}、/api/sessions）、用户画像4维度、Redis缓存Key" },
+      { "path": "docs/开发规范文档.md", "purpose": "前端编码规范、状态管理规范、组件通信规范" },
+      { "path": "docs/架构决策记录(ADR).md", "purpose": "ADR-006 个性化引擎、ADR-007 Cache-Aside缓存" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/", "description": "页面组件目录，UserCenterView.vue当前为占位骨架" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/userStore.ts", "description": "用户状态管理，已实现login/logout/fetchProfile/saveProfile，缺少register和getUserInfo" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/common/", "description": "通用组件目录，UserProfileForm.vue将在task12中创建" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/user.ts", "description": "用户API封装，已实现register/getUserInfo/getProfile等" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/session.ts", "description": "会话API封装" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/userStore.ts", "description": "Pinia setup store，已实现：login/logout/fetchProfile/saveProfile/persistLoginData/isLoggedIn/hasProfile。缺少：register方法、getUserInfo方法（获取用户详情含邮箱和注册时间）", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/api/user.ts", "description": "userApi.register/getUserInfo/getProfile/createProfile/updateProfile已实现", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/api/session.ts", "description": "sessionApi.list/getDetail/delete已实现", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/types/user.ts", "description": "UserProfile/LoginResponse/ProfileResponse已定义，缺少UserInfo类型（含email/createdAt）", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/types/session.ts", "description": "SessionResponse/SessionDetail已定义", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/views/UserCenterView.vue", "description": "当前为占位骨架（<h2>用户中心页</h2><p>页面开发中...</p>），需替换为完整实现", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/components/common/UserProfileForm.vue", "description": "task12同步创建的画像表单组件，UserCenterView需复用", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "userStore",
+      "path": "Veritas/frontend/src/stores/userStore.ts",
+      "responsibility": "用户状态管理：认证、画像、用户信息",
+      "key_interfaces": [
+        { "name": "login", "signature": "async login(user: string, password: string): Promise<void>", "description": "登录并持久化Token" },
+        { "name": "logout", "signature": "logout(): void", "description": "清除所有用户状态和localStorage" },
+        { "name": "fetchProfile", "signature": "async fetchProfile(): Promise<void>", "description": "获取用户画像" },
+        { "name": "saveProfile", "signature": "async saveProfile(data: UserProfile): Promise<void>", "description": "保存用户画像（create或update）" },
+        { "name": "profile", "signature": "profile: Ref<UserProfile | null>", "description": "当前用户画像" }
+      ]
+    },
+    {
+      "name": "sessionApi",
+      "path": "Veritas/frontend/src/api/session.ts",
+      "responsibility": "会话相关HTTP API封装",
+      "key_interfaces": [
+        { "name": "list", "signature": "list(params: { page: number; size: number }): Promise<PageResponse<SessionResponse>>", "description": "获取会话列表（分页）" }
+      ]
+    },
+    {
+      "name": "UserProfileForm",
+      "path": "Veritas/frontend/src/components/common/UserProfileForm.vue",
+      "responsibility": "用户画像表单通用组件（task12产出）",
+      "key_interfaces": [
+        { "name": "props", "signature": "defineProps<{ initialData?: UserProfile }>()", "description": "initialData用于编辑模式预填充" },
+        { "name": "emits", "signature": "defineEmits<{ (e: 'saved'): void }>()", "description": "保存成功后通知父组件" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/frontend/src/views/UserCenterView.vue", "description": "替换占位骨架为完整用户中心页面：3大区块（用户信息/画像编辑/历史记录）", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/stores/userStore.ts", "description": "扩展userStore：添加userInfo state、getUserInfo方法、register方法", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/types/user.ts", "description": "添加UserInfo接口类型定义（含email/createdAt字段）", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "用户信息展示区：使用el-descriptions展示用户名(username)、邮箱(email)、注册时间(createdAt)，数据来自userStore.userInfo，页面加载时调用userStore.getUserInfo()获取",
+        "priority": "P0",
+        "acceptance_condition": "el-descriptions正确展示3个字段，数据从API获取"
+      },
+      {
+        "id": "FR-002",
+        "description": "用户画像编辑区：复用UserProfileForm组件，传入:initial-data='userStore.profile'，监听@saved事件刷新画像数据",
+        "priority": "P0",
+        "acceptance_condition": "UserProfileForm正确渲染，传入已有画像数据，保存后画像更新"
+      },
+      {
+        "id": "FR-003",
+        "description": "历史记录区：使用el-timeline展示最近会话记录，数据来自sessionApi.list({page:1, size:10})，每条记录显示topic和createdAt，点击可跳转详情",
+        "priority": "P1",
+        "acceptance_condition": "el-timeline正确渲染会话记录，按时间倒序排列"
+      },
+      {
+        "id": "FR-004",
+        "description": "历史记录空状态：当会话列表为空时，显示el-empty description='暂无分析记录'",
+        "priority": "P1",
+        "acceptance_condition": "无会话记录时显示空状态提示"
+      },
+      {
+        "id": "FR-005",
+        "description": "页面加载loading：页面初始化时v-loading，同时获取userInfo和profile，全部完成后取消loading",
+        "priority": "P0",
+        "acceptance_condition": "页面加载期间显示loading，数据加载完成后显示内容"
+      },
+      {
+        "id": "FR-006",
+        "description": "userStore扩展-添加userInfo state：const userInfo = ref<UserInfo | null>(null)，UserInfo接口含{username:string, email:string, createdAt:string}",
+        "priority": "P0",
+        "acceptance_condition": "userStore新增userInfo state和getUserInfo方法"
+      },
+      {
+        "id": "FR-007",
+        "description": "userStore扩展-添加getUserInfo方法：async getUserInfo() → userApi.getUserInfo(userId.value) → 赋值userInfo state",
+        "priority": "P0",
+        "acceptance_condition": "调用后userInfo state更新为API返回数据"
+      },
+      {
+        "id": "FR-008",
+        "description": "userStore扩展-添加register方法：async register(username:string, email:string, password:string) → userApi.register({username, email, password})，注册成功不自动登录",
+        "priority": "P1",
+        "acceptance_condition": "register方法调用userApi.register，成功后不建立登录态"
+      },
+      {
+        "id": "FR-009",
+        "description": "types/user.ts扩展-添加UserInfo接口：interface UserInfo { username: string; email: string; createdAt: string }",
+        "priority": "P0",
+        "acceptance_condition": "UserInfo接口定义正确，含3个字段"
+      },
+      {
+        "id": "FR-010",
+        "description": "页面布局：3大区块垂直排列，每个区块使用el-card包裹，最大宽度var(--content-max-width)居中",
+        "priority": "P1",
+        "acceptance_condition": "3个el-card垂直排列，页面居中，宽度不超过1200px"
+      },
+      {
+        "id": "FR-011",
+        "description": "logout后清理：userStore.logout()时同时清除userInfo state",
+        "priority": "P1",
+        "acceptance_condition": "logout后userInfo为null"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "createdAt", "python": "created_at", "json": "created_at" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/users/{userId}",
+          "method": "GET",
+          "request_format": {},
+          "response_format": { "code": 200, "data": { "username": "string", "email": "string", "createdAt": "string" } }
+        },
+        {
+          "endpoint": "/api/sessions",
+          "method": "GET",
+          "request_format": { "page": "number", "size": "number" },
+          "response_format": { "code": 200, "data": { "items": [{ "sessionId": "string", "topic": "string", "status": "string", "createdAt": "string" }], "total": "number" } }
+        }
+      ],
+      "data_flow": "UserCenterView onMounted → userStore.getUserInfo() + userStore.fetchProfile() + sessionApi.list() → 3路数据并行加载 → 渲染3大区块"
+    },
+    "security_requirements": [
+      { "category": "data_isolation", "requirement": "用户只能查看自己的信息和会话记录（后端WHERE user_id=currentUserId保障，前端无需额外处理）" },
+      { "category": "jwt_auth", "requirement": "UserCenterView路由requiresAuth:true，未登录自动跳转/login（路由守卫已实现）" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "createdAt", "python": "created_at", "json": "created_at" }
+      ]
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → Store → API，UserCenterView通过userStore获取用户信息和画像，通过sessionApi获取会话列表（会话列表无Store，直接API调用）"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "页面加载失败：ElMessage.error提示；画像保存失败：UserProfileForm内部处理；会话列表加载失败：ElMessage.error"
+      }
+    },
+    "caching": {
+      "pattern": "用户画像通过userStore.profile缓存（Store State作为前端缓存）；用户信息通过userStore.userInfo缓存；会话列表无缓存（每次进入页面重新加载）"
+    },
+    "logging": {
+      "prohibited": [
+        "console.log Token/密码等敏感信息"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "在UserCenterView中直接调用userApi获取用户信息", "reason": "必须通过userStore.getUserInfo()调用，遵循View→Store→API分层", "severity": "critical" },
+    { "id": "FA-002", "action": "页面加载无loading状态", "reason": "产品级前端必备交互状态（AP-006）", "severity": "high" },
+    { "id": "FA-003", "action": "历史记录列表无空状态", "reason": "列表必须有空状态提示（AP-007）", "severity": "high" },
+    { "id": "FA-004", "action": "硬编码颜色值", "reason": "必须使用CSS变量（AP-010）", "severity": "high" },
+    { "id": "FA-005", "action": "使用非8px倍数间距", "reason": "8px间距系统约束（AP-005）", "severity": "medium" },
+    { "id": "FA-006", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-007", "action": "组件超过300行", "reason": "单组件≤300行约束（AP-001），超过需拆分", "severity": "high" },
+    { "id": "FA-008", "action": "重复实现UserProfileForm的画像表单逻辑", "reason": "必须复用task12创建的UserProfileForm组件（AP-009禁止Copy-Paste UI）", "severity": "critical" },
+    { "id": "FA-009", "action": "前端直接调用Python AI服务API", "reason": "三层架构约束ADR-001", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "user_store_getUserInfo",
+        "description": "验证userStore.getUserInfo方法：调用API→更新userInfo state",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "user_store_register",
+        "description": "验证userStore.register方法：调用API→不建立登录态",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "user_center_view_loading",
+        "description": "验证页面加载loading状态：初始化时loading=true，数据加载完成后loading=false",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "user_center_view_empty_sessions",
+        "description": "验证历史记录空状态：无会话时显示el-empty",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/views/UserCenterView.vue src/stores/userStore.ts", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "用户信息区展示用户名/邮箱/注册时间，数据从API获取", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "画像编辑区复用UserProfileForm组件，传入initialData，保存后画像更新", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "历史记录区使用el-timeline展示会话记录，空状态显示el-empty", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "页面加载有loading状态，数据加载完成后取消loading", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "userStore新增userInfo state、getUserInfo方法、register方法", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "types/user.ts新增UserInfo接口", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "logout时userInfo被清除", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "TypeScript类型检查通过，组件不超过300行", "verified_by": "automated_test" }
+  ]
+}

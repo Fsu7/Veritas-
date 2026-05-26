@@ -1,0 +1,592 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M3：前后端联调 / JM2：Java后端M2",
+    "requirement": "实现用户画像CRUD功能：创建ProfileUpdateRequest/ProfileResponse两个DTO，在UserService中新增getProfile/createProfile/updateProfile三个方法（含缓存注解和Redis画像JSON同步），在UserController中新增3个画像端点（GET/POST/PUT /api/users/{userId}/profile）。ProfileUpdateRequest使用@NotNull/@NotBlank校验+@JsonProperty snake_case映射，ProfileResponse使用@JsonProperty输出snake_case字段（枚举字段输出dbValue字符串）。缓存策略：getProfile使用@Cacheable(userProfile)，createProfile使用@CacheEvict(userProfile)，updateProfile使用@CacheEvict({userProfile, userProfileJson})双重失效+RedisTemplate同步画像JSON供Python AI服务消费。安全：userId必须匹配当前认证用户（数据隔离）。",
+    "requirement_ids": ["F2.1.5"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§5 UserService设计（getProfile/createProfile/updateProfile方法签名+缓存注解+事务策略）、§6 DTO设计（ProfileUpdateRequest/ProfileResponse字段定义）、§8 API端点（3个画像端点）"
+      },
+      {
+        "path": "docs/database/数据库设计文档.md",
+        "purpose": "§3 user_profiles表结构（education_level/knowledge_level/preferred_style枚举映射+profile_data JSON字段）、§4.3 缓存空间详情（userProfile:1h + userProfileJson供Python服务消费）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7.2 Redis缓存Key（user:profile:{userId} TTL=1h）、§8.1 API契约（GET/POST/PUT /api/users/{userId}/profile）、§8.4 Java→Python请求契约（user_profile字段snake_case）、§9.2 Java后端规范（Entity与DTO分离+@Cacheable/@CacheEvict+@Transactional）"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.4 JM2任务分解（画像CRUD + DTO + 缓存 + 数据隔离）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.request",
+        "description": "请求DTO包，新增ProfileUpdateRequest"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.response",
+        "description": "响应DTO包，新增ProfileResponse"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.controller",
+        "description": "控制器包，扩展UserController新增3个画像端点"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "服务包，扩展UserService新增3个画像方法"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/entity/UserProfile.java",
+        "description": "UserProfile实体：id, userId, educationLevel(EducationLevel枚举), researchField, knowledgeLevel(KnowledgeLevel枚举), preferredStyle(PreferredStyle枚举), profileData(JSON String), updatedAt。使用DbValueEnum+@Convert体系映射枚举",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/UserProfileRepository.java",
+        "description": "UserProfileRepository：findByUserId(String userId)→Optional<UserProfile>, existsByUserId(String userId)→boolean",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/UserRepository.java",
+        "description": "UserRepository：findByUserId(String userId)→Optional<User>，用于createProfile时校验用户是否存在",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/enums/EducationLevel.java",
+        "description": "EducationLevel枚举：UNDERGRADUATE(\"undergraduate\"), MASTER(\"master\"), PHD(\"phd\"), FACULTY(\"faculty\")，实现DbValueEnum接口，含getDbValue()和fromDbValue()方法",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/enums/KnowledgeLevel.java",
+        "description": "KnowledgeLevel枚举：BEGINNER(\"beginner\"), INTERMEDIATE(\"intermediate\"), ADVANCED(\"advanced\"), EXPERT(\"expert\")，实现DbValueEnum接口",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/enums/PreferredStyle.java",
+        "description": "PreferredStyle枚举：SIMPLE(\"simple\"), BALANCED(\"balanced\"), TECHNICAL(\"technical\")，实现DbValueEnum接口",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/ApiResponse.java",
+        "description": "统一响应封装：ApiResponse<T>，含success(data)/error(code,msg)/error(ErrorCode)静态工厂方法",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/BusinessException.java",
+        "description": "业务异常基类：code, message, errorKey。子类：ResourceNotFoundException(404), AuthenticationException(401)",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/ResourceNotFoundException.java",
+        "description": "资源不存在异常：ResourceNotFoundException(resource, id)，HTTP 404",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+        "description": "Redis Key工具类：userProfileKey(userId)→\"user:profile:\"+userId，用于手动Redis操作",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java",
+        "description": "Redis配置：CacheManager(6个缓存空间TTL分层) + RedisTemplate<String, String>",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java",
+        "description": "UserService（task12已创建）：含register/login/getUserInfo/updateUser/logout方法，需扩展3个画像方法",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/UserController.java",
+        "description": "UserController（task12已创建）：含register/login/getUser端点，需扩展3个画像端点",
+        "reuse_type": "extend"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "ProfileUpdateRequest",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/ProfileUpdateRequest.java",
+      "responsibility": "画像创建/更新请求DTO，@NotNull/@NotBlank校验+@JsonProperty snake_case映射",
+      "key_interfaces": [
+        {
+          "name": "educationLevel",
+          "signature": "@NotNull EducationLevel educationLevel",
+          "description": "学历层次枚举，@JsonProperty(\"education_level\")"
+        },
+        {
+          "name": "researchField",
+          "signature": "@NotBlank String researchField",
+          "description": "研究方向，@JsonProperty(\"research_field\")"
+        },
+        {
+          "name": "knowledgeLevel",
+          "signature": "@NotNull KnowledgeLevel knowledgeLevel",
+          "description": "知识水平枚举，@JsonProperty(\"knowledge_level\")"
+        },
+        {
+          "name": "preferredStyle",
+          "signature": "@NotNull PreferredStyle preferredStyle",
+          "description": "偏好风格枚举，@JsonProperty(\"preferred_style\")"
+        }
+      ]
+    },
+    {
+      "name": "ProfileResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/ProfileResponse.java",
+      "responsibility": "画像响应DTO，@JsonProperty输出snake_case字段，枚举字段输出dbValue字符串",
+      "key_interfaces": [
+        {
+          "name": "userId",
+          "signature": "@JsonProperty(\"user_id\") String userId",
+          "description": "用户业务ID"
+        },
+        {
+          "name": "educationLevel",
+          "signature": "@JsonProperty(\"education_level\") String educationLevel",
+          "description": "学历层次dbValue字符串（如\"master\"）"
+        },
+        {
+          "name": "researchField",
+          "signature": "@JsonProperty(\"research_field\") String researchField",
+          "description": "研究方向"
+        },
+        {
+          "name": "knowledgeLevel",
+          "signature": "@JsonProperty(\"knowledge_level\") String knowledgeLevel",
+          "description": "知识水平dbValue字符串（如\"intermediate\"）"
+        },
+        {
+          "name": "preferredStyle",
+          "signature": "@JsonProperty(\"preferred_style\") String preferredStyle",
+          "description": "偏好风格dbValue字符串（如\"balanced\"）"
+        },
+        {
+          "name": "updatedAt",
+          "signature": "@JsonProperty(\"updated_at\") LocalDateTime updatedAt",
+          "description": "更新时间"
+        }
+      ]
+    },
+    {
+      "name": "UserService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java",
+      "responsibility": "用户业务逻辑，扩展3个画像方法",
+      "key_interfaces": [
+        {
+          "name": "getProfile",
+          "signature": "@Cacheable(value=\"userProfile\", key=\"#userId\", unless=\"#result == null\") public ProfileResponse getProfile(String userId)",
+          "description": "获取用户画像，缓存命中直接返回，未命中查MySQL回填"
+        },
+        {
+          "name": "createProfile",
+          "signature": "@Transactional @CacheEvict(value=\"userProfile\", key=\"#userId\") public ProfileResponse createProfile(String userId, ProfileUpdateRequest request)",
+          "description": "创建用户画像，校验用户存在+画像不存在+保存+同步Redis画像JSON+失效缓存"
+        },
+        {
+          "name": "updateProfile",
+          "signature": "@Transactional @CacheEvict(value={\"userProfile\", \"userProfileJson\"}, key=\"#userId\") public ProfileResponse updateProfile(String userId, ProfileUpdateRequest request)",
+          "description": "更新用户画像，查找已有画像+合并字段+保存+双重缓存失效+同步Redis画像JSON"
+        }
+      ]
+    },
+    {
+      "name": "UserController",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/UserController.java",
+      "responsibility": "用户API入口，扩展3个画像端点",
+      "key_interfaces": [
+        {
+          "name": "getProfile",
+          "signature": "@GetMapping(\"/{userId}/profile\") public ApiResponse<ProfileResponse> getProfile(@PathVariable String userId)",
+          "description": "GET /api/users/{userId}/profile → 获取用户画像"
+        },
+        {
+          "name": "createProfile",
+          "signature": "@PostMapping(\"/{userId}/profile\") public ApiResponse<ProfileResponse> createProfile(@PathVariable String userId, @Valid @RequestBody ProfileUpdateRequest request)",
+          "description": "POST /api/users/{userId}/profile → 创建用户画像"
+        },
+        {
+          "name": "updateProfile",
+          "signature": "@PutMapping(\"/{userId}/profile\") public ApiResponse<ProfileResponse> updateProfile(@PathVariable String userId, @Valid @RequestBody ProfileUpdateRequest request)",
+          "description": "PUT /api/users/{userId}/profile → 更新用户画像"
+        }
+      ]
+    },
+    {
+      "name": "UserProfileRepository",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/UserProfileRepository.java",
+      "responsibility": "用户画像数据访问",
+      "key_interfaces": [
+        {
+          "name": "findByUserId",
+          "signature": "Optional<UserProfile> findByUserId(String userId)",
+          "description": "按userId查询画像"
+        },
+        {
+          "name": "existsByUserId",
+          "signature": "boolean existsByUserId(String userId)",
+          "description": "判断画像是否已存在"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/ProfileUpdateRequest.java",
+      "description": "画像请求DTO：4个字段（educationLevel/researchField/knowledgeLevel/preferredStyle），@NotNull/@NotBlank校验+@JsonProperty snake_case映射",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/ProfileResponse.java",
+      "description": "画像响应DTO：6个字段（userId/educationLevel/researchField/knowledgeLevel/preferredStyle/updatedAt），@JsonProperty snake_case输出，枚举字段输出dbValue字符串",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java",
+      "description": "扩展UserService：新增getProfile/createProfile/updateProfile三个方法，含缓存注解、事务注解、Redis画像JSON同步",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/UserController.java",
+      "description": "扩展UserController：新增3个画像端点（GET/POST/PUT /api/users/{userId}/profile），@Valid校验",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "ProfileUpdateRequest DTO：@Data @NoArgsConstructor @AllArgsConstructor @Builder。4个字段：(1) @NotNull(message=\"学历层次不能为空\") @JsonProperty(\"education_level\") private EducationLevel educationLevel；(2) @NotBlank(message=\"研究方向不能为空\") @JsonProperty(\"research_field\") private String researchField；(3) @NotNull(message=\"知识水平不能为空\") @JsonProperty(\"knowledge_level\") private KnowledgeLevel knowledgeLevel；(4) @NotNull(message=\"偏好风格不能为空\") @JsonProperty(\"preferred_style\") private PreferredStyle preferredStyle。所有@JsonProperty确保JSON输入输出使用snake_case。",
+        "priority": "P0",
+        "acceptance_condition": "ProfileUpdateRequest的4个字段均有@NotNull/@NotBlank校验和@JsonProperty snake_case映射"
+      },
+      {
+        "id": "FR-002",
+        "description": "ProfileResponse DTO：@Data @NoArgsConstructor @AllArgsConstructor @Builder。6个字段：(1) @JsonProperty(\"user_id\") private String userId；(2) @JsonProperty(\"education_level\") private String educationLevel（使用dbValue字符串，如\"master\"）；(3) @JsonProperty(\"research_field\") private String researchField；(4) @JsonProperty(\"knowledge_level\") private String knowledgeLevel（使用dbValue字符串，如\"intermediate\"）；(5) @JsonProperty(\"preferred_style\") private String preferredStyle（使用dbValue字符串，如\"balanced\"）；(6) @JsonProperty(\"updated_at\") private LocalDateTime updatedAt。关键：枚举字段在Response中使用String类型输出dbValue（而非Java枚举名），确保与Python AI服务契约一致。",
+        "priority": "P0",
+        "acceptance_condition": "ProfileResponse的6个字段均有@JsonProperty snake_case映射，枚举字段输出dbValue字符串"
+      },
+      {
+        "id": "FR-003",
+        "description": "UserService.getProfile(String userId)→ProfileResponse：(1) 调用userProfileRepository.findByUserId(userId)；(2) 若不存在抛出ResourceNotFoundException(\"UserProfile\", userId)；(3) 将UserProfile Entity转换为ProfileResponse（枚举字段使用getDbValue()获取dbValue字符串）；(4) @Cacheable(value=\"userProfile\", key=\"#userId\", unless=\"#result == null\")缓存注解。",
+        "priority": "P0",
+        "acceptance_condition": "getProfile正常返回ProfileResponse，缓存命中直接返回，画像不存在抛404"
+      },
+      {
+        "id": "FR-004",
+        "description": "UserService.createProfile(String userId, ProfileUpdateRequest request)→ProfileResponse：(1) 校验用户存在：userRepository.findByUserId(userId)，不存在抛ResourceNotFoundException(\"User\", userId)；(2) 校验画像不存在：userProfileRepository.existsByUserId(userId)，已存在抛BusinessException(409, \"用户画像已存在\", \"PROFILE_ALREADY_EXISTS\")；(3) 将request转换为UserProfile Entity：userId=userId, educationLevel=request.getEducationLevel(), researchField=request.getResearchField(), knowledgeLevel=request.getKnowledgeLevel(), preferredStyle=request.getPreferredStyle()；(4) 保存：userProfileRepository.save(entity)；(5) 同步Redis画像JSON：使用RedisTemplate将ProfileResponse序列化为JSON写入Redis（key=RedisKeyUtil.userProfileKey(userId), TTL=1h），供Python AI服务消费；(6) @Transactional + @CacheEvict(value=\"userProfile\", key=\"#userId\")。",
+        "priority": "P0",
+        "acceptance_condition": "createProfile正常创建画像返回200，用户不存在抛404，画像已存在抛409，Redis画像JSON同步成功"
+      },
+      {
+        "id": "FR-005",
+        "description": "UserService.updateProfile(String userId, ProfileUpdateRequest request)→ProfileResponse：(1) 查找已有画像：userProfileRepository.findByUserId(userId)，不存在抛ResourceNotFoundException(\"UserProfile\", userId)；(2) 合并字段：entity.setEducationLevel(request.getEducationLevel()), entity.setResearchField(request.getResearchField()), entity.setKnowledgeLevel(request.getKnowledgeLevel()), entity.setPreferredStyle(request.getPreferredStyle())；(3) 保存：userProfileRepository.save(entity)；(4) 双重缓存失效：@CacheEvict(value={\"userProfile\", \"userProfileJson\"}, key=\"#userId\")；(5) 同步Redis画像JSON：使用RedisTemplate将更新后的ProfileResponse序列化为JSON写入Redis（key=RedisKeyUtil.userProfileKey(userId), TTL=1h），覆盖旧值；(6) @Transactional。",
+        "priority": "P0",
+        "acceptance_condition": "updateProfile正常更新画像返回200，画像不存在抛404，双重缓存失效+Redis画像JSON同步成功"
+      },
+      {
+        "id": "FR-006",
+        "description": "UserController新增3个画像端点：(1) @GetMapping(\"/{userId}/profile\") getProfile(@PathVariable String userId)→ApiResponse<ProfileResponse>；(2) @PostMapping(\"/{userId}/profile\") createProfile(@PathVariable String userId, @Valid @RequestBody ProfileUpdateRequest request)→ApiResponse<ProfileResponse>；(3) @PutMapping(\"/{userId}/profile\") updateProfile(@PathVariable String userId, @Valid @RequestBody ProfileUpdateRequest request)→ApiResponse<ProfileResponse>。Controller仅做参数校验+调用Service+返回Response，不含业务逻辑。",
+        "priority": "P0",
+        "acceptance_condition": "3个画像端点正常工作，@Valid校验生效，Controller不含业务逻辑"
+      },
+      {
+        "id": "FR-007",
+        "description": "Entity→DTO转换逻辑：在UserService中实现私有方法convertToProfileResponse(UserProfile entity)→ProfileResponse。转换规则：userId=entity.getUserId(), educationLevel=entity.getEducationLevel().getDbValue(), researchField=entity.getResearchField(), knowledgeLevel=entity.getKnowledgeLevel().getDbValue(), preferredStyle=entity.getPreferredStyle().getDbValue(), updatedAt=entity.getUpdatedAt()。关键：枚举字段调用getDbValue()获取dbValue字符串，而非name()或toString()。",
+        "priority": "P0",
+        "acceptance_condition": "枚举字段输出dbValue字符串（如\"master\"而非\"MASTER\"）"
+      },
+      {
+        "id": "FR-008",
+        "description": "Redis画像JSON同步：在createProfile和updateProfile方法中，保存Entity后，使用RedisTemplate<String, String>将ProfileResponse序列化为JSON字符串写入Redis。Key=RedisKeyUtil.userProfileKey(userId)，Value=ObjectMapper.writeValueAsString(profileResponse)，TTL=1小时（使用redisTemplate.expire()设置）。此JSON供Python AI服务通过Redis直接读取用户画像，避免HTTP调用。",
+        "priority": "P1",
+        "acceptance_condition": "createProfile/updateProfile后Redis中存在user:profile:{userId}的JSON字符串，TTL=1h"
+      },
+      {
+        "id": "FR-009",
+        "description": "数据隔离安全校验：在getProfile/createProfile/updateProfile方法中，验证路径参数userId与当前认证用户ID一致（从SecurityContext获取当前用户userId），不一致抛BusinessException(403, \"无权限访问他人画像\", \"FORBIDDEN_ACCESS\")。此校验在Service层实现，Controller层不处理。",
+        "priority": "P0",
+        "acceptance_condition": "非本人userId访问画像返回403，本人访问正常"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+          { "java": "researchField", "python": "research_field", "json": "research_field" },
+          { "java": "userId", "python": "user_id", "json": "user_id" },
+          { "java": "updatedAt", "python": "updated_at", "json": "updated_at" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/users/{userId}/profile",
+          "method": "GET",
+          "request_format": {},
+          "response_format": {
+            "code": 200,
+            "message": "success",
+            "data": {
+              "user_id": "usr_a1b2c3d4",
+              "education_level": "master",
+              "research_field": "NLP",
+              "knowledge_level": "intermediate",
+              "preferred_style": "balanced",
+              "updated_at": "2026-05-26T10:00:00"
+            }
+          }
+        },
+        {
+          "endpoint": "/api/users/{userId}/profile",
+          "method": "POST",
+          "request_format": {
+            "education_level": "master",
+            "research_field": "NLP",
+            "knowledge_level": "intermediate",
+            "preferred_style": "balanced"
+          },
+          "response_format": {
+            "code": 200,
+            "message": "success",
+            "data": {
+              "user_id": "usr_a1b2c3d4",
+              "education_level": "master",
+              "research_field": "NLP",
+              "knowledge_level": "intermediate",
+              "preferred_style": "balanced",
+              "updated_at": "2026-05-26T10:00:00"
+            }
+          }
+        },
+        {
+          "endpoint": "/api/users/{userId}/profile",
+          "method": "PUT",
+          "request_format": {
+            "education_level": "phd",
+            "research_field": "CV",
+            "knowledge_level": "advanced",
+            "preferred_style": "technical"
+          },
+          "response_format": {
+            "code": 200,
+            "message": "success",
+            "data": {
+              "user_id": "usr_a1b2c3d4",
+              "education_level": "phd",
+              "research_field": "CV",
+              "knowledge_level": "advanced",
+              "preferred_style": "technical",
+              "updated_at": "2026-05-26T10:30:00"
+            }
+          }
+        }
+      ],
+      "data_flow": "前端发送snake_case JSON → ProfileUpdateRequest(@JsonProperty接收) → UserService转换为UserProfile Entity(Java枚举) → JPA存储到MySQL(dbValue字符串) → Entity转ProfileResponse(枚举getDbValue()→snake_case字符串) → @JsonProperty输出snake_case JSON → 前端。同时createProfile/updateProfile后通过RedisTemplate同步画像JSON到Redis(user:profile:{userId})，供Python AI服务直接读取。"
+    },
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          { "priority": 1, "name": "BuiltinLLMProvider", "description": "软件方模型（优先级最高）" },
+          { "priority": 2, "name": "APILLMProvider", "description": "外接API（阿里云百炼等）" },
+          { "priority": 3, "name": "LocalLLMProvider", "description": "本地Qwen2（兜底）" }
+        ],
+        "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "单Agent超时30s跳过，继续后续流程",
+        "multi_agent_failure": "多Agent失败时降级为单Agent模式（仅Retriever+Generator）",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "data_isolation",
+        "requirement": "画像CRUD操作必须验证userId与当前认证用户一致，禁止访问他人画像（Service层校验）"
+      },
+      {
+        "category": "jwt_auth",
+        "requirement": "3个画像端点均需JWT认证（非白名单路径），未携带Token返回401"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "ProfileResponse不包含敏感信息（无passwordHash等），仅返回画像相关字段"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE",
+        "config_key": "kebab-case"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "database": {
+        "table_name": "snake_case, 复数形式",
+        "column_name": "snake_case",
+        "index_name": "idx_/uk_/ft_ + 字段名"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "researchField", "python": "research_field", "json": "research_field" },
+        { "java": "userId", "python": "user_id", "json": "user_id" },
+        { "java": "updatedAt", "python": "updated_at", "json": "updated_at" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "primary_key": "id BIGINT AUTO_INCREMENT",
+      "business_id": "xxx_id VARCHAR(100) UNIQUE NOT NULL",
+      "timestamp_fields": {
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+      },
+      "comment_required": true,
+      "json_fields_only_for_dynamic": true,
+      "fulltext_parser": "ngram",
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"],
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块（如PaperService/SessionService等）", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical" },
+    { "id": "FA-004", "action": "破坏分层调用规范（Controller直接操作UserProfileRepository等）", "reason": "分层架构约束", "severity": "critical" },
+    { "id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high" },
+    { "id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-007", "action": "违反跨系统字段命名约定（枚举字段输出Java枚举名而非dbValue）", "reason": "跨系统一致性约束，Python AI服务依赖dbValue字符串", "severity": "high" },
+    { "id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium" },
+    { "id": "FA-009", "action": "使用SQL拼接（必须参数化查询）", "reason": "SQL注入防护", "severity": "critical" },
+    { "id": "FA-010", "action": "Controller中编写业务逻辑（如Entity→DTO转换、缓存操作等）", "reason": "Controller仅做参数校验+调用Service+返回Response", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "ProfileUpdateRequestTest",
+        "description": "测试ProfileUpdateRequest的@Valid校验：educationLevel为null校验失败、researchField为空字符串校验失败、knowledgeLevel为null校验失败、preferredStyle为null校验失败。使用Validator直接校验DTO",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "UserServiceProfileTest",
+        "description": "测试UserService画像相关方法：(1) getProfile正常返回ProfileResponse；(2) getProfile画像不存在抛ResourceNotFoundException(404)；(3) getProfile缓存命中直接返回（验证repository未被调用）；(4) createProfile正常创建返回ProfileResponse；(5) createProfile画像已存在抛BusinessException(409)；(6) createProfile用户不存在抛ResourceNotFoundException(404)；(7) updateProfile正常更新返回ProfileResponse（验证字段合并正确）；(8) updateProfile画像不存在抛ResourceNotFoundException(404)；(9) updateProfile双重缓存失效（userProfile+userProfileJson）；(10) 非本人userId访问画像抛BusinessException(403)",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "ProfileControllerIntegrationTest",
+        "description": "验证画像端点完整链路：GET /api/users/{userId}/profile正常返回200+ProfileResponse、POST创建画像200、POST画像已存在409、PUT更新画像200、PUT画像不存在404、@Valid校验失败400",
+        "layers_involved": ["java_backend"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，ProfileUpdateRequest/ProfileResponse/UserService/UserController无错误"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=ProfileUpdateRequestTest,UserServiceProfileTest",
+        "expected_result": "所有单元测试通过"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test",
+        "expected_result": "所有测试通过（含已有测试+新增画像测试）"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "GET /api/users/{userId}/profile 返回ApiResponse<ProfileResponse>，字段使用snake_case", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "POST /api/users/{userId}/profile 创建画像成功返回200 + ProfileResponse", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "PUT /api/users/{userId}/profile 更新画像成功返回200 + ProfileResponse", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "ProfileUpdateRequest @Valid校验生效：null educationLevel/blank researchField/null knowledgeLevel/null preferredStyle均返回400", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "ProfileResponse使用@JsonProperty输出snake_case字段，枚举字段输出dbValue字符串（如\"master\"而非\"MASTER\"）", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "getProfile使用@Cacheable(value=\"userProfile\", key=\"#userId\", unless=\"#result == null\")", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "updateProfile使用@CacheEvict(value={\"userProfile\", \"userProfileJson\"}, key=\"#userId\")双重缓存失效", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "createProfile画像已存在返回409 + 错误信息", "verified_by": "automated_test" },
+    { "id": "AC-009", "criterion": "getProfile/updateProfile画像不存在返回404", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "createProfile/updateProfile后Redis中存在user:profile:{userId}的画像JSON，TTL=1h", "verified_by": "automated_test" },
+    { "id": "AC-011", "criterion": "非本人userId访问画像返回403（数据隔离）", "verified_by": "automated_test" },
+    { "id": "AC-012", "criterion": "Controller不含业务逻辑（仅调用Service+返回Response）", "verified_by": "code_review" },
+    { "id": "AC-013", "criterion": "所有单元测试通过", "verified_by": "automated_test" }
+  ]
+}

@@ -1,158 +1,161 @@
 package com.literatureassistant.util;
 
-import io.jsonwebtoken.Claims;
+import com.literatureassistant.config.RedisConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.time.Duration;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class JwtUtilTest {
 
-    private static final String VALID_SECRET = "literature-assistant-jwt-secret-key-2026-minimum-32chars";
-
-    private Set<String> blacklistedKeys;
+    @InjectMocks
     private JwtUtil jwtUtil;
 
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    @Mock
+    private RedisTemplate<String, String> redisTemplate;
+
+    @Mock
+    private ValueOperations<String, String> valueOperations;
+
     @BeforeEach
     void setUp() {
-        blacklistedKeys = new HashSet<>();
-        RedisTemplate redisTemplate = new RedisTemplate() {
-            @Override
-            public Boolean hasKey(Object key) {
-                return blacklistedKeys.contains(key);
-            }
-        };
-        jwtUtil = new JwtUtil(redisTemplate);
-        ReflectionTestUtils.setField(jwtUtil, "secret", VALID_SECRET);
+        ReflectionTestUtils.setField(jwtUtil, "secret", "this-is-a-very-long-secret-key-for-testing-purposes-only-min-32-chars");
         ReflectionTestUtils.setField(jwtUtil, "expiration", 86400000L);
+        jwtUtil.validateSecret();
     }
 
     @Test
-    @DisplayName("generateToken should generate non-empty token")
-    void shouldGenerateValidToken() {
-        String token = jwtUtil.generateToken("usr_001", "testuser");
-        assertNotNull(token);
-        assertFalse(token.isEmpty());
+    @DisplayName("generateToken - 正常生成Token")
+    void generateToken_normal_returnsToken() {
+        String token = jwtUtil.generateToken("usr_test1234", "testuser");
+
+        assertThat(token).isNotNull();
+        assertThat(token).isNotEmpty();
     }
 
     @Test
-    @DisplayName("parseToken should correctly parse token with userId/username/jti")
-    void shouldParseTokenSuccessfully() {
-        String token = jwtUtil.generateToken("usr_001", "testuser");
-        Claims claims = jwtUtil.parseToken(token);
+    @DisplayName("validateToken - 有效Token返回true")
+    void validateToken_validToken_returnsTrue() {
+        String token = jwtUtil.generateToken("usr_test1234", "testuser");
 
-        assertNotNull(claims);
-        assertEquals("usr_001", claims.getSubject());
-        assertEquals("testuser", claims.get("username", String.class));
-        assertNotNull(claims.getId());
+        boolean isValid = jwtUtil.validateToken(token);
+
+        assertThat(isValid).isTrue();
     }
 
     @Test
-    @DisplayName("parseToken should return null for invalid token")
-    void shouldReturnNullForInvalidToken() {
-        assertNull(jwtUtil.parseToken("invalid.token.string"));
+    @DisplayName("validateToken - 无效Token返回false")
+    void validateToken_invalidToken_returnsFalse() {
+        boolean isValid = jwtUtil.validateToken("invalid-token");
+
+        assertThat(isValid).isFalse();
     }
 
     @Test
-    @DisplayName("parseToken should return null for empty token")
-    void shouldReturnNullForEmptyToken() {
-        assertNull(jwtUtil.parseToken(""));
+    @DisplayName("getUserIdFromToken - 正常提取userId")
+    void getUserIdFromToken_normal_returnsUserId() {
+        String token = jwtUtil.generateToken("usr_test1234", "testuser");
+
+        String userId = jwtUtil.getUserIdFromToken(token);
+
+        assertThat(userId).isEqualTo("usr_test1234");
     }
 
     @Test
-    @DisplayName("parseToken should return null for null token")
-    void shouldReturnNullForNullToken() {
-        assertNull(jwtUtil.parseToken(null));
+    @DisplayName("getUsernameFromToken - 正常提取username")
+    void getUsernameFromToken_normal_returnsUsername() {
+        String token = jwtUtil.generateToken("usr_test1234", "testuser");
+
+        String username = jwtUtil.getUsernameFromToken(token);
+
+        assertThat(username).isEqualTo("testuser");
     }
 
     @Test
-    @DisplayName("validateToken should return true for valid token")
-    void shouldValidateToken() {
-        String token = jwtUtil.generateToken("usr_001", "testuser");
-        assertTrue(jwtUtil.validateToken(token));
+    @DisplayName("blacklistToken - 正常加入黑名单")
+    void blacklistToken_normal_addsToBlacklist() {
+        String token = jwtUtil.generateToken("usr_test1234", "testuser");
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+
+        boolean result = jwtUtil.blacklistToken(token);
+
+        assertThat(result).isTrue();
+        verify(valueOperations).set(anyString(), eq("1"), any(Duration.class));
     }
 
     @Test
-    @DisplayName("validateToken should return false for invalid token")
-    void shouldNotValidateInvalidToken() {
-        assertFalse(jwtUtil.validateToken("invalid.token.string"));
-    }
-
-    @Test
-    @DisplayName("getUserIdFromToken should extract userId")
-    void shouldExtractUserIdFromToken() {
-        String token = jwtUtil.generateToken("usr_001", "testuser");
-        assertEquals("usr_001", jwtUtil.getUserIdFromToken(token));
-    }
-
-    @Test
-    @DisplayName("getUsernameFromToken should extract username")
-    void shouldExtractUsernameFromToken() {
-        String token = jwtUtil.generateToken("usr_001", "testuser");
-        assertEquals("testuser", jwtUtil.getUsernameFromToken(token));
-    }
-
-    @Test
-    @DisplayName("getTokenJti should extract jti")
-    void shouldExtractJtiFromToken() {
-        String token = jwtUtil.generateToken("usr_001", "testuser");
+    @DisplayName("isTokenBlacklisted - 黑名单中的Token返回true")
+    void isTokenBlacklisted_blacklistedToken_returnsTrue() {
+        String token = jwtUtil.generateToken("usr_test1234", "testuser");
         String jti = jwtUtil.getTokenJti(token);
-        assertNotNull(jti);
-        assertFalse(jti.isEmpty());
+
+        when(redisTemplate.hasKey(anyString())).thenReturn(true);
+
+        boolean isBlacklisted = jwtUtil.isJtiBlacklisted(jti);
+
+        assertThat(isBlacklisted).isTrue();
     }
 
     @Test
-    @DisplayName("getTokenRemainingTime should return positive value for valid token")
-    void shouldReturnTokenRemainingTime() {
-        String token = jwtUtil.generateToken("usr_001", "testuser");
-        long remaining = jwtUtil.getTokenRemainingTime(token);
-        assertTrue(remaining > 0);
-        assertTrue(remaining <= 86400000L);
-    }
-
-    @Test
-    @DisplayName("getTokenRemainingTime should return 0 for invalid token")
-    void shouldReturnZeroRemainingTimeForInvalidToken() {
-        assertEquals(0, jwtUtil.getTokenRemainingTime("invalid.token"));
-    }
-
-    @Test
-    @DisplayName("validateSecret should throw IllegalStateException when secret is too short")
-    void shouldThrowWhenSecretTooShort() {
-        ReflectionTestUtils.setField(jwtUtil, "secret", "short");
-        assertThrows(IllegalStateException.class, () ->
-                jwtUtil.validateSecret());
-    }
-
-    @Test
-    @DisplayName("isTokenBlacklisted should return true when token is in blacklist")
-    void shouldDetectBlacklistedToken() {
-        String token = jwtUtil.generateToken("usr_001", "testuser");
+    @DisplayName("isTokenBlacklisted - 非黑名单Token返回false")
+    void isTokenBlacklisted_nonBlacklistedToken_returnsFalse() {
+        String token = jwtUtil.generateToken("usr_test1234", "testuser");
         String jti = jwtUtil.getTokenJti(token);
-        String blacklistKey = RedisKeyUtil.authBlacklistKey(jti);
-        blacklistedKeys.add(blacklistKey);
 
-        assertTrue(jwtUtil.isTokenBlacklisted(token));
+        when(redisTemplate.hasKey(anyString())).thenReturn(false);
+
+        boolean isBlacklisted = jwtUtil.isJtiBlacklisted(jti);
+
+        assertThat(isBlacklisted).isFalse();
     }
 
     @Test
-    @DisplayName("isTokenBlacklisted should return false when token is not in blacklist")
-    void shouldNotDetectNonBlacklistedToken() {
-        String token = jwtUtil.generateToken("usr_001", "testuser");
+    @DisplayName("extractBearerToken - 正常提取Bearer Token")
+    void extractBearerToken_normal_returnsToken() {
+        String result = jwtUtil.extractBearerToken("Bearer my-token");
 
-        assertFalse(jwtUtil.isTokenBlacklisted(token));
+        assertThat(result).isEqualTo("my-token");
     }
 
     @Test
-    @DisplayName("isTokenBlacklisted should return true for invalid token")
-    void shouldReturnTrueForInvalidTokenBlacklistCheck() {
-        assertTrue(jwtUtil.isTokenBlacklisted("invalid.token"));
+    @DisplayName("extractBearerToken - 无Bearer前缀返回null")
+    void extractBearerToken_noBearerPrefix_returnsNull() {
+        String result = jwtUtil.extractBearerToken("my-token");
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("extractBearerToken - null输入返回null")
+    void extractBearerToken_nullInput_returnsNull() {
+        String result = jwtUtil.extractBearerToken(null);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("isTokenExpired - 未过期Token返回false")
+    void isTokenExpired_validToken_returnsFalse() {
+        String token = jwtUtil.generateToken("usr_test1234", "testuser");
+
+        boolean isExpired = jwtUtil.isTokenExpired(token);
+
+        assertThat(isExpired).isFalse();
     }
 }

@@ -1,0 +1,169 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M3：前后端联调 / JM2：基础API可用",
+    "requirement": "创建UserController（注册/登录/查询用户/退出登录4个API端点）+ RegisterRequest/LoginRequest/UserResponse/LoginResponse DTO。Controller仅做请求接收和Service调用，不含业务逻辑。RegisterRequest含@Valid校验（username 3-50字符、@Email邮箱、password 8-100字符）。LoginResponse含JWT Token + userId + hasProfile标记。UserResponse含userId/username/email/createdAt/hasProfile。所有DTO字段使用@JsonProperty确保跨系统snake_case一致性。",
+    "requirement_ids": ["F2.1.1", "F2.1.2", "F2.1.3"],
+    "reference_docs": [
+      {"path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "§4.2.1 UserController接口设计、§4.2.4 请求/响应DTO定义、§4.4 API接口清单"},
+      {"path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "§4.3 详细任务分解（Week 5 Day 1 上午: UserController + RegisterRequest/LoginRequest）"},
+      {"path": "AGENTS.md", "purpose": "§8.1 Java后端API契约、§8.3 统一响应格式、§9.2 Java后端规范"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {"layer": "java_backend", "module_path": "com.literatureassistant.controller", "description": "API控制器层，新增UserController"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.dto.request", "description": "请求DTO层，新增RegisterRequest/LoginRequest"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.dto.response", "description": "响应DTO层，新增UserResponse/LoginResponse"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/HealthController.java", "description": "已有Controller示例，展示ApiResponse使用方式和构造器注入模式", "reuse_type": "reference"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/ApiResponse.java", "description": "统一响应包装类，ApiResponse.success()/error()静态方法", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/ErrorCode.java", "description": "错误码枚举，含UNAUTHORIZED(401)等", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/entity/User.java", "description": "User JPA实体，含userId/username/email/passwordHash/createdAt字段", "reuse_type": "reference"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/entity/UserProfile.java", "description": "UserProfile JPA实体，含educationLevel/researchField/knowledgeLevel/preferredStyle字段", "reuse_type": "reference"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/GlobalExceptionHandler.java", "description": "全局异常处理器，已处理MethodArgumentNotValidException", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/SecurityConfig.java", "description": "SecurityConfig已配置白名单路径（/api/users/register, /api/users/login）", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "UserController",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/UserController.java",
+      "responsibility": "用户管理API控制器，提供注册/登录/查询/退出4个端点",
+      "key_interfaces": [
+        {"name": "register", "signature": "public ApiResponse<UserResponse> register(@Valid @RequestBody RegisterRequest request)", "description": "用户注册，委托UserService处理"},
+        {"name": "login", "signature": "public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request)", "description": "用户登录，委托UserService处理"},
+        {"name": "getUserInfo", "signature": "public ApiResponse<UserResponse> getUserInfo(@PathVariable String userId)", "description": "查询用户信息，委托UserService处理"},
+        {"name": "logout", "signature": "public ApiResponse<Void> logout(@RequestHeader(\"Authorization\") String token)", "description": "退出登录，委托UserService处理"}
+      ]
+    },
+    {
+      "name": "RegisterRequest",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/RegisterRequest.java",
+      "responsibility": "用户注册请求DTO，含@Valid校验注解",
+      "key_interfaces": [
+        {"name": "getUsername", "signature": "String getUsername()", "description": "用户名，@NotBlank @Size(min=3, max=50)"},
+        {"name": "getEmail", "signature": "String getEmail()", "description": "邮箱，@NotBlank @Email"},
+        {"name": "getPassword", "signature": "String getPassword()", "description": "密码，@NotBlank @Size(min=8, max=100)"}
+      ]
+    },
+    {
+      "name": "LoginRequest",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/LoginRequest.java",
+      "responsibility": "用户登录请求DTO",
+      "key_interfaces": [
+        {"name": "getUsername", "signature": "String getUsername()", "description": "用户名，@NotBlank"},
+        {"name": "getPassword", "signature": "String getPassword()", "description": "密码，@NotBlank"}
+      ]
+    },
+    {
+      "name": "UserResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/UserResponse.java",
+      "responsibility": "用户信息响应DTO，不含passwordHash",
+      "key_interfaces": [
+        {"name": "getUserId", "signature": "String getUserId()", "description": "用户ID"},
+        {"name": "getUsername", "signature": "String getUsername()", "description": "用户名"},
+        {"name": "getEmail", "signature": "String getEmail()", "description": "邮箱"},
+        {"name": "getCreatedAt", "signature": "LocalDateTime getCreatedAt()", "description": "创建时间"},
+        {"name": "isHasProfile", "signature": "boolean isHasProfile()", "description": "是否已设置画像"}
+      ]
+    },
+    {
+      "name": "LoginResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/LoginResponse.java",
+      "responsibility": "登录响应DTO，含JWT Token和用户基本信息",
+      "key_interfaces": [
+        {"name": "getToken", "signature": "String getToken()", "description": "JWT Token"},
+        {"name": "getUserId", "signature": "String getUserId()", "description": "用户ID，@JsonProperty(\"user_id\")"},
+        {"name": "getUsername", "signature": "String getUsername()", "description": "用户名"},
+        {"name": "isHasProfile", "signature": "boolean isHasProfile()", "description": "是否已设置画像，@JsonProperty(\"has_profile\")"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/UserController.java", "description": "用户API控制器：4个端点（register/login/getUserInfo/logout），构造器注入UserService", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/RegisterRequest.java", "description": "注册请求DTO：@NotBlank username(@Size 3-50) + @Email email + @NotBlank password(@Size 8-100)", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/LoginRequest.java", "description": "登录请求DTO：@NotBlank username + @NotBlank password", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/UserResponse.java", "description": "用户响应DTO：userId/username/email/createdAt/hasProfile，不含passwordHash", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/LoginResponse.java", "description": "登录响应DTO：token/userId(@JsonProperty user_id)/username/hasProfile(@JsonProperty has_profile)", "layer": "java_backend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "UserController：@RestController @RequestMapping(\"/api/users\") @Slf4j。构造器注入UserService。4个端点：(1) @PostMapping(\"/register\") register(@Valid @RequestBody RegisterRequest) → ApiResponse<UserResponse>，委托userService.register(request)；(2) @PostMapping(\"/login\") login(@Valid @RequestBody LoginRequest) → ApiResponse<LoginResponse>，委托userService.login(request)；(3) @GetMapping(\"/{userId}\") getUserInfo(@PathVariable String userId) → ApiResponse<UserResponse>，委托userService.getUserInfo(userId)；(4) @PostMapping(\"/logout\") logout(@RequestHeader(\"Authorization\") String token) → ApiResponse<Void>，提取Bearer Token后委托userService.logout(token)。Controller不包含任何业务逻辑（BCrypt/JWT/查询等均在Service层）。", "priority": "P0", "acceptance_condition": "4个API端点编译通过，Controller不含业务逻辑，仅调用UserService方法"},
+      {"id": "FR-002", "description": "RegisterRequest：@Data @NoArgsConstructor @AllArgsConstructor @Builder。字段：(1) @NotBlank(message=\"用户名不能为空\") @Size(min=3, max=50, message=\"用户名长度3-50\") private String username；(2) @NotBlank(message=\"邮箱不能为空\") @Email(message=\"邮箱格式不正确\") private String email；(3) @NotBlank(message=\"密码不能为空\") @Size(min=8, max=100, message=\"密码长度8-100\") private String password。", "priority": "P0", "acceptance_condition": "@Valid校验生效，空用户名/非法邮箱/短密码返回400错误"},
+      {"id": "FR-003", "description": "LoginRequest：@Data @NoArgsConstructor @AllArgsConstructor @Builder。字段：(1) @NotBlank(message=\"用户名不能为空\") private String username；(2) @NotBlank(message=\"密码不能为空\") private String password。", "priority": "P0", "acceptance_condition": "@Valid校验生效，空用户名/空密码返回400错误"},
+      {"id": "FR-004", "description": "UserResponse：@Data @NoArgsConstructor @AllArgsConstructor @Builder。字段：private String userId、private String username、private String email、private LocalDateTime createdAt、@JsonProperty(\"has_profile\") private boolean hasProfile。注意：不含passwordHash字段，确保密码哈希不泄露给前端。", "priority": "P0", "acceptance_condition": "UserResponse不包含passwordHash字段，JSON输出使用snake_case(has_profile)"},
+      {"id": "FR-005", "description": "LoginResponse：@Data @NoArgsConstructor @AllArgsConstructor @Builder。字段：private String token（JWT Token）、@JsonProperty(\"user_id\") private String userId、private String username、@JsonProperty(\"has_profile\") private boolean hasProfile。token字段不需要@JsonProperty注解（JSON中直接为token）。", "priority": "P0", "acceptance_condition": "LoginResponse包含JWT Token，userId和hasProfile使用@JsonProperty确保snake_case输出"},
+      {"id": "FR-006", "description": "UserController的logout方法需从Authorization Header中提取Bearer Token：String rawToken = token.replace(\"Bearer \", \"\"); 然后传递给userService.logout(rawToken)。", "priority": "P0", "acceptance_condition": "logout正确提取Bearer Token并传递给Service"}
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          {"java": "userId", "python": "user_id", "json": "user_id"},
+          {"java": "hasProfile", "python": "has_profile", "json": "has_profile"},
+          {"java": "createdAt", "python": "created_at", "json": "created_at"}
+        ]
+      },
+      "api_contracts": [
+        {"endpoint": "/api/users/register", "method": "POST", "request_format": {"username": "string", "email": "string", "password": "string"}, "response_format": {"code": 200, "data": {"userId": "string", "username": "string", "email": "string", "createdAt": "datetime", "has_profile": "boolean"}}},
+        {"endpoint": "/api/users/login", "method": "POST", "request_format": {"username": "string", "password": "string"}, "response_format": {"code": 200, "data": {"token": "string", "user_id": "string", "username": "string", "has_profile": "boolean"}}}
+      ],
+      "data_flow": "前端发送camelCase JSON → Controller接收RequestDTO → Service处理 → 返回ResponseDTO（@JsonProperty确保snake_case输出）→ 前端接收snake_case JSON"
+    },
+    "degradation_requirements": {
+      "llm_degradation": {"providers": [{"priority": 1, "name": "BuiltinLLMProvider", "description": "软件方模型"}, {"priority": 2, "name": "APILLMProvider", "description": "外接API"}, {"priority": 3, "name": "LocalLLMProvider", "description": "本地Qwen2"}], "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"], "recovery_strategy": "每5分钟尝试恢复到更高级别Provider"},
+      "agent_degradation": {"single_agent_failure": "跳过该Agent，继续后续流程", "multi_agent_failure": "降级为单Agent模式（仅Retriever+Generator）", "review_retry_limit": 1}
+    },
+    "security_requirements": [
+      {"category": "sensitive_info", "requirement": "UserResponse和LoginResponse中不得包含passwordHash字段"},
+      {"category": "jwt_auth", "requirement": "register和login为白名单路径，无需Token；getUserInfo和logout需要Token"},
+      {"category": "other", "requirement": "RegisterRequest的password字段不得出现在日志中"}
+    ]
+  },
+  "constraints": {
+    "naming": {"java": {"class_name": "PascalCase", "method_variable": "camelCase", "constant": "UPPER_SNAKE_CASE", "file_name": "PascalCase.java", "enum_value": "UPPER_SNAKE_CASE", "config_key": "kebab-case"}, "json": {"field_name": "snake_case"}, "cross_system_mapping": [{"java": "userId", "python": "user_id", "json": "user_id"}, {"java": "hasProfile", "python": "has_profile", "json": "has_profile"}, {"java": "createdAt", "python": "created_at", "json": "created_at"}]},
+    "layering": {"java": {"rule": "Controller → Service → Repository → Client，禁止跨层", "entity_dto_separation": true, "dto_naming": "XxxRequest, XxxResponse"}},
+    "error_handling": {"java": {"approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)", "business_exception_fields": ["code", "message", "errorKey"]}},
+    "caching": {"pattern": "Cache-Aside：写MySQL后删Redis缓存", "ttl_layers": [{"cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h"}, {"cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h"}], "penetration_protection": "查询结果为空时缓存空值（TTL=60s）", "avalanche_protection": "TTL添加随机偏移（±10%）", "max_value_size": "单个缓存值不超过1MB"},
+    "logging": {"java": "SLF4J + Logback", "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息（密码、Token、API Key）"]},
+    "security": {"password_storage": "BCrypt哈希，盐值随机，强度10", "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单", "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"], "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接", "data_isolation": "WHERE user_id = currentUserId", "public_endpoints": ["/api/users/register", "/api/users/login"]}
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "在Controller中编写业务逻辑（BCrypt加密/JWT生成/数据库查询等）", "reason": "Controller仅做请求转发，业务逻辑在Service层", "severity": "critical"},
+    {"id": "FA-004", "action": "UserResponse包含passwordHash字段", "reason": "密码哈希不得泄露给前端", "severity": "critical"},
+    {"id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high"},
+    {"id": "FA-006", "action": "硬编码敏感配置", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-007", "action": "违反跨系统字段命名约定（userId↔user_id等）", "reason": "跨系统一致性约束", "severity": "high"},
+    {"id": "FA-008", "action": "在日志中输出password明文", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-009", "action": "使用SQL拼接", "reason": "SQL注入防护", "severity": "critical"},
+    {"id": "FA-010", "action": "忽略降级场景", "reason": "可用性约束ADR-003", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "UserControllerTest", "description": "测试4个API端点：register(正常/参数校验失败)、login(正常/参数校验失败)、getUserInfo(正常/用户不存在)、logout(正常)", "framework": "junit5", "coverage": ["normal_flow", "error_flow", "boundary_condition"]},
+      {"test_name": "RegisterRequestTest", "description": "测试@Valid校验：空用户名、短用户名、非法邮箱、短密码、正常请求", "framework": "junit5", "coverage": ["normal_flow", "error_flow", "boundary_condition"]},
+      {"test_name": "LoginRequestTest", "description": "测试@Valid校验：空用户名、空密码、正常请求", "framework": "junit5", "coverage": ["normal_flow", "error_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "java", "command": "cd Veritas/backend && mvn compile", "expected_result": "编译成功，UserController + 4个DTO无错误"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=UserControllerTest,RegisterRequestTest,LoginRequestTest", "expected_result": "所有单元测试通过"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "UserController包含4个API端点（register/login/getUserInfo/logout），编译通过", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "RegisterRequest @Valid校验生效：空用户名返回400、非法邮箱返回400、短密码返回400", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "LoginRequest @Valid校验生效：空用户名返回400、空密码返回400", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "UserResponse不包含passwordHash字段", "verified_by": "code_review"},
+    {"id": "AC-005", "criterion": "LoginResponse包含token字段，userId使用@JsonProperty(\"user_id\")，hasProfile使用@JsonProperty(\"has_profile\")", "verified_by": "code_review"},
+    {"id": "AC-006", "criterion": "Controller不包含业务逻辑，仅调用UserService方法", "verified_by": "code_review"},
+    {"id": "AC-007", "criterion": "logout方法正确从Authorization Header提取Bearer Token", "verified_by": "automated_test"},
+    {"id": "AC-008", "criterion": "所有DTO使用Lombok @Data @NoArgsConstructor @AllArgsConstructor @Builder", "verified_by": "code_review"},
+    {"id": "AC-009", "criterion": "单元测试全部通过", "verified_by": "automated_test"}
+  ]
+}

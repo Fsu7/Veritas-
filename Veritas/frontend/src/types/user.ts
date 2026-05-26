@@ -32,3 +32,13 @@ export interface ProfileResponse {
   knowledgeLevel: UserProfile['knowledgeLevel']
   preferredStyle: UserProfile['preferredStyle']
 }
+
+/**
+ * 用户详情信息
+ * JSON字段映射: createdAt ↔ created_at
+ */
+export interface UserInfo {
+  username: string
+  email: string
+  createdAt: string
+}

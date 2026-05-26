@@ -141,6 +141,12 @@ json_prompt/
     │   └── task09_prompt_template_dockerfile/
     │       ├── prompt.json
     │       └── prompt.md
+    ├── task10_paper_vectorization_import/
+    │   ├── prompt.json
+    │   └── prompt.md
+    └── task11_paper_data_validation/
+        ├── prompt.json
+        └── prompt.md
 ```
 
 ## 分类规则
@@ -168,6 +174,10 @@ json_prompt/
 | 08 | task08_entity_enum | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend, data_layer | F2.1-F2.4, F4.1 |
 | 09 | task09_repository | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend, data_layer | F2.1-F2.4, F4.1 |
 | 10 | task10_config_classes | v0.1 | M1 / JM1：项目骨架与数据层就绪 | java_backend, data_layer | F2.1, F2.5, F2.6 |
+| 11 | task11_user_controller_dto | v0.2 | M3 / JM2：基础API可用 | java_backend | F2.1.1, F2.1.2, F2.1.3 |
+| 12 | task12_user_service | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.1.1, F2.1.2, F2.1.3, F2.1.4 |
+| 13 | task13_jwt_filter_util | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.1.2, F2.1.3 |
+| 14 | task14_profile_crud_dto | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.1.5 |
 
 ### ai-service/
 
@@ -183,6 +193,8 @@ json_prompt/
 | 07 | task07_api_llm_provider | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.3, F3.3.1, F3.3.2, F3.3.5, F3.3.6 |
 | 08 | task08_local_llm_provider_degradation | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.3, F3.3.1-F3.3.3, F3.3.5, F3.3.7 |
 | 09 | task09_prompt_template_dockerfile | v0.1 | M1 / AM1：项目骨架与模型层就绪 | python_ai_service | F3.3.4, F3.5, F3.5.3, F3.1.1-F3.1.6 |
+| 10 | task10_paper_vectorization_import | v0.2 | M2 / AM2：RAG检索与3-Agent基础可用 | python_ai_service, data_layer | F4.4, F4.4.1-F4.4.4, F3.2.1, F3.2.2, F4.3.1, F4.3.4 |
+| 11 | task11_paper_data_validation | v0.2 | M2 / AM2：RAG检索与3-Agent基础可用 | python_ai_service, data_layer | F4.4, F4.4.1, F4.4.4, F3.2.1-F3.2.3, F4.3.1, F4.3.2, F4.3.4 |
 
 ### frontend/
 
@@ -198,6 +210,10 @@ json_prompt/
 | 07 | task07_global_styles_css_variables | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1-F1.5 |
 | 08 | task08_app_header_footer_layout | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.1 |
 | 09 | task09_home_view_integration_test | v0.1 | M1 / FM1：项目骨架与基础设施就绪 | frontend | F1.2.1, F1.2.6 |
+| 10 | task10_login_view | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.1.1 |
+| 11 | task11_register_view | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.1.1 |
+| 12 | task12_user_profile_form | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.1.2, F1.1.3 |
+| 13 | task13_user_center_view_store | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.1.3, F1.1.4 |
 
 > **维护说明**：每新增一个任务文件夹，必须同步更新对应模块目录的映射表。序号与里程碑对应关系参考 `docs/项目里程碑文档.md` 和 `docs/版本里程碑功能清单.md`。
 

@@ -57,7 +57,7 @@ graph TB
 |------|--------|------|
 | 前端层 | Vue3 + TypeScript + Vite + Element Plus + ECharts + Pinia | 用户交互、可视化、状态管理 |
 | 业务层 | Java Spring Boot 3.2+ + Spring Data JPA + Spring Data Redis | 用户认证、论文管理、会话管理、缓存、AI服务代理 |
-| AI服务层 | Python FastAPI + LangGraph + ChromaDB + bge-large-zh-v1.5 | 多Agent编排、RAG检索、LLM调用、个性化生成 |
+| AI服务层 | Python FastAPI + LangGraph + ChromaDB + BAAI/bge-m3 | 多Agent编排、RAG检索、LLM调用、个性化生成 |
 
 ### 2.2 数据存储架构
 
@@ -82,13 +82,13 @@ graph LR
     subgraph Chroma[ChromaDB 0.5+]
         V1[papers collection<br/>1024维向量<br/>cosine相似度]
     end
-    subgraph Neo4j[Neo4j 5.x]
+    subgraph Neo4j[Neo4j 5.x 计划M4+]
         G1[Paper/Method/Concept/Author节点<br/>USES/IMPROVES/CITES等关系]
     end
     MySQL8 ---|paper_id关联| Chroma
     MySQL8 ---|Cache-Aside| Redis7
     AI服务层 -->|向量检索| Chroma
-    AI服务层 -->|图谱推理| Neo4j
+    AI服务层 -.->|图谱推理 计划M4+| Neo4j
 ```
 
 ---
@@ -184,20 +184,20 @@ STYLE_MAP = {
 
 | 层级 | 技术 | 版本 |
 |------|------|------|
-| 前端 | Vue3 + Composition API + `<script setup>` | 3.4+ |
+| 前端 | Vue3 + Composition API + `<script setup>` | 3.5+ |
 | 前端 | TypeScript | 5.0+ |
-| 前端 | Vite | 5.0+ |
-| 前端 | Element Plus | 2.5+ |
-| 前端 | ECharts | 5.4+ |
-| 前端 | Pinia | 2.1+ |
-| 前端 | Axios | 1.6+ |
+| 前端 | Vite | 6.0+ |
+| 前端 | Element Plus | 2.14+ |
+| 前端 | ECharts | 5.6+ |
+| 前端 | Pinia | 2.3+ |
+| 前端 | Axios | 1.7+ |
 | 后端 | Java | 17 |
 | 后端 | Spring Boot | 3.2+ |
 | 后端 | Spring Data JPA | — |
 | 后端 | Spring Data Redis | — |
 | 后端 | HikariCP | max=20 |
 | AI服务 | Python | 3.10+ |
-| AI服务 | FastAPI | 0.110+ |
+| AI服务 | FastAPI | 0.115+ |
 | AI服务 | LangGraph | — |
 | AI服务 | chromadb | 0.5+ |
 | AI服务 | pydantic-settings | — |
@@ -205,7 +205,7 @@ STYLE_MAP = {
 | 数据库 | Redis | 7.0 |
 | 向量库 | ChromaDB | 0.5+ |
 | 图数据库 | Neo4j | 5.x Community |
-| Embedding | bge-large-zh-v1.5 | 1024维 |
+| Embedding | BAAI/bge-m3 / text-embedding-v4（阿里云百炼） | 1024维 |
 | 部署 | Docker Compose | — |
 
 ### 5.2 本机环境
@@ -214,7 +214,6 @@ STYLE_MAP = {
 |------|------|----------|
 | 本机MySQL 9 | localhost:3306 | root / Aa2105268075. |
 | Docker MySQL 8 | Docker内 | root / root123 |
-| Docker MinIO | Docker内 | admin / A2105268075 |
 | Docker Redis | localhost:6379 | 无密码（内网） |
 
 ### 5.3 关键环境变量
@@ -232,7 +231,7 @@ LLM_API_KEY=
 LLM_API_BASE=
 LLM_MODEL_NAME=
 CHROMA_PATH=./data/vector_db
-EMBEDDING_MODEL_NAME=BAAI/bge-large-zh-v1.5
+EMBEDDING_MODEL_NAME=BAAI/bge-m3
 ```
 
 ---
@@ -260,7 +259,6 @@ Veritas(求真)/
 │   │   │   │   └── RequestIdFilter.java     # 请求ID过滤器（MDC注入）
 │   │   │   ├── exception/                   # 异常定义
 │   │   │   ├── enums/                       # 枚举定义
-│   │   │   ├── aspect/                      # 切面
 │   │   │   └── util/                        # 工具类
 │   │   └── src/main/resources/application.yml
 │   │   └── src/main/resources/application-prod.yml
@@ -276,7 +274,8 @@ Veritas(求真)/
 │   │   │   │   └── graph.py                 # LangGraph工作流
 │   │   │   ├── services/                    # 服务层
 │   │   │   │   ├── llm_service.py / embedding_service.py
-│   │   │   │   ├── vector_store_service.py / personalization_service.py
+│   │   │   │   ├── vector_store_service.py / prompt_manager.py
+│   │   │   │   └── personalization_service.py  # 计划中
 │   │   │   └── models/schemas.py            # Pydantic数据模型
 │   │   ├── prompts/                         # Prompt模板
 │   │   └── requirements.txt
@@ -340,17 +339,18 @@ Veritas(求真)/
 ### 7.3 ChromaDB
 
 - Collection: `papers`
-- 向量维度: 1024 (bge-large-zh-v1.5)
+- 向量维度: 1024 (BAAI/bge-m3 / text-embedding-v4)
 - 相似度: cosine
 - HNSW参数: M=16, construction_ef=200
 - 元数据: paper_id, title, year, venue, citation_count, chunk_index, chunk_type
 - 分块: 500-1000字/块，重叠50-100字
 
-### 7.4 Neo4j知识图谱
+### 7.4 Neo4j知识图谱（计划 M4+）
 
 - 节点: Paper / Method / Concept / Author
 - 关系: USES / IMPROVES / RELATED_TO / AUTHORED_BY / CITES / BELONGS_TO
 - 端口: 7687(Bolt) / 7474(HTTP)
+- **状态**: 当前 docker-compose 未包含，计划在 M4 阶段集成
 
 ---
 
@@ -487,7 +487,7 @@ data: {"agent_name": "retriever", "status": "running", "progress": 0.6, "interme
 
 ```mermaid
 graph TD
-    Q[用户查询] --> EMB[bge-large-zh-v1.5<br/>1024维向量]
+    Q[用户查询] --> EMB[BAAI/bge-m3<br/>1024维向量]
     EMB -->|语义检索| CHROMA[ChromaDB<br/>Top20]
     Q -->|关键词检索| MYSQL[MySQL FULLTEXT<br/>ngram parser<br/>Top20]
     CHROMA --> RRF[RRF融合<br/>k=60]
@@ -506,14 +506,14 @@ graph TD
 | ADR-001 | 三层分离架构 | Vue3 + Spring Boot + FastAPI，关注点分离 |
 | ADR-002 | 多智能体协同编排 | LangGraph StateGraph编排6个Agent |
 | ADR-003 | LLM三级降级 | 软件方模型→外接API→本地Qwen2 |
-| ADR-004 | 三数据库存储 | MySQL(结构化) + Redis(缓存) + ChromaDB(向量) |
+| ADR-004 | 四数据库存储 | MySQL(结构化) + Redis(缓存) + ChromaDB(向量) + Neo4j(知识图谱，计划M4+)|
 | ADR-005 | 混合RAG检索 | 语义+关键词双路检索 + RRF融合 |
 | ADR-006 | 个性化引擎 | 用户画像→Prompt个性化片段注入 |
 | ADR-007 | Cache-Aside缓存 | 写后删 + TTL分层(5min~2h) |
 | ADR-008 | JWT认证 | JWT + Redis黑名单，BCrypt密码 |
 | ADR-009 | SSE实时推送 | Python→Java→前端，Agent状态实时可视化 |
 | ADR-010 | Docker Compose部署 | 5服务编排，healthcheck启动顺序 |
-| ADR-011 | 知识图谱增强RAG | Neo4j补充向量检索的关系推理能力 |
+| ADR-011 | 知识图谱增强RAG | Neo4j补充向量检索的关系推理能力（计划M4+集成） |
 
 ---
 
@@ -604,7 +604,7 @@ F5  模型模块
 | 优先级 | 技术栈 |
 |--------|--------|
 | **P0** | Python+FastAPI, SQL+MySQL, Docker, Prompt Engineering, RAG+LangChain, Embedding+ChromaDB, **LangGraph（核心中的核心）** |
-| **P1** | Java+Spring Boot, Vue3+Element Plus, JPA+Redis, Qwen2部署, bge-large-zh |
+| **P1** | Java+Spring Boot, Vue3+Element Plus, JPA+Redis, Qwen2部署, BAAI/bge-m3 |
 
 **关键提醒**: LangGraph是核心中的核心；先跑通最小闭环（检索→分析→生成）。
 
@@ -649,3 +649,8 @@ F5  模型模块
 | 开发规范文档 | docs/开发规范文档.md |
 | 架构决策记录 | docs/架构决策记录(ADR).md |
 | 项目里程碑文档 | docs/项目里程碑文档.md |
+| 版本里程碑功能清单 | docs/版本里程碑功能清单.md |
+| 项目模块功能与联系文档 | docs/项目模块功能与联系文档.md |
+| Java后端里程碑文档 | docs/backend/Java后端模块项目里程碑文档.md |
+| AI服务里程碑文档 | docs/ai-service/AI服务模块项目里程碑文档.md |
+| 前端里程碑文档 | docs/frontend/前端模块项目里程碑文档.md |

@@ -3,7 +3,8 @@ import { ref } from 'vue'
 import { sessionApi } from '@/api/session'
 import { analysisApi } from '@/api/analysis'
 import type { AnalysisResult } from '@/types/analysis'
-import type { SessionResponse } from '@/types/session'
+import type { SessionResponse, SessionDetail } from '@/types/session'
+import type { PageResponse } from '@/types/common'
 
 export const useSessionStore = defineStore('session', () => {
   const currentSessionId = ref<string | null>(null)
@@ -22,8 +23,12 @@ export const useSessionStore = defineStore('session', () => {
     return res
   }
 
+  async function fetchSessions(params: { page: number; size: number }): Promise<PageResponse<SessionDetail>> {
+    return await sessionApi.list(params)
+  }
+
   return {
     currentSessionId, currentAnalysisId, analysisResults,
-    createSession, fetchAnalysisResult
+    createSession, fetchAnalysisResult, fetchSessions
   }
 })

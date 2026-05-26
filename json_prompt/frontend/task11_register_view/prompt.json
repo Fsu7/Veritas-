@@ -1,0 +1,208 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "FM2: 用户+检索页面",
+    "requirement": "实现注册页面RegisterView.vue，包含用户名/邮箱/密码/确认密码表单、Element Plus表单校验、注册逻辑（调用userApi.register）、注册成功跳转登录页、注册失败提示、按钮loading状态、导航到登录页链接",
+    "requirement_ids": ["F1.1.1"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "RegisterView页面设计规范（4.2.2节）、表单校验规则、UI线框图" },
+      { "path": "AGENTS.md", "purpose": "API契约（/api/users/register）、JWT认证规范" },
+      { "path": "docs/开发规范文档.md", "purpose": "前端编码规范、命名规范" },
+      { "path": "docs/架构决策记录(ADR).md", "purpose": "ADR-008 JWT认证" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/", "description": "页面组件目录，RegisterView.vue当前为占位骨架" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/user.ts", "description": "用户API封装，已实现userApi.register" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/user.ts", "description": "用户类型定义" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/router/index.ts", "description": "路由配置，已定义/register路由+全局认证守卫" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/api/user.ts", "description": "userApi.register({ username, email, password })，POST /api/users/register，返回ApiResponse（未声明具体返回类型）", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/api/index.ts", "description": "Axios响应拦截器：成功→自动解包ApiResponse.data；失败→ElMessage.error统一处理", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/router/index.ts", "description": "/register路由已配置（requiresAuth:false）；全局守卫：已登录用户访问/register→跳转Home", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/views/RegisterView.vue", "description": "当前为占位骨架（<h2>注册页</h2><p>页面开发中...</p>），需替换为完整实现", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/views/LoginView.vue", "description": "登录页实现（task10同步开发），注册页布局风格应与登录页保持一致", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "userApi",
+      "path": "Veritas/frontend/src/api/user.ts",
+      "responsibility": "用户相关HTTP API封装",
+      "key_interfaces": [
+        { "name": "register", "signature": "register(data: { username: string; email: string; password: string }): Promise<unknown>", "description": "POST /api/users/register，注册新用户" }
+      ]
+    },
+    {
+      "name": "Axios拦截器",
+      "path": "Veritas/frontend/src/api/index.ts",
+      "responsibility": "统一HTTP请求/响应处理",
+      "key_interfaces": [
+        { "name": "响应拦截器", "signature": "response interceptor", "description": "成功→解包ApiResponse.data；401→logout+跳转；业务错误→ElMessage.error" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/frontend/src/views/RegisterView.vue", "description": "替换占位骨架为完整注册页面实现：4字段表单+校验+注册逻辑+loading+错误处理+样式", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "注册表单：使用el-form实现4个字段——用户名(el-input)、邮箱(el-input type=email)、密码(el-input show-password)、确认密码(el-input show-password)，表单ref绑定registerFormRef，数据绑定registerForm reactive对象{username:'', email:'', password:'', confirmPassword:''}",
+        "priority": "P0",
+        "acceptance_condition": "el-form包含4个el-form-item，ref和数据绑定正确，密码框有show-password属性"
+      },
+      {
+        "id": "FR-002",
+        "description": "表单校验规则：用户名3-50字符(required+min:3+max:50)、邮箱格式(required+type:email)、密码8-100字符(required+min:8+max:100)、确认密码(required+与密码一致的自定义validator)，trigger:'blur'",
+        "priority": "P0",
+        "acceptance_condition": "所有校验规则生效，确认密码与密码不一致时显示提示，邮箱格式不正确时显示提示"
+      },
+      {
+        "id": "FR-003",
+        "description": "确认密码自定义校验器：const validateConfirmPassword = (rule, value, callback) => { if (value !== registerForm.password) callback(new Error('两次输入密码不一致')) else callback() }",
+        "priority": "P0",
+        "acceptance_condition": "确认密码与密码不一致时校验失败，一致时校验通过"
+      },
+      {
+        "id": "FR-004",
+        "description": "注册逻辑：点击注册按钮→el-form.validate()校验→校验通过→调用userApi.register({username, email, password})→成功→ElMessage.success('注册成功，请登录')→router.push('/login')→失败→ElMessage.error(错误信息)",
+        "priority": "P0",
+        "acceptance_condition": "注册成功后跳转登录页并显示成功提示；注册失败显示错误提示"
+      },
+      {
+        "id": "FR-005",
+        "description": "注册按钮loading状态：registerLoading ref控制，调用register前设为true，finally中设为false，按钮:loading='registerLoading'，loading时禁用按钮和表单输入",
+        "priority": "P0",
+        "acceptance_condition": "注册请求期间按钮显示loading动画且不可重复点击，请求结束后恢复"
+      },
+      {
+        "id": "FR-006",
+        "description": "导航到登录页：表单下方显示'已有账号？去登录'链接，router-link to='/login'",
+        "priority": "P1",
+        "acceptance_condition": "点击链接跳转到/login页面"
+      },
+      {
+        "id": "FR-007",
+        "description": "页面布局：与LoginView保持一致的居中卡片式布局，最大宽度400px，上方显示'创建新账号'标题",
+        "priority": "P1",
+        "acceptance_condition": "页面居中显示，宽度不超过400px，风格与LoginView一致"
+      },
+      {
+        "id": "FR-008",
+        "description": "密码变更时重新校验确认密码：watch registerForm.password → 若confirmPassword非空则触发确认密码字段校验",
+        "priority": "P2",
+        "acceptance_condition": "修改密码后，确认密码字段自动重新校验"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": []
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/users/register",
+          "method": "POST",
+          "request_format": { "username": "string", "email": "string", "password": "string" },
+          "response_format": { "code": 200, "data": null, "message": "success" }
+        }
+      ],
+      "data_flow": "用户输入 → RegisterView → userApi.register() → Axios POST /api/users/register → Java后端创建用户 → 成功 → ElMessage.success + router.push('/login')"
+    },
+    "security_requirements": [
+      { "category": "sensitive_info", "requirement": "密码/确认密码输入框使用show-password属性，禁止console.log密码" },
+      { "category": "xss", "requirement": "用户名/邮箱输入不做HTML渲染，Element Plus el-input自带XSS防护" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": []
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → API（注册场景无需Store，直接调用userApi.register，因为注册成功后不需要登录态，需用户手动登录）"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "Axios响应拦截器统一处理网络错误；RegisterView中try-catch包裹userApi.register()，catch中ElMessage.error显示错误"
+      }
+    },
+    "caching": {
+      "pattern": "注册页面无缓存需求"
+    },
+    "logging": {
+      "prohibited": [
+        "console.log 密码等敏感信息",
+        "在日志中输出API Key"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "注册成功后自动登录", "reason": "注册和登录是独立流程，注册成功后应引导用户手动登录，遵循安全最佳实践", "severity": "high" },
+    { "id": "FA-002", "action": "注册请求无loading状态", "reason": "产品级前端必备交互状态（AP-006）", "severity": "high" },
+    { "id": "FA-003", "action": "确认密码校验缺失或不正确", "reason": "注册表单必须有确认密码一致性校验", "severity": "high" },
+    { "id": "FA-004", "action": "硬编码颜色值", "reason": "必须使用CSS变量（AP-010）", "severity": "high" },
+    { "id": "FA-005", "action": "使用非8px倍数间距", "reason": "8px间距系统约束（AP-005）", "severity": "medium" },
+    { "id": "FA-006", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-007", "action": "组件超过300行", "reason": "单组件≤300行约束（AP-001）", "severity": "high" },
+    { "id": "FA-008", "action": "与LoginView风格不一致", "reason": "登录/注册页应保持视觉一致性", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "registerForm_validation_rules",
+        "description": "验证表单校验规则：用户名3-50字符、邮箱格式、密码8-100字符、确认密码一致性",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "confirmPassword_validator",
+        "description": "验证确认密码自定义校验器：密码一致通过、不一致失败",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "register_success_flow",
+        "description": "验证注册成功流程：调用userApi.register → 成功提示 → 跳转/login",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "register_error_flow",
+        "description": "验证注册失败流程：错误提示显示、loading状态恢复",
+        "framework": "vitest",
+        "coverage": ["error_flow"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/views/RegisterView.vue", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "注册表单包含4个字段（用户名/邮箱/密码/确认密码），校验规则全部正确", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "确认密码与密码不一致时校验失败，一致时校验通过", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "注册成功后跳转/login并显示成功提示", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "注册失败显示错误提示，loading状态正确恢复", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "页面布局与LoginView风格一致，居中卡片式，最大宽度400px", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "密码框有show-password属性", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "TypeScript类型检查通过，无类型错误", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "组件不超过300行，BEM命名+scoped样式+CSS变量", "verified_by": "code_review" }
+  ]
+}

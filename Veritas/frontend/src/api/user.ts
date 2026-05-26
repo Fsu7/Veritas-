@@ -1,5 +1,5 @@
 import http from './index'
-import type { LoginResponse, UserProfile, ProfileResponse } from '@/types/user'
+import type { LoginResponse, UserProfile, ProfileResponse, UserInfo } from '@/types/user'
 
 export const userApi = {
   register: (data: { username: string; email: string; password: string }) =>
@@ -8,7 +8,7 @@ export const userApi = {
   login: (data: { username: string; password: string }): Promise<LoginResponse> =>
     http.post('/users/login', data),
 
-  getUserInfo: (userId: string) =>
+  getUserInfo: (userId: string): Promise<UserInfo> =>
     http.get(`/users/${userId}`),
 
   getProfile: (userId: string): Promise<ProfileResponse> =>

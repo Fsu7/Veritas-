@@ -1,0 +1,218 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "FM2: 用户+检索页面",
+    "requirement": "实现登录页面LoginView.vue，包含用户名/密码表单、Element Plus表单校验、登录逻辑（调用userStore.login）、Token自动存储、登录成功跳转、登录失败提示、按钮loading状态、已登录用户自动跳转首页、导航到注册页链接",
+    "requirement_ids": ["F1.1.1"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "LoginView页面设计规范（4.2.1节）、表单校验规则、UI线框图" },
+      { "path": "AGENTS.md", "purpose": "API契约（/api/users/login）、JWT认证规范、跨系统字段映射" },
+      { "path": "docs/开发规范文档.md", "purpose": "前端编码规范、命名规范、组件规范" },
+      { "path": "docs/架构决策记录(ADR).md", "purpose": "ADR-008 JWT认证、ADR-009 SSE实时推送" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/", "description": "页面组件目录，LoginView.vue当前为占位骨架" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/userStore.ts", "description": "用户状态管理，已实现login/logout/fetchProfile/saveProfile" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/user.ts", "description": "用户API封装，已实现userApi.login/register/getProfile等6个方法" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/user.ts", "description": "用户类型定义，已定义UserProfile/LoginResponse/ProfileResponse" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/router/index.ts", "description": "路由配置，已定义/login路由+全局认证守卫" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/index.ts", "description": "Axios实例+请求/响应拦截器，已实现JWT注入和401自动跳转" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/userStore.ts", "description": "Pinia setup store，已实现login(username, password)→userApi.login→persistLoginData→localStorage存储Token/userId/username；logout()清除state+localStorage；isLoggedIn/hasProfile computed属性", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/api/user.ts", "description": "userApi.login({ username, password }): Promise<LoginResponse>，返回{token, userId, username, hasProfile}", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/types/user.ts", "description": "LoginResponse接口：{token:string, userId:string, username:string, hasProfile:boolean}", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/api/index.ts", "description": "Axios响应拦截器：401→自动logout+跳转/login；业务错误→ElMessage.error；成功→自动解包ApiResponse.data", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/router/index.ts", "description": "/login路由已配置（requiresAuth:false）；全局守卫：已登录用户访问/login→跳转Home；未登录访问需认证页→跳转/login?redirect=xxx", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/views/LoginView.vue", "description": "当前为占位骨架（<h2>登录页</h2><p>页面开发中...</p>），需替换为完整实现", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "userStore",
+      "path": "Veritas/frontend/src/stores/userStore.ts",
+      "responsibility": "用户状态管理：Token/用户信息持久化、登录/登出、画像管理",
+      "key_interfaces": [
+        { "name": "login", "signature": "async login(user: string, password: string): Promise<void>", "description": "调用userApi.login，成功后persistLoginData存储Token到state+localStorage，若hasProfile则自动fetchProfile" },
+        { "name": "logout", "signature": "logout(): void", "description": "清除token/userId/username/profile state + localStorage" },
+        { "name": "isLoggedIn", "signature": "isLoggedIn: ComputedRef<boolean>", "description": "computed(() => !!token.value)，判断是否已登录" }
+      ]
+    },
+    {
+      "name": "userApi",
+      "path": "Veritas/frontend/src/api/user.ts",
+      "responsibility": "用户相关HTTP API封装",
+      "key_interfaces": [
+        { "name": "login", "signature": "login(data: { username: string; password: string }): Promise<LoginResponse>", "description": "POST /api/users/login，返回{token, userId, username, hasProfile}" }
+      ]
+    },
+    {
+      "name": "LoginResponse",
+      "path": "Veritas/frontend/src/types/user.ts",
+      "responsibility": "登录接口响应类型定义",
+      "key_interfaces": [
+        { "name": "LoginResponse", "signature": "interface LoginResponse { token: string; userId: string; username: string; hasProfile: boolean }", "description": "登录成功响应数据结构" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/frontend/src/views/LoginView.vue", "description": "替换占位骨架为完整登录页面实现：表单+校验+登录逻辑+loading+错误处理+样式", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "登录表单：使用el-form实现用户名+密码输入，表单ref绑定loginFormRef，数据绑定loginForm reactive对象{username:'', password:''}",
+        "priority": "P0",
+        "acceptance_condition": "el-form包含2个el-form-item（用户名el-input + 密码el-input show-password），表单ref和数据绑定正确"
+      },
+      {
+        "id": "FR-002",
+        "description": "表单校验规则：用户名3-50字符（required + min:3 + max:50），密码8-100字符（required + min:8 + max:100），使用el-form的rules属性定义，trigger:'blur'",
+        "priority": "P0",
+        "acceptance_condition": "输入不合规时el-form-item显示红色校验提示文字；合规时校验通过"
+      },
+      {
+        "id": "FR-003",
+        "description": "登录逻辑：点击登录按钮→el-form.validate()校验→校验通过→调用userStore.login(loginForm.username, loginForm.password)→成功→ElMessage.success('登录成功')→router.push(redirect || '/')→失败→ElMessage.error(错误信息)",
+        "priority": "P0",
+        "acceptance_condition": "登录成功后Token存入localStorage，页面跳转至redirect参数指定页面或首页；登录失败显示错误提示"
+      },
+      {
+        "id": "FR-004",
+        "description": "登录按钮loading状态：loginLoading ref控制，调用login前设为true，finally中设为false，按钮:loading='loginLoading'，loading时禁用按钮和表单输入",
+        "priority": "P0",
+        "acceptance_condition": "登录请求期间按钮显示loading动画且不可重复点击，请求结束后恢复"
+      },
+      {
+        "id": "FR-005",
+        "description": "导航到注册页：表单下方显示'还没有账号？去注册'链接，router-link to='/register'",
+        "priority": "P1",
+        "acceptance_condition": "点击链接跳转到/register页面"
+      },
+      {
+        "id": "FR-006",
+        "description": "页面布局：居中卡片式布局，最大宽度400px，上方显示系统名称'科研文献智能助手'和副标题'领域知识个性化生成系统'，表单在卡片内",
+        "priority": "P1",
+        "acceptance_condition": "页面居中显示，宽度不超过400px，包含系统标题和副标题"
+      },
+      {
+        "id": "FR-007",
+        "description": "回车提交：密码输入框@keyup.enter触发登录",
+        "priority": "P2",
+        "acceptance_condition": "在密码框按回车等同于点击登录按钮"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "userId", "python": "user_id", "json": "user_id" },
+          { "java": "hasProfile", "python": "has_profile", "json": "has_profile" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/users/login",
+          "method": "POST",
+          "request_format": { "username": "string", "password": "string" },
+          "response_format": { "code": 200, "data": { "token": "string", "userId": "string", "username": "string", "hasProfile": "boolean" } }
+        }
+      ],
+      "data_flow": "用户输入 → LoginView → userStore.login() → userApi.login() → Axios POST /api/users/login → Java后端验证 → 返回JWT Token → userStore.persistLoginData() → localStorage存储 → router.push跳转"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "Token存储在localStorage（userStore已实现），不在Cookie中；401响应由Axios拦截器自动处理（logout+跳转/login）" },
+      { "category": "sensitive_info", "requirement": "密码输入框使用show-password属性（Element Plus），禁止console.log Token/密码" },
+      { "category": "xss", "requirement": "用户名输入不做HTML渲染，Element Plus el-input自带XSS防护" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue",
+        "enum_value": "PascalCase"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "userId", "python": "user_id", "json": "user_id" },
+        { "java": "hasProfile", "python": "has_profile", "json": "has_profile" }
+      ]
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → Store → API，异步操作在Store Actions中，LoginView只调用userStore.login()，不直接调用userApi"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "Axios响应拦截器统一处理401/403/404/超时/网络错误；LoginView中try-catch包裹userStore.login()，catch中ElMessage.error显示错误"
+      }
+    },
+    "caching": {
+      "pattern": "Token持久化在localStorage（userStore已实现），登录后若hasProfile=true自动fetchProfile缓存画像"
+    },
+    "logging": {
+      "prohibited": [
+        "console.log Token/密码等敏感信息",
+        "在日志中输出API Key"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "在LoginView中直接调用axios或userApi", "reason": "必须通过userStore.login()调用，遵循View→Store→API分层", "severity": "critical" },
+    { "id": "FA-002", "action": "在LoginView中手动操作localStorage存储Token", "reason": "userStore.login()内部已通过persistLoginData()处理Token持久化", "severity": "critical" },
+    { "id": "FA-003", "action": "登录请求无loading状态", "reason": "产品级前端必备交互状态（AP-006）", "severity": "high" },
+    { "id": "FA-004", "action": "密码输入框无show-password属性", "reason": "用户体验要求，Element Plus标准做法", "severity": "medium" },
+    { "id": "FA-005", "action": "硬编码颜色值（如color:#409EFF）", "reason": "必须使用CSS变量（AP-010），如var(--el-color-primary)", "severity": "high" },
+    { "id": "FA-006", "action": "使用非8px倍数间距（如margin:10px）", "reason": "8px间距系统约束（AP-005）", "severity": "medium" },
+    { "id": "FA-007", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-008", "action": "组件超过300行", "reason": "单组件≤300行约束（AP-001）", "severity": "high" },
+    { "id": "FA-009", "action": "前端直接调用Python AI服务API", "reason": "三层架构约束ADR-001，前端只调Java后端", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "loginForm_validation_rules",
+        "description": "验证表单校验规则：用户名3-50字符、密码8-100字符、必填校验",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "login_success_flow",
+        "description": "验证登录成功流程：调用userStore.login → Token存储 → 路由跳转",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "login_error_flow",
+        "description": "验证登录失败流程：错误提示显示、loading状态恢复",
+        "framework": "vitest",
+        "coverage": ["error_flow"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/views/LoginView.vue", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "登录表单包含用户名和密码输入框，校验规则正确（用户名3-50字符，密码8-100字符）", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "登录成功后Token存入localStorage，页面跳转至redirect参数指定页面或首页", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "登录失败显示ElMessage.error错误提示，按钮loading状态正确恢复", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "已登录用户访问/login自动跳转首页（路由守卫已实现）", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "页面布局居中，最大宽度400px，包含系统标题和副标题", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "密码输入框有show-password属性，回车可提交", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "TypeScript类型检查通过，无类型错误", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "组件不超过300行，使用BEM命名+scoped样式+CSS变量", "verified_by": "code_review" }
+  ]
+}

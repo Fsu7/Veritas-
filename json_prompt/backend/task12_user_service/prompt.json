@@ -1,0 +1,217 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M3：前后端联调 / JM2：基础API可用",
+    "requirement": "创建UserService（用户管理核心业务逻辑层），实现4个方法：register（注册：唯一性校验→BCrypt加密→UUID生成userId→保存User→检查画像→返回UserResponse）、login（登录：查询用户→BCrypt校验密码→生成JWT→检查画像→返回LoginResponse）、getUserInfo（查询用户：按userId查询→检查画像→返回UserResponse，@Cacheable缓存）、logout（退出登录：解析Token→获取jti→加入Redis黑名单TTL=Token剩余有效期）。同时在SecurityConfig中添加PasswordEncoder @Bean（BCryptPasswordEncoder，strength=10）。UserService是Controller与Repository之间的业务逻辑层，Controller仅做请求转发，所有业务逻辑（密码加密、JWT生成、缓存、黑名单）均在Service中实现。",
+    "requirement_ids": ["F2.1.1", "F2.1.2", "F2.1.3", "F2.1.4"],
+    "reference_docs": [
+      {"path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "§4.2.2 UserService业务逻辑设计（注册/登录/查询/退出流程）、§4.2.4 DTO定义（UserResponse/LoginResponse字段）、§9 安全架构（JWT鉴权流程+Redis黑名单）"},
+      {"path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "§4.3 详细任务分解（Week 5 Day 1 下午: UserService + PasswordEncoder Bean）"},
+      {"path": "AGENTS.md", "purpose": "§7.2 Redis缓存Key（JWT黑名单Key格式+TTL）、§10 安全规范（BCrypt+JWT+Redis黑名单）、§9.2 Java后端规范（分层架构+Entity/DTO分离+Cache-Aside）"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service", "description": "业务逻辑层，新增UserService"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.config", "description": "配置层，修改SecurityConfig添加PasswordEncoder @Bean"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/entity/User.java", "description": "User JPA实体，含userId/username/email/passwordHash/createdAt字段，@PrePersist自动设置createdAt", "reuse_type": "reference"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/entity/UserProfile.java", "description": "UserProfile JPA实体，含userId/educationLevel/researchField/knowledgeLevel/preferredStyle/profileData/updatedAt", "reuse_type": "reference"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/UserRepository.java", "description": "User Repository，含findByUserId/findByUsername/existsByUsername/existsByEmail方法", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/UserProfileRepository.java", "description": "UserProfile Repository，含findByUserId/existsByUserId方法", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/JwtUtil.java", "description": "JWT工具类，含generateToken(userId,username)/validateToken/isTokenBlacklisted/getUserIdFromToken/getTokenJti/getTokenRemainingTime方法", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java", "description": "Redis Key工具类，含authBlacklistKey(jti)生成auth:blacklist:{jti}格式Key", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/BusinessException.java", "description": "业务异常类，含code/message/errorKey字段，构造器BusinessException(code, message, errorKey)", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/AuthenticationException.java", "description": "认证异常类，继承BusinessException，构造器AuthenticationException(message)，code=401, errorKey=AUTHENTICATION_FAILED", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/SecurityConfig.java", "description": "SecurityConfig已配置SecurityFilterChain+CORS+白名单路径，需新增PasswordEncoder @Bean", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/ApiResponse.java", "description": "统一响应包装类，ApiResponse.success()/error()静态方法", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/ErrorCode.java", "description": "错误码枚举，含UNAUTHORIZED(401)等", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "UserService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java",
+      "responsibility": "用户管理核心业务逻辑层，实现注册/登录/查询用户/退出登录4个方法",
+      "key_interfaces": [
+        {"name": "register", "signature": "public UserResponse register(RegisterRequest request)", "description": "用户注册：唯一性校验→BCrypt加密→UUID userId→保存→检查画像→返回UserResponse"},
+        {"name": "login", "signature": "public LoginResponse login(LoginRequest request)", "description": "用户登录：查询用户→BCrypt校验→生成JWT→检查画像→返回LoginResponse"},
+        {"name": "getUserInfo", "signature": "public UserResponse getUserInfo(String userId)", "description": "查询用户信息：findByUserId→检查画像→返回UserResponse，@Cacheable缓存"},
+        {"name": "logout", "signature": "public void logout(String token)", "description": "退出登录：解析Token→获取jti→加入Redis黑名单(TTL=Token剩余有效期)"}
+      ]
+    },
+    {
+      "name": "PasswordEncoder",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/SecurityConfig.java",
+      "responsibility": "BCrypt密码编码器Bean，供UserService注入使用",
+      "key_interfaces": [
+        {"name": "passwordEncoder", "signature": "@Bean public PasswordEncoder passwordEncoder()", "description": "创建BCryptPasswordEncoder Bean，strength=10"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java", "description": "用户Service：@Service @Slf4j，构造器注入UserRepository/UserProfileRepository/JwtUtil/PasswordEncoder/RedisTemplate，实现register/login/getUserInfo/logout 4个方法", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/config/SecurityConfig.java", "description": "在SecurityConfig中新增@Bean PasswordEncoder passwordEncoder()方法，返回new BCryptPasswordEncoder(10)", "layer": "java_backend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "UserService.register(RegisterRequest) → UserResponse：(1) 检查用户名唯一性：if (userRepository.existsByUsername(request.getUsername())) throw new BusinessException(409, \"用户名已存在\", \"USERNAME_DUPLICATE\")；(2) 检查邮箱唯一性：if (userRepository.existsByEmail(request.getEmail())) throw new BusinessException(409, \"邮箱已被注册\", \"EMAIL_DUPLICATE\")；(3) BCrypt加密密码：String encodedPassword = passwordEncoder.encode(request.getPassword())；(4) 生成userId：String userId = \"usr_\" + UUID.randomUUID().toString().replace(\"-\", \"\").substring(0, 8)；(5) 构建User实体：User user = User.builder().userId(userId).username(request.getUsername()).email(request.getEmail()).passwordHash(encodedPassword).build()；(6) 保存：userRepository.save(user)；(7) 检查画像是否存在：boolean hasProfile = userProfileRepository.existsByUserId(userId)；(8) 返回UserResponse：UserResponse.builder().userId(user.getUserId()).username(user.getUsername()).email(user.getEmail()).createdAt(user.getCreatedAt()).hasProfile(hasProfile).build()。日志：log.info(\"User registered: userId={}, username={}\", userId, user.getUsername())，禁止输出password。",
+        "priority": "P0",
+        "acceptance_condition": "注册成功返回UserResponse(含userId格式usr_xxxxxxxx)，重复用户名抛BusinessException(409)，密码BCrypt加密存储"
+      },
+      {
+        "id": "FR-002",
+        "description": "UserService.login(LoginRequest) → LoginResponse：(1) 查询用户：User user = userRepository.findByUsername(request.getUsername()).orElseThrow(() -> new AuthenticationException(\"用户名或密码错误\"))；(2) BCrypt校验密码：if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) throw new AuthenticationException(\"用户名或密码错误\")；注意：密码错误时也抛AuthenticationException而非BusinessException，避免泄露用户是否存在；(3) 生成JWT：String token = jwtUtil.generateToken(user.getUserId(), user.getUsername())；(4) 检查画像：boolean hasProfile = userProfileRepository.existsByUserId(user.getUserId())；(5) 返回LoginResponse：LoginResponse.builder().token(token).userId(user.getUserId()).username(user.getUsername()).hasProfile(hasProfile).build()。日志：log.info(\"User logged in: userId={}, username={}\", user.getUserId(), user.getUsername())，禁止输出password。",
+        "priority": "P0",
+        "acceptance_condition": "登录成功返回LoginResponse(含JWT Token)，密码错误抛AuthenticationException(401)，用户不存在抛AuthenticationException(401)"
+      },
+      {
+        "id": "FR-003",
+        "description": "UserService.getUserInfo(String userId) → UserResponse：(1) 查询用户：User user = userRepository.findByUserId(userId).orElseThrow(() -> new BusinessException(404, \"用户不存在\", \"USER_NOT_FOUND\"))；(2) 检查画像：boolean hasProfile = userProfileRepository.existsByUserId(userId)；(3) 返回UserResponse：UserResponse.builder().userId(user.getUserId()).username(user.getUsername()).email(user.getEmail()).createdAt(user.getCreatedAt()).hasProfile(hasProfile).build()；(4) 添加@Cacheable注解：@Cacheable(value = \"userInfo\", key = \"#userId\")，缓存名对应RedisConfig中的userInfo缓存空间(TTL=1h)。",
+        "priority": "P0",
+        "acceptance_condition": "查询成功返回UserResponse(含hasProfile标记)，用户不存在抛BusinessException(404)，@Cacheable缓存生效"
+      },
+      {
+        "id": "FR-004",
+        "description": "UserService.logout(String token) → void：(1) 解析Token获取jti：String jti = jwtUtil.getTokenJti(token)；if (jti == null) return（Token无效则静默返回，不抛异常，logout幂等）；(2) 获取Token剩余有效期：long remainingTime = jwtUtil.getTokenRemainingTime(token)；(3) 加入Redis黑名单：String key = RedisKeyUtil.authBlacklistKey(jti)；redisTemplate.opsForValue().set(key, \"1\", Duration.ofMillis(remainingTime))；注意：如果remainingTime <= 0，说明Token已过期，无需加入黑名单（直接return）；(4) 日志：log.info(\"User logged out: jti={}\", jti)。",
+        "priority": "P0",
+        "acceptance_condition": "logout将Token jti加入Redis黑名单，TTL=Token剩余有效期；Token无效或已过期时静默返回不抛异常"
+      },
+      {
+        "id": "FR-005",
+        "description": "SecurityConfig新增PasswordEncoder @Bean：在SecurityConfig类中添加方法 @Bean public PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(10); }。注意：BCryptPasswordEncoder来自org.springframework.security.crypto.bcrypt包，strength=10表示2^10轮哈希。此Bean供UserService通过构造器注入使用，禁止在UserService中手动new BCryptPasswordEncoder()。",
+        "priority": "P0",
+        "acceptance_condition": "PasswordEncoder为Spring Bean，UserService通过构造器注入获取，非手动new"
+      },
+      {
+        "id": "FR-006",
+        "description": "UserService构造器注入：@Service @Slf4j。通过构造器注入5个依赖：UserRepository userRepository、UserProfileRepository userProfileRepository、JwtUtil jwtUtil、PasswordEncoder passwordEncoder、RedisTemplate<String, String> redisTemplate。使用Spring推荐的单构造器自动注入（无需@Autowired注解）。",
+        "priority": "P0",
+        "acceptance_condition": "5个依赖通过构造器注入，无@Autowired注解，无字段注入"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          {"java": "userId", "python": "user_id", "json": "user_id"},
+          {"java": "hasProfile", "python": "has_profile", "json": "has_profile"},
+          {"java": "createdAt", "python": "created_at", "json": "created_at"},
+          {"java": "passwordHash", "python": "password_hash", "json": "password_hash"}
+        ]
+      },
+      "api_contracts": [
+        {"endpoint": "/api/users/register", "method": "POST", "request_format": {"username": "string(3-50)", "email": "string(@Email)", "password": "string(8-100)"}, "response_format": {"code": 200, "data": {"user_id": "string(usr_xxxxxxxx)", "username": "string", "email": "string", "created_at": "datetime", "has_profile": "boolean"}}},
+        {"endpoint": "/api/users/login", "method": "POST", "request_format": {"username": "string", "password": "string"}, "response_format": {"code": 200, "data": {"token": "string(JWT)", "user_id": "string", "username": "string", "has_profile": "boolean"}}},
+        {"endpoint": "/api/users/{userId}", "method": "GET", "request_format": {}, "response_format": {"code": 200, "data": {"user_id": "string", "username": "string", "email": "string", "created_at": "datetime", "has_profile": "boolean"}}},
+        {"endpoint": "/api/users/logout", "method": "POST", "request_format": {"Authorization": "Bearer {token}"}, "response_format": {"code": 200, "data": null}}
+      ],
+      "data_flow": "Controller接收RequestDTO → 调用UserService方法 → Service操作Repository(JPA)/JwtUtil/PasswordEncoder/RedisTemplate → 返回ResponseDTO（Entity→DTO转换在Service中完成）→ Controller包装为ApiResponse返回前端"
+    },
+    "degradation_requirements": {
+      "llm_degradation": {"providers": [{"priority": 1, "name": "BuiltinLLMProvider", "description": "软件方模型"}, {"priority": 2, "name": "APILLMProvider", "description": "外接API"}, {"priority": 3, "name": "LocalLLMProvider", "description": "本地Qwen2"}], "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"], "recovery_strategy": "每5分钟尝试恢复到更高级别Provider"},
+      "agent_degradation": {"single_agent_failure": "跳过该Agent，继续后续流程", "multi_agent_failure": "降级为单Agent模式（仅Retriever+Generator）", "review_retry_limit": 1}
+    },
+    "security_requirements": [
+      {"category": "sensitive_info", "requirement": "BCrypt密码加密存储，strength=10，禁止明文存储密码"},
+      {"category": "jwt_auth", "requirement": "JWT Token 24h有效期 + Redis黑名单（logout时加入，TTL=Token剩余有效期）"},
+      {"category": "sensitive_info", "requirement": "日志中禁止输出password明文和JWT Token完整值"},
+      {"category": "other", "requirement": "登录失败统一返回\"用户名或密码错误\"，不区分用户不存在和密码错误，防止用户名枚举攻击"},
+      {"category": "other", "requirement": "userId格式为usr_ + 8位hex，不可预测"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {"class_name": "PascalCase", "method_variable": "camelCase", "constant": "UPPER_SNAKE_CASE", "file_name": "PascalCase.java", "enum_value": "UPPER_SNAKE_CASE", "config_key": "kebab-case"},
+      "json": {"field_name": "snake_case"},
+      "cross_system_mapping": [
+        {"java": "userId", "python": "user_id", "json": "user_id"},
+        {"java": "hasProfile", "python": "has_profile", "json": "has_profile"},
+        {"java": "createdAt", "python": "created_at", "json": "created_at"},
+        {"java": "passwordHash", "python": "password_hash", "json": "password_hash"}
+      ]
+    },
+    "layering": {
+      "java": {"rule": "Controller → Service → Repository → Client，禁止跨层。Controller禁止直接操作Repository，Service禁止直接操作HttpServletRequest", "entity_dto_separation": true, "dto_naming": "XxxRequest, XxxResponse"}
+    },
+    "error_handling": {
+      "java": {"approach": "BusinessException + AuthenticationException + GlobalExceptionHandler(@RestControllerAdvice)", "business_exception_fields": ["code", "message", "errorKey"]}
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h"},
+        {"cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{jti}", "ttl": "Token剩余有效期"}
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"],
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行Java代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "在UserService中手动new BCryptPasswordEncoder()", "reason": "PasswordEncoder必须通过Spring Bean注入，确保全局唯一实例和可测试性", "severity": "critical"},
+    {"id": "FA-004", "action": "UserResponse包含passwordHash字段", "reason": "密码哈希不得泄露给前端", "severity": "critical"},
+    {"id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high"},
+    {"id": "FA-006", "action": "在日志中输出password明文或完整JWT Token", "reason": "安全约束，防止敏感信息泄露", "severity": "critical"},
+    {"id": "FA-007", "action": "登录失败时区分\"用户不存在\"和\"密码错误\"的错误消息", "reason": "防止用户名枚举攻击，统一返回\"用户名或密码错误\"", "severity": "high"},
+    {"id": "FA-008", "action": "使用字段注入(@Autowired on field)", "reason": "必须使用构造器注入，符合Spring最佳实践", "severity": "high"},
+    {"id": "FA-009", "action": "在Controller中编写业务逻辑", "reason": "Controller仅做请求转发，业务逻辑在Service层", "severity": "critical"},
+    {"id": "FA-010", "action": "硬编码敏感配置（JWT Secret等）", "reason": "安全约束", "severity": "critical"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "UserServiceTest",
+        "description": "测试UserService 4个方法的所有场景：register(正常注册/重复用户名409/重复邮箱409)、login(正常登录/密码错误401/用户不存在401)、getUserInfo(正常查询/用户不存在404/缓存命中)、logout(正常退出/Token无效静默返回/Token已过期不加入黑名单)。使用@ExtendWith(MockitoExtension.class)，@Mock UserRepository/UserProfileRepository/JwtUtil/RedisTemplate，@InjectMocks UserService。PasswordEncoder使用BCryptPasswordEncoder真实实例（@BeforeEach中初始化），因为BCrypt.matches需要真实加密验证。",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，UserService和修改后的SecurityConfig无错误"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=UserServiceTest",
+        "expected_result": "所有单元测试通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "register创建用户：BCrypt加密密码、UUID userId(usr_xxxxxxxx格式)、返回UserResponse(不含passwordHash)", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "login验证密码：BCrypt matches校验、生成JWT Token、返回LoginResponse(含token/userId/hasProfile)", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "getUserInfo返回UserResponse含hasProfile标记，@Cacheable(value=\"userInfo\", key=\"#userId\")缓存生效", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "logout将Token jti加入Redis黑名单，TTL=Token剩余有效期；Token无效/过期时静默返回", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "重复用户名注册抛BusinessException(409, \"用户名已存在\", \"USERNAME_DUPLICATE\")", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "密码错误抛AuthenticationException(\"用户名或密码错误\")，用户不存在也抛AuthenticationException(不区分)", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "PasswordEncoder为Spring Bean(@Bean BCryptPasswordEncoder(10))，UserService通过构造器注入获取", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "@Cacheable(value=\"userInfo\", key=\"#userId\")注解在getUserInfo方法上", "verified_by": "code_review"},
+    {"id": "AC-009", "criterion": "userId格式为usr_ + 8位hex字符（usr_xxxxxxxx）", "verified_by": "automated_test"},
+    {"id": "AC-010", "criterion": "所有单元测试通过（register 3场景 + login 3场景 + getUserInfo 3场景 + logout 3场景）", "verified_by": "automated_test"}
+  ]
+}

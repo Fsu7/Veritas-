@@ -188,3 +188,105 @@ class TestVectorStoreSearch:
         query_emb = _random_unit_vector()
         results = await vector_store_service.search(query_emb, top_k=5)
         assert results == []
+
+
+class TestVectorStoreBatchAndQuery:
+
+    async def test_add_papers_batch_basic(self, vector_store_service):
+        total = 120
+        ids = [f"batch_p{i:03d}" for i in range(total)]
+        embeddings = [_random_unit_vector() for _ in range(total)]
+        metadatas = [
+            _make_metadata(f"batch_p{i:03d}", f"Batch Paper {i}", 2024, "ACL")
+            for i in range(total)
+        ]
+        documents = [f"Abstract for batch paper {i}" for i in range(total)]
+
+        await vector_store_service.add_papers_batch(
+            ids, embeddings, metadatas, documents, batch_size=50
+        )
+        count = await vector_store_service.count()
+        assert count == total
+
+    async def test_add_papers_batch_invalid_lengths(self, vector_store_service):
+        ids = ["p001", "p002", "p003"]
+        embeddings = [_random_unit_vector() for _ in range(2)]
+        metadatas = [
+            _make_metadata("p001", "Paper 1", 2023, "ACL"),
+            _make_metadata("p002", "Paper 2", 2024, "EMNLP"),
+        ]
+        documents = ["Abstract 1", "Abstract 2"]
+
+        with pytest.raises(ValueError):
+            await vector_store_service.add_papers_batch(
+                ids, embeddings, metadatas, documents
+            )
+
+    async def test_add_papers_batch_invalid_dimension(self, vector_store_service):
+        ids = ["p001"]
+        embeddings = [[0.1] * 512]
+        metadatas = [_make_metadata("p001", "Paper 1", 2023, "ACL")]
+        documents = ["Abstract 1"]
+
+        with pytest.raises(Exception):
+            await vector_store_service.add_papers_batch(
+                ids, embeddings, metadatas, documents
+            )
+
+    async def test_add_papers_batch_single_batch(self, vector_store_service):
+        ids = ["sp001", "sp002"]
+        embeddings = [_random_unit_vector() for _ in range(2)]
+        metadatas = [
+            _make_metadata("sp001", "Single Batch 1", 2024, "ACL"),
+            _make_metadata("sp002", "Single Batch 2", 2024, "EMNLP"),
+        ]
+        documents = ["Abstract SB1", "Abstract SB2"]
+
+        await vector_store_service.add_papers_batch(
+            ids, embeddings, metadatas, documents, batch_size=50
+        )
+        count = await vector_store_service.count()
+        assert count == 2
+
+    async def test_get_paper_by_id_exists(self, vector_store_service):
+        ids = ["gp001"]
+        embeddings = [_random_unit_vector()]
+        metadatas = [_make_metadata("gp001", "Get Paper Test", 2024, "ACL", 10)]
+        documents = ["This is the abstract for get paper test."]
+
+        await vector_store_service.add_papers(ids, embeddings, metadatas, documents)
+
+        result = await vector_store_service.get_paper_by_id("gp001")
+        assert result is not None
+        assert result["paper_id"] == "gp001"
+        assert result["title"] == "Get Paper Test"
+        assert result["year"] == 2024
+        assert result["venue"] == "ACL"
+        assert result["citation_count"] == 10
+        assert result["chunk_index"] == 0
+        assert result["chunk_type"] == "title_abstract"
+        assert result["document"] == "This is the abstract for get paper test."
+
+    async def test_get_paper_by_id_not_exists(self, vector_store_service):
+        result = await vector_store_service.get_paper_by_id("nonexistent_id")
+        assert result is None
+
+    async def test_update_paper_metadata_success(self, vector_store_service):
+        ids = ["up001"]
+        embeddings = [_random_unit_vector()]
+        metadatas = [_make_metadata("up001", "Update Test", 2023, "ACL", 0)]
+        documents = ["Abstract for update test."]
+
+        await vector_store_service.add_papers(ids, embeddings, metadatas, documents)
+
+        updated_metadata = _make_metadata("up001", "Update Test", 2023, "ACL", 42)
+        await vector_store_service.update_paper_metadata("up001", updated_metadata)
+
+        result = await vector_store_service.get_paper_by_id("up001")
+        assert result is not None
+        assert result["citation_count"] == 42
+
+    async def test_update_paper_metadata_not_exists(self, vector_store_service):
+        await vector_store_service.update_paper_metadata(
+            "nonexistent_id", _make_metadata("nonexistent_id", "Ghost", 2024, "ACL")
+        )

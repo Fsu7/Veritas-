@@ -8,22 +8,25 @@ import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.SecurityException;
 import jakarta.annotation.PostConstruct;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.Date;
 import java.util.UUID;
 
 @Component
+@Slf4j
 public class JwtUtil {
 
-    private static final Logger log = LoggerFactory.getLogger(JwtUtil.class);
     private static final int MIN_SECRET_LENGTH = 32;
+    private static final String TOKEN_TYPE_ACCESS = "access";
 
     @Value("${jwt.secret}")
     private String secret;
@@ -51,6 +54,7 @@ public class JwtUtil {
         return Jwts.builder()
                 .subject(userId)
                 .claim("username", username)
+                .claim("token_type", TOKEN_TYPE_ACCESS)
                 .id(UUID.randomUUID().toString())
                 .issuedAt(now)
                 .expiration(expiryDate)
@@ -66,15 +70,15 @@ public class JwtUtil {
                     .parseSignedClaims(token)
                     .getPayload();
         } catch (ExpiredJwtException e) {
-            log.debug("JWT token expired: {}", maskToken(token));
-        } catch (UnsupportedJwtException e) {
-            log.debug("Unsupported JWT token: {}", maskToken(token));
+            log.debug("JWT token已过期: {}", maskToken(token));
         } catch (MalformedJwtException e) {
-            log.debug("Malformed JWT token: {}", maskToken(token));
+            log.debug("JWT token格式错误: {}", maskToken(token));
         } catch (SecurityException e) {
-            log.debug("Invalid JWT signature: {}", maskToken(token));
+            log.debug("JWT签名无效: {}", maskToken(token));
+        } catch (UnsupportedJwtException e) {
+            log.debug("不支持的JWT token: {}", maskToken(token));
         } catch (IllegalArgumentException e) {
-            log.debug("JWT token is empty or null");
+            log.debug("JWT token为空");
         }
         return null;
     }
@@ -85,11 +89,57 @@ public class JwtUtil {
 
     public boolean isTokenBlacklisted(String token) {
         String jti = getTokenJti(token);
+        return isJtiBlacklisted(jti);
+    }
+
+    public boolean isJtiBlacklisted(String jti) {
         if (jti == null) {
             return true;
         }
-        String key = RedisKeyUtil.authBlacklistKey(jti);
+        String hash = sha256(jti);
+        String key = RedisKeyUtil.authBlacklistKey(hash);
         return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+    }
+
+    public boolean blacklistToken(String token) {
+        String jti = getTokenJti(token);
+        if (jti == null) {
+            return false;
+        }
+
+        long remainingTime = getTokenRemainingTime(token);
+        if (remainingTime <= 0) {
+            return false;
+        }
+
+        String hash = sha256(jti);
+        String key = RedisKeyUtil.authBlacklistKey(hash);
+        redisTemplate.opsForValue().set(key, "1", Duration.ofMillis(remainingTime));
+
+        log.debug("Token加入黑名单: jtiHash={}, remainingTime={}ms", maskJti(hash), remainingTime);
+        return true;
+    }
+
+    public String extractBearerToken(String authHeader) {
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            return authHeader.substring(7);
+        }
+        return null;
+    }
+
+    public boolean isTokenExpired(String token) {
+        if (token == null || token.isEmpty()) {
+            return true;
+        }
+        try {
+            Claims claims = parseToken(token);
+            if (claims == null) {
+                return true;
+            }
+            return claims.getExpiration().before(new Date());
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     public String getUserIdFromToken(String token) {
@@ -120,10 +170,35 @@ public class JwtUtil {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
+    private String sha256(String input) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) {
+                    hexString.append('0');
+                }
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 algorithm not available", e);
+        }
+    }
+
     private String maskToken(String token) {
         if (token == null || token.isEmpty()) {
             return "";
         }
         return token.substring(0, Math.min(8, token.length())) + "...";
+    }
+
+    private String maskJti(String jti) {
+        if (jti == null || jti.isEmpty()) {
+            return "";
+        }
+        return jti.substring(0, Math.min(8, jti.length())) + "...";
     }
 }

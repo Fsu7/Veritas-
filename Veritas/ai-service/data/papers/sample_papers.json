@@ -1,0 +1,47 @@
+[
+  {
+    "paper_id": "arxiv_2401_0001",
+    "title": "Multi-Agent Collaborative Decision Making via Large Language Models",
+    "authors": ["Zhang Wei", "Li Ming", "Chen Yu"],
+    "abstract": "We propose a novel multi-agent collaborative decision-making framework that leverages large language models for task decomposition, agent coordination, and result synthesis. Our approach introduces a graph-structured workflow that enables dynamic task allocation among specialized agents. Experiments on three benchmark datasets demonstrate that our framework achieves 15% improvement in decision quality compared to single-agent baselines, while maintaining robust performance under agent failure scenarios.",
+    "year": 2024,
+    "venue": "NeurIPS",
+    "keywords": ["multi-agent", "collaborative decision-making", "large language models", "task decomposition"]
+  },
+  {
+    "paper_id": "arxiv_2401_0002",
+    "title": "AgentBench: A Comprehensive Benchmark for LLM-based Agents",
+    "authors": ["Liu Xiao", "Wang Fang", "Zhao Jun"],
+    "abstract": "We present AgentBench, a comprehensive benchmark for evaluating large language model-based agents across diverse real-world tasks. Our benchmark includes 8 distinct environments spanning coding, web navigation, database querying, and multi-turn dialogue. We evaluate 10 state-of-the-art LLMs and find that while current models show promising results on simple tasks, they struggle with complex multi-step reasoning and long-horizon planning. Our analysis reveals key limitations and provides directions for future agent research.",
+    "year": 2024,
+    "venue": "ICML",
+    "keywords": ["agent benchmark", "LLM evaluation", "task planning", "reinforcement learning"]
+  },
+  {
+    "paper_id": "arxiv_2401_0003",
+    "title": "Retrieval-Augmented Generation for Scientific Literature: A Survey",
+    "authors": ["Johnson Sarah", "Smith Robert", "Brown Emily"],
+    "abstract": "This survey provides a comprehensive review of retrieval-augmented generation (RAG) techniques applied to scientific literature. We categorize existing approaches along three dimensions: retrieval strategy, generation architecture, and domain adaptation. Our analysis covers hybrid retrieval methods combining semantic and keyword search, chunking strategies for long scientific documents, and personalized generation based on user expertise levels. We identify key challenges including citation accuracy, hallucination mitigation, and cross-lingual retrieval, and propose a roadmap for future research.",
+    "year": 2023,
+    "venue": "ACL",
+    "keywords": ["retrieval-augmented generation", "scientific literature", "hybrid retrieval", "survey"]
+  },
+  {
+    "paper_id": "arxiv_2401_0004",
+    "title": "Knowledge Graph-Enhanced Reasoning for Multi-Hop Question Answering",
+    "authors": ["Park Jimin", "Kim Sooyeon", "Lee Taehyun"],
+    "abstract": "We introduce KG-RAG, a framework that combines knowledge graph reasoning with retrieval-augmented generation for multi-hop question answering. Our approach constructs a dynamic subgraph from retrieved documents and performs structured reasoning over the graph to identify supporting evidence chains. Experiments on HotpotQA and 2WikiMultiHopQA show that KG-RAG achieves state-of-the-art results, with 8.3% improvement in answer accuracy and 12.1% improvement in supporting fact identification compared to vanilla RAG baselines.",
+    "year": 2024,
+    "venue": "AAAI",
+    "keywords": ["knowledge graph", "multi-hop reasoning", "question answering", "RAG"]
+  },
+  {
+    "paper_id": "arxiv_2401_0005",
+    "title": "Human-Agent Collaboration in Complex Task Environments",
+    "authors": ["Garcia Maria", "Anderson Thomas", "Nakamura Yuki"],
+    "abstract": "This paper investigates human-agent collaboration strategies in complex task environments where both human and AI agents contribute complementary expertise. We propose a mixed-initiative framework that dynamically adjusts the level of agent autonomy based on task difficulty, human cognitive load, and historical performance. Through a user study with 50 participants across three task domains, we demonstrate that our adaptive collaboration approach reduces task completion time by 23% and increases user satisfaction scores by 18% compared to fixed-autonomy baselines.",
+    "year": 2023,
+    "venue": "ACL",
+    "keywords": ["human-agent collaboration", "mixed-initiative", "adaptive autonomy", "user study"]
+  }
+]
