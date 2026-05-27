@@ -14,47 +14,39 @@ export const usePaperStore = defineStore('paper', () => {
   const totalResults = ref(0)
   const currentPage = ref(1)
   const pageSize = ref(10)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
   const selectedPaperIds = computed(() =>
     selectedPapers.value.map(p => p.paperId)
   )
 
-  const filteredResults = computed(() => {
-    let results = searchResults.value
-    const f = filters.value
-    if (f.yearFrom) {
-      results = results.filter(p => p.year >= f.yearFrom!)
-    }
-    if (f.yearTo) {
-      results = results.filter(p => p.year <= f.yearTo!)
-    }
-    if (f.venue) {
-      results = results.filter(p =>
-        p.venue?.toLowerCase().includes(f.venue!.toLowerCase())
-      )
-    }
-    if (f.minCitations) {
-      results = results.filter(p => (p.citationCount ?? 0) >= f.minCitations!)
-    }
-    if (f.sort === 'year') {
-      results = [...results].sort((a, b) => b.year - a.year)
-    } else if (f.sort === 'citations') {
-      results = [...results].sort((a, b) => (b.citationCount ?? 0) - (a.citationCount ?? 0))
-    }
-    return results
-  })
+  const hasResults = computed(() => searchResults.value.length > 0)
+
+  const totalPages = computed(() =>
+    Math.ceil(totalResults.value / pageSize.value) || 1
+  )
 
   async function searchPapers(query: string, page: number = 1) {
+    loading.value = true
+    error.value = null
     currentQuery.value = query
     currentPage.value = page
-    const res = await paperApi.search({
-      q: query,
-      page,
-      size: pageSize.value,
-      ...filters.value
-    })
-    searchResults.value = res.items
-    totalResults.value = res.total
+    try {
+      const res = await paperApi.search({
+        q: query,
+        page,
+        size: pageSize.value,
+        ...filters.value
+      })
+      searchResults.value = res.items
+      totalResults.value = res.total
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '搜索失败'
+      error.value = message
+    } finally {
+      loading.value = false
+    }
   }
 
   function togglePaperSelection(paper: Paper) {
@@ -66,20 +58,59 @@ export const usePaperStore = defineStore('paper', () => {
     }
   }
 
+  function clearSelection() {
+    selectedPapers.value = []
+  }
+
   async function toggleFavorite(paperId: string) {
-    if (favorites.value.includes(paperId)) {
-      await paperApi.removeFavorite(paperId)
+    const wasFavorited = favorites.value.includes(paperId)
+    if (wasFavorited) {
       favorites.value = favorites.value.filter(id => id !== paperId)
     } else {
-      await paperApi.addFavorite(paperId)
       favorites.value.push(paperId)
     }
+    try {
+      if (wasFavorited) {
+        await paperApi.removeFavorite(paperId)
+      } else {
+        await paperApi.addFavorite(paperId)
+      }
+    } catch {
+      if (wasFavorited) {
+        favorites.value.push(paperId)
+      } else {
+        favorites.value = favorites.value.filter(id => id !== paperId)
+      }
+      throw new Error('收藏操作失败')
+    }
+  }
+
+  async function fetchFavorites() {
+    favorites.value = []
+  }
+
+  function updateFilters(newFilters: FilterParams) {
+    filters.value = { ...filters.value, ...newFilters }
+    if (currentQuery.value) {
+      searchPapers(currentQuery.value, 1)
+    }
+  }
+
+  function resetSearch() {
+    searchResults.value = []
+    currentQuery.value = ''
+    filters.value = {}
+    totalResults.value = 0
+    currentPage.value = 1
+    error.value = null
   }
 
   return {
     searchResults, selectedPapers, favorites, filters,
     currentQuery, totalResults, currentPage, pageSize,
-    selectedPaperIds, filteredResults,
-    searchPapers, togglePaperSelection, toggleFavorite
+    loading, error,
+    selectedPaperIds, hasResults, totalPages,
+    searchPapers, togglePaperSelection, clearSelection,
+    toggleFavorite, fetchFavorites, updateFilters, resetSearch
   }
 })

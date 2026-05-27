@@ -214,6 +214,10 @@ json_prompt/
 | 11 | task11_register_view | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.1.1 |
 | 12 | task12_user_profile_form | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.1.2, F1.1.3 |
 | 13 | task13_user_center_view_store | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.1.3, F1.1.4 |
+| 14 | task14_home_view_complete | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.2.1, F1.2.6 |
+| 15 | task15_search_view_paper_card | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.2.2, F1.2.3, F1.2.4 |
+| 16 | task16_paper_store_use_pagination | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.2.1, F1.2.2, F1.2.3 |
+| 17 | task17_search_integration_test | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.2.1-F1.2.6 |
 
 > **维护说明**：每新增一个任务文件夹，必须同步更新对应模块目录的映射表。序号与里程碑对应关系参考 `docs/项目里程碑文档.md` 和 `docs/版本里程碑功能清单.md`。
 

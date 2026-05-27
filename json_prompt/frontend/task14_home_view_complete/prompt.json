@@ -1,0 +1,404 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "FM2：用户界面与论文检索页面可用",
+    "requirement": "完善HomeView首页，实现完整功能：主题输入框（el-input clearable + 回车/按钮触发检索）、历史搜索记录展示（最近10条，localStorage key='recent_searches'，el-tag标签形式）、检索触发逻辑（通过paperStore.searchPapers()调用API，成功后router.push('/search')）、未登录用户可使用首页但检索时需引导登录（router.push('/login')）、搜索中loading状态、空状态处理（历史为空时不显示历史区域）",
+    "requirement_ids": ["F1.2.1", "F1.2.2"],
+    "reference_docs": [
+      {
+        "path": "docs/frontend/前端模块系统架构文档.md",
+        "purpose": "了解前端整体架构、组件规范、路由结构"
+      },
+      {
+        "path": "docs/frontend/前端模块项目里程碑文档.md",
+        "purpose": "了解FM2里程碑的任务范围和验收标准"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "项目全景上下文，含API契约、编码规范、安全规范"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/views/",
+        "description": "页面组件目录，HomeView.vue为首页搜索入口"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/stores/",
+        "description": "Pinia状态管理，paperStore含searchPapers方法，userStore含isLoggedIn计算属性"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/utils/",
+        "description": "工具函数目录，storage.ts含getRecentSearches/saveRecentSearch/clearRecentSearches"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/frontend/src/views/HomeView.vue",
+        "description": "FM1已创建的HomeView骨架，包含基础搜索框、历史标签、搜索跳转逻辑，但缺少loading状态、paperStore.searchPapers()调用、硬编码颜色、搜索按钮未与输入框整合",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/frontend/src/stores/paperStore.ts",
+        "description": "论文Store，setup store风格，含searchPapers(query, page?)异步方法，返回后设置searchResults/totalResults/currentQuery",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/stores/userStore.ts",
+        "description": "用户Store，setup store风格，含isLoggedIn计算属性(!!token)、login/logout方法",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/api/paper.ts",
+        "description": "论文API封装，search方法签名: search(params: {q:string; page?:number; size?:number} & FilterParams): Promise<PageResponse<Paper>>",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/router/index.ts",
+        "description": "路由配置，/ 路径映射HomeView(meta.requiresAuth:false)，/search映射SearchView(meta.requiresAuth:true)，全局前置守卫检查isLoggedIn",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/utils/storage.ts",
+        "description": "localStorage工具，RECENT_SEARCHES_KEY='recent_searches'，含getRecentSearches()/saveRecentSearch(query)/clearRecentSearches()三个方法，已实现去重和最多10条限制",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "paperStore",
+      "path": "Veritas/frontend/src/stores/paperStore.ts",
+      "responsibility": "论文检索状态管理，管理searchResults/selectedPapers/filters/currentQuery/totalResults",
+      "key_interfaces": [
+        {
+          "name": "searchPapers",
+          "signature": "async searchPapers(query: string, page?: number): Promise<void>",
+          "description": "调用paperApi.search发起检索，设置searchResults/totalResults/currentQuery"
+        },
+        {
+          "name": "currentQuery",
+          "signature": "currentQuery: Ref<string>",
+          "description": "当前搜索关键词，搜索成功后存入Store供SearchView读取"
+        }
+      ]
+    },
+    {
+      "name": "userStore",
+      "path": "Veritas/frontend/src/stores/userStore.ts",
+      "responsibility": "用户认证状态管理，管理token/userId/profile",
+      "key_interfaces": [
+        {
+          "name": "isLoggedIn",
+          "signature": "isLoggedIn: ComputedRef<boolean>",
+          "description": "是否已登录(!!token)，用于检索前检查登录状态"
+        }
+      ]
+    },
+    {
+      "name": "storage",
+      "path": "Veritas/frontend/src/utils/storage.ts",
+      "responsibility": "localStorage工具，管理搜索历史记录",
+      "key_interfaces": [
+        {
+          "name": "getRecentSearches",
+          "signature": "getRecentSearches(): string[]",
+          "description": "从localStorage读取最近10条搜索记录"
+        },
+        {
+          "name": "saveRecentSearch",
+          "signature": "saveRecentSearch(query: string): void",
+          "description": "保存搜索记录到localStorage，自动去重、最多10条"
+        },
+        {
+          "name": "clearRecentSearches",
+          "signature": "clearRecentSearches(): void",
+          "description": "清除所有搜索历史"
+        }
+      ]
+    },
+    {
+      "name": "router",
+      "path": "Veritas/frontend/src/router/index.ts",
+      "responsibility": "路由配置与导航守卫",
+      "key_interfaces": [
+        {
+          "name": "router.push",
+          "signature": "router.push(to: RouteLocationRaw): Promise<NavigationFailure | void | undefined>",
+          "description": "编程式导航，检索成功后跳转/search，未登录跳转/login"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/frontend/src/views/HomeView.vue",
+      "description": "将FM1骨架升级为完整实现：整合搜索输入框+检索按钮为el-input+el-button组合、添加isSearching loading状态、通过paperStore.searchPapers()调用API后router.push('/search')、未登录时ElMessage.warning+router.push('/login')、历史搜索为空时不显示历史区域、使用CSS变量替代硬编码颜色、BEM类名规范化、8px间距网格",
+      "layer": "frontend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "搜索输入框：使用el-input组件，size='large'，clearable，placeholder='输入研究主题，如Multi-Agent协同决策'，v-model绑定searchQuery。回车键(@keyup.enter)和检索按钮均可触发搜索。检索按钮(el-button type='primary')使用el-input的append插槽或el-input-group形式与输入框视觉整合",
+        "priority": "P0",
+        "acceptance_condition": "el-input clearable可清空，回车触发搜索，点击检索按钮触发搜索，输入框与按钮视觉一体"
+      },
+      {
+        "id": "FR-002",
+        "description": "检索触发逻辑：1. 校验searchQuery.trim()非空；2. 调用saveRecentSearch(query)保存历史；3. 检查userStore.isLoggedIn，未登录则ElMessage.warning('请先登录')并router.push('/login')返回；4. 已登录则设置isSearching=true，调用paperStore.searchPapers(query)，成功后router.push({name:'Search', query:{q:query}})，finally设置isSearching=false；5. searchPapers失败时ElMessage.error提示",
+        "priority": "P0",
+        "acceptance_condition": "空查询不触发搜索，未登录跳转登录页，已登录搜索成功跳转/search?q=xxx，搜索失败有错误提示"
+      },
+      {
+        "id": "FR-003",
+        "description": "历史搜索展示：1. onMounted时从getRecentSearches()初始化recentSearches；2. v-if='recentSearches.length'条件渲染历史区域；3. 使用el-tag标签展示，effect='plain'，size='small'，closable不可关闭，点击触发handleRecentClick(query)快捷检索；4. 末尾显示'清除'按钮(el-button text size='small')，点击调用clearRecentSearches()并清空recentSearches；5. 每次成功触发搜索后刷新recentSearches.value=getRecentSearches()",
+        "priority": "P0",
+        "acceptance_condition": "历史为空时不显示历史区域，历史标签可点击快捷检索，清除按钮清空历史，搜索后历史列表更新"
+      },
+      {
+        "id": "FR-004",
+        "description": "Loading状态：1. 定义isSearching ref(false)；2. 搜索开始时isSearching=true，结束时(finally)isSearching=false；3. 检索按钮:loading='isSearching'显示加载动画；4. isSearching时禁用输入框和按钮防止重复提交；5. el-input的:disabled='isSearching'，el-button自然:loading会禁用",
+        "priority": "P0",
+        "acceptance_condition": "搜索中按钮显示loading旋转动画，输入框和按钮禁用，搜索结束恢复正常"
+      },
+      {
+        "id": "FR-005",
+        "description": "页面布局与样式：1. 页面垂直水平居中，min-height:100vh flex布局；2. 搜索区max-width:600px居中；3. 标题'科研文献智能助手'使用h1标签，font-size:32px，font-weight:600，text-align:center，颜色使用var(--el-text-color-primary)；4. 副标题描述文字，font-size:14px，color:var(--el-color-info)；5. 搜索框上方48px留白，下方24px间距；6. 历史标签区域margin-top:24px，flex-wrap:wrap，gap:8px；7. 所有间距遵循8px网格(8/12/16/24/32/48)",
+        "priority": "P0",
+        "acceptance_condition": "页面居中，搜索框突出，8px间距网格，CSS变量取色无硬编码颜色"
+      },
+      {
+        "id": "FR-006",
+        "description": "未登录引导：1. 首页本身不需要登录(meta.requiresAuth:false)可正常访问；2. 检索时检查userStore.isLoggedIn；3. 未登录时ElMessage.warning('请先登录')并router.push('/login')；4. 不阻止用户在首页浏览和输入",
+        "priority": "P0",
+        "acceptance_condition": "未登录用户可访问首页并输入查询，点击检索后提示登录并跳转登录页"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+          { "java": "recommendReason", "python": "recommend_reason", "json": "recommend_reason" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "GET /api/papers/search",
+          "method": "GET",
+          "request_format": { "q": "string(查询关键词)", "page": "number(默认1)", "size": "number(默认10)" },
+          "response_format": { "code": 200, "data": { "items": "Paper[]", "total": "number", "page": "number", "size": "number" } }
+        }
+      ],
+      "data_flow": "HomeView → paperStore.searchPapers(query) → paperApi.search({q,page,size}) → Java GET /api/papers/search → 返回PageResponse<Paper> → paperStore.searchResults/totalResults更新 → router.push('/search') → SearchView读取paperStore.searchResults展示"
+    },
+    "security_requirements": [
+      {
+        "category": "jwt_auth",
+        "requirement": "检索前检查isLoggedIn，未登录跳转/login；前端只调Java后端API，禁止直接调Python AI服务"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "禁止console.log Token/API Key等敏感信息"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue",
+        "enum_value": "PascalCase",
+        "config_key": "camelCase"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+        { "java": "recommendReason", "python": "recommend_reason", "json": "recommend_reason" }
+      ]
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → Store → API，异步操作在Store Actions中，组件不直接调用axios"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "searchPapers()在Store内try-catch，组件层通过isSearching状态+ElMessage.error()提示用户；Axios响应拦截器处理401/403/404/5xx等全局错误"
+      }
+    },
+    "caching": {
+      "pattern": "Store State作为前端缓存，paperStore.searchResults在检索后持久化供SearchView读取；localStorage存储搜索历史(recent_searches key)"
+    },
+    "logging": {
+      "prohibited": [
+        "console.log Token/API Key等敏感信息",
+        "console.log搜索查询内容(可能含隐私)"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    {
+      "id": "FA-001",
+      "action": "输出伪代码或TODO注释代替完整实现",
+      "reason": "必须输出完整可执行代码",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-002",
+      "action": "修改需求范围外的模块（paperStore/userStore/storage.ts/router等）",
+      "reason": "本次只修改HomeView.vue，已有模块为直接复用",
+      "severity": "high"
+    },
+    {
+      "id": "FA-003",
+      "action": "在组件中直接调用axios或paperApi（必须通过paperStore.searchPapers()）",
+      "reason": "分层约束：View → Store → API，组件不跳过Store直接调API(AP-012)",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-004",
+      "action": "直接调用Python AI服务API",
+      "reason": "三层架构约束ADR-001，前端只调Java后端",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-005",
+      "action": "使用硬编码颜色值（如#303133, #409EFF等）",
+      "reason": "必须使用CSS变量(AP-010)，如var(--el-text-color-primary), var(--el-color-primary)",
+      "severity": "high"
+    },
+    {
+      "id": "FA-006",
+      "action": "使用非8px倍数间距（如5px, 10px, 15px, 25px）",
+      "reason": "8px间距网格约束(AP-005)，仅允许4/8/12/16/24/32/48px",
+      "severity": "high"
+    },
+    {
+      "id": "FA-007",
+      "action": "不处理loading/error/empty状态",
+      "reason": "交互完整性约束(AP-006/AP-007/AP-008)，所有异步操作必须有状态反馈",
+      "severity": "high"
+    },
+    {
+      "id": "FA-008",
+      "action": "组件超过300行",
+      "reason": "单组件体积约束(AP-001)，HomeView为简单搜索入口页应<200行",
+      "severity": "high"
+    },
+    {
+      "id": "FA-009",
+      "action": "使用Tailwind CSS工具类",
+      "reason": "项目使用Element Plus + scoped CSS + BEM，不使用Tailwind(AP-002)",
+      "severity": "high"
+    },
+    {
+      "id": "FA-010",
+      "action": "在模板中编写复杂业务逻辑（如三元表达式嵌套、内联计算）",
+      "reason": "业务逻辑应在methods/computed中(AP-004)",
+      "severity": "medium"
+    }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "HomeView搜索流程测试",
+        "description": "测试handleSearch函数：空查询不触发、已登录调用searchPapers并跳转、未登录提示并跳转登录",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "历史搜索交互测试",
+        "description": "测试历史标签点击触发搜索、清除按钮清空历史、空历史不显示区域",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "Loading状态测试",
+        "description": "测试isSearching状态正确切换：搜索开始true、搜索结束false(含失败场景)、loading时禁用交互",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "frontend",
+        "command": "cd Veritas/frontend && npx vue-tsc --noEmit",
+        "expected_result": "无TypeScript错误"
+      },
+      {
+        "layer": "frontend",
+        "command": "cd Veritas/frontend && npm run build",
+        "expected_result": "构建成功，无编译错误"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "搜索输入框el-input clearable，回车和检索按钮均可触发搜索，输入框与按钮视觉整合（el-input append插槽）",
+      "verified_by": "manual_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "检索逻辑：空查询不触发→保存历史→检查登录→未登录ElMessage.warning+router.push('/login')→已登录paperStore.searchPapers()→成功router.push('/search')→失败ElMessage.error",
+      "verified_by": "manual_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "历史搜索：最多10条el-tag展示，为空时不显示历史区域(v-if)，点击标签快捷检索，清除按钮清空",
+      "verified_by": "manual_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "Loading状态：检索按钮:loading='isSearching'，搜索中输入框和按钮禁用，搜索结束恢复",
+      "verified_by": "manual_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "未登录用户可访问首页，输入查询后点击检索提示登录并跳转/login",
+      "verified_by": "manual_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "页面居中布局，搜索区max-width:600px，8px间距网格，CSS变量取色无硬编码颜色",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "BEM CSS命名规范：home-view__content/home-view__search-box/home-view__title/home-view__subtitle/home-view__recent等",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "组件≤300行，<script setup lang='ts'> + Composition API + <style scoped lang='scss'>",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "vue-tsc --noEmit无TypeScript错误，npm run build构建成功",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-010",
+      "criterion": "异步操作通过paperStore.searchPapers()调用，组件不直接调用axios或paperApi",
+      "verified_by": "code_review"
+    }
+  ]
+}

@@ -8,7 +8,7 @@ from loguru import logger
 
 from app.api.router import api_router
 from app.core.config import settings
-from app.core.events import embedding_service, llm_service, on_shutdown, on_startup, prompt_manager, vector_store_service
+from app.core.events import app_state, on_shutdown, on_startup
 from app.exception import AIServiceException
 
 
@@ -33,10 +33,10 @@ async def health_check():
     return {
         "status": "UP",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "llm": llm_service.status if llm_service else "not_loaded",
-        "embedding": embedding_service.status if embedding_service else "not_loaded",
-        "chroma": vector_store_service.status if vector_store_service else "not_connected",
-        "prompts": prompt_manager.status if prompt_manager else "not_loaded",
+        "llm": app_state.llm_service.status if app_state.llm_service else "not_loaded",
+        "embedding": app_state.embedding_service.status if app_state.embedding_service else "not_loaded",
+        "chroma": app_state.vector_store_service.status if app_state.vector_store_service else "not_connected",
+        "prompts": app_state.prompt_manager.status if app_state.prompt_manager else "not_loaded",
     }
 
 

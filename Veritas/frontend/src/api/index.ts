@@ -2,6 +2,13 @@ import axios from 'axios'
 import type { ApiResponse } from '@/types/common'
 import { ElMessage } from 'element-plus'
 
+const AUTH_WHITELIST = ['/users/login', '/users/register']
+
+function isAuthRequest(url: string | undefined): boolean {
+  if (!url) return false
+  return AUTH_WHITELIST.some(path => url.includes(path))
+}
+
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 30000,
@@ -12,6 +19,9 @@ const http = axios.create({
 
 http.interceptors.request.use(
   async (config) => {
+    if (isAuthRequest(config.url)) {
+      return config
+    }
     const { useUserStore } = await import('@/stores/userStore')
     const userStore = useUserStore()
     if (userStore.token) {
@@ -33,12 +43,17 @@ http.interceptors.response.use(
   },
   async (error) => {
     if (error.response?.status === 401) {
-      const { useUserStore } = await import('@/stores/userStore')
-      const { default: router } = await import('@/router')
-      const userStore = useUserStore()
-      userStore.logout()
-      router.push('/login')
-      ElMessage.error('登录已过期，请重新登录')
+      if (isAuthRequest(error.config?.url)) {
+        const message = error.response?.data?.message || '用户名或密码错误'
+        ElMessage.error(message)
+      } else {
+        const { useUserStore } = await import('@/stores/userStore')
+        const { default: router } = await import('@/router')
+        const userStore = useUserStore()
+        userStore.logout()
+        router.push('/login')
+        ElMessage.error('登录已过期，请重新登录')
+      }
     } else if (error.response?.status === 403) {
       ElMessage.error('无权限访问')
     } else if (error.response?.status === 404) {

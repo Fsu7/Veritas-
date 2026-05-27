@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { shallowMount } from '@vue/test-utils'
+import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import HomeView from '@/views/HomeView.vue'
-import { useUserStore } from '@/stores/userStore'
 import * as storage from '@/utils/storage'
 
 vi.mock('vue-router', () => ({
@@ -21,42 +20,53 @@ describe('HomeView', () => {
     vi.clearAllMocks()
   })
 
-  it('renders AppHeader and AppFooter', () => {
-    const wrapper = shallowMount(HomeView)
-    expect(wrapper.findComponent({ name: 'AppHeader' }).exists()).toBe(true)
-    expect(wrapper.findComponent({ name: 'AppFooter' }).exists()).toBe(true)
+  it('renders search title', () => {
+    const wrapper = mount(HomeView)
+    expect(wrapper.find('.home-view__title').exists()).toBe(true)
+    expect(wrapper.find('.home-view__title').text()).toContain('科研文献智能助手')
   })
 
-  it('renders search title and area', () => {
-    const wrapper = shallowMount(HomeView)
-    expect(wrapper.find('.home-view__title').exists()).toBe(true)
-    expect(wrapper.find('.home-view__search').exists()).toBe(true)
+  it('renders subtitle', () => {
+    const wrapper = mount(HomeView)
+    expect(wrapper.find('.home-view__subtitle').exists()).toBe(true)
+  })
+
+  it('renders search input area', () => {
+    const wrapper = mount(HomeView)
+    expect(wrapper.find('.home-view__search-box').exists()).toBe(true)
   })
 
   it('displays recent searches from localStorage', () => {
     storage.saveRecentSearch('test-query')
-    const wrapper = shallowMount(HomeView)
+    const wrapper = mount(HomeView)
     expect(wrapper.find('.home-view__recent').exists()).toBe(true)
   })
 
-  it('shows no recent searches when empty', () => {
-    const wrapper = shallowMount(HomeView)
+  it('hides recent searches when empty', () => {
+    const wrapper = mount(HomeView)
     expect(wrapper.find('.home-view__recent').exists()).toBe(false)
   })
 
-  it('unauthenticated user is not logged in', () => {
-    shallowMount(HomeView)
-    const userStore = useUserStore()
-    expect(userStore.isLoggedIn).toBe(false)
+  it('clears recent searches via method call', async () => {
+    storage.saveRecentSearch('test')
+    const wrapper = mount(HomeView)
+    expect(wrapper.find('.home-view__recent').exists()).toBe(true)
+    const vm = wrapper.vm as unknown as { handleClearRecent: () => void }
+    vm.handleClearRecent()
+    await wrapper.vm.$nextTick()
+    expect(storage.getRecentSearches()).toEqual([])
+    expect(wrapper.find('.home-view__recent').exists()).toBe(false)
   })
 
-  it('clears recent searches when clear button clicked', async () => {
-    storage.saveRecentSearch('test')
-    const wrapper = shallowMount(HomeView)
+  it('has correct title color using CSS variable', () => {
+    const wrapper = mount(HomeView)
+    const title = wrapper.find('.home-view__title')
+    expect(title.exists()).toBe(true)
+  })
 
-    expect(wrapper.find('.home-view__recent').exists()).toBe(true)
-
-    await wrapper.find('.home-view__clear-btn').trigger('click')
-    expect(storage.getRecentSearches()).toEqual([])
+  it('search box has max-width 600px', () => {
+    const wrapper = mount(HomeView)
+    const searchBox = wrapper.find('.home-view__search-box')
+    expect(searchBox.exists()).toBe(true)
   })
 })

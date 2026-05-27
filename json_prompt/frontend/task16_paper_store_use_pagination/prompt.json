@@ -1,0 +1,482 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "FM2：用户界面与论文检索页面可用",
+    "requirement": "完善paperStore.ts为完整论文数据Pinia Store，新增loading/error状态、hasResults/totalPages计算属性、clearSelection/fetchFavorites/updateFilters/resetSearch等Actions；同时创建usePagination.ts通用分页组合函数，封装分页逻辑供SearchView等页面复用",
+    "requirement_ids": ["F1.2.1", "F1.2.2", "F1.2.3"],
+    "reference_docs": [
+      {
+        "path": "docs/frontend/前端模块系统架构文档.md",
+        "purpose": "论文检索页面设计规范、paperStore状态设计、分页交互规范"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "API契约（/api/papers/search、/api/papers/{paperId}/favorite）、Paper字段映射、FilterParams定义"
+      },
+      {
+        "path": "docs/开发规范文档.md",
+        "purpose": "Pinia setup store规范、composable命名规范、状态管理规范"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-007 Cache-Aside缓存、ADR-009 SSE实时推送"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/stores/paperStore.ts",
+        "description": "论文状态管理Pinia Store，FM1已创建基础骨架，需完善为完整实现"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/composables/",
+        "description": "组合函数目录，当前为空，需新增usePagination.ts"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/api/paper.ts",
+        "description": "论文API封装，已实现search/list/getDetail/addFavorite/removeFavorite"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/types/paper.ts",
+        "description": "Paper/FilterParams类型定义"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/types/common.ts",
+        "description": "PageResponse<T>分页响应类型定义"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/frontend/src/stores/paperStore.ts",
+        "description": "Pinia setup store骨架，已实现：searchResults/selectedPapers/favorites/filters/currentQuery/totalResults/currentPage/pageSize state、selectedPaperIds/filteredResults getters、searchPapers/togglePaperSelection/toggleFavorite actions。缺失：loading/error state、hasResults/totalPages getters、clearSelection/fetchFavorites/updateFilters/resetSearch actions。问题：filteredResults做客户端过滤与API服务端过滤重复、searchPapers缺少loading/error状态管理",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/frontend/src/api/paper.ts",
+        "description": "paperApi.search(params: {q, page?, size?} & FilterParams): Promise<PageResponse<Paper>>，search方法已支持FilterParams参数透传，addFavorite/removeFavorite已实现",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/types/paper.ts",
+        "description": "Paper接口（paperId/title/authors/abstract/year/venue/keywords/citationCount/pdfUrl/score/recommendReason）、FilterParams接口（yearFrom/yearTo/venue/minCitations/sort）",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/types/common.ts",
+        "description": "PageResponse<T>接口（items/total/page/size/totalPages）",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/stores/userStore.ts",
+        "description": "参考实现：setup store风格、async action模式",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "paperStore",
+      "path": "Veritas/frontend/src/stores/paperStore.ts",
+      "responsibility": "论文数据状态管理：搜索结果、论文选择（最多5篇）、收藏列表、筛选参数、分页、加载/错误状态",
+      "key_interfaces": [
+        {
+          "name": "searchPapers",
+          "signature": "async searchPapers(query: string, page?: number): Promise<void>",
+          "description": "执行论文搜索，设置loading/error，调用paperApi.search，更新searchResults/totalResults/currentQuery/currentPage"
+        },
+        {
+          "name": "togglePaperSelection",
+          "signature": "togglePaperSelection(paper: Paper): void",
+          "description": "切换论文选择状态，添加或移除，最多5篇"
+        },
+        {
+          "name": "clearSelection",
+          "signature": "clearSelection(): void",
+          "description": "清空已选论文列表"
+        },
+        {
+          "name": "toggleFavorite",
+          "signature": "async toggleFavorite(paperId: string): Promise<void>",
+          "description": "切换论文收藏状态，调用addFavorite/removeFavorite API"
+        },
+        {
+          "name": "fetchFavorites",
+          "signature": "async fetchFavorites(): Promise<void>",
+          "description": "获取用户收藏论文ID列表（占位实现）"
+        },
+        {
+          "name": "updateFilters",
+          "signature": "updateFilters(newFilters: FilterParams): void",
+          "description": "更新筛选参数并使用当前query重新搜索（回到第1页）"
+        },
+        {
+          "name": "resetSearch",
+          "signature": "resetSearch(): void",
+          "description": "重置搜索状态（清空结果/query/filters/分页/error）"
+        }
+      ]
+    },
+    {
+      "name": "usePagination",
+      "path": "Veritas/frontend/src/composables/usePagination.ts",
+      "responsibility": "通用分页逻辑组合函数，封装页码/页大小/总页数计算，供SearchView/PaperDetailView等复用",
+      "key_interfaces": [
+        {
+          "name": "usePagination",
+          "signature": "usePagination(total: Ref<number>, pageSize?: number): { currentPage, totalPages, pageSize, handleCurrentChange, handleSizeChange, resetPage }",
+          "description": "输入total和可选pageSize，返回分页状态和操作方法"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/frontend/src/stores/paperStore.ts",
+      "description": "完善paperStore：新增loading/error state、hasResults/totalPages getters、clearSelection/fetchFavorites/updateFilters/resetSearch actions；移除filteredResults（服务端已过滤）；searchPapers增加loading/error状态管理",
+      "layer": "frontend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/frontend/src/composables/usePagination.ts",
+      "description": "新增通用分页组合函数：封装currentPage/totalPages/pageSize状态、handleCurrentChange/handleSizeChange/resetPage方法",
+      "layer": "frontend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "paperStore State完善：新增 loading: ref<boolean>(false) 和 error: ref<string | null>(null)，与现有searchResults/selectedPapers/favorites/filters/currentQuery/totalResults/currentPage/pageSize共同组成完整状态",
+        "priority": "P0",
+        "acceptance_condition": "paperStore包含10个state字段：searchResults, selectedPapers, favorites, filters, currentQuery, totalResults, currentPage, pageSize, loading, error"
+      },
+      {
+        "id": "FR-002",
+        "description": "paperStore Getters完善：新增 hasResults = computed(() => searchResults.value.length > 0) 和 totalPages = computed(() => Math.ceil(totalResults.value / pageSize.value) || 1)；移除filteredResults getter（过滤由API服务端完成，无需客户端二次过滤）",
+        "priority": "P0",
+        "acceptance_condition": "paperStore导出hasResults和totalPages两个computed，不再导出filteredResults"
+      },
+      {
+        "id": "FR-003",
+        "description": "searchPapers完善loading/error管理：函数体开头 loading.value = true; error.value = null；try块内执行paperApi.search并更新searchResults/totalResults；catch块 error.value = e.message || '搜索失败'；finally块 loading.value = false。保留现有参数 (query: string, page: number = 1) 和API调用逻辑",
+        "priority": "P0",
+        "acceptance_condition": "searchPapers调用期间loading=true，成功后loading=false且error=null，失败后loading=false且error有值"
+      },
+      {
+        "id": "FR-004",
+        "description": "clearSelection action：function clearSelection() { selectedPapers.value = [] }，清空已选论文列表",
+        "priority": "P0",
+        "acceptance_condition": "调用后selectedPapers为空数组"
+      },
+      {
+        "id": "FR-005",
+        "description": "fetchFavorites action：async function fetchFavorites() → 暂时实现为空数组占位（后端收藏列表API尚未联调），设置 favorites.value = []。预留后续对接 GET /api/papers/favorites 接口的位置",
+        "priority": "P1",
+        "acceptance_condition": "调用后favorites为空数组（占位实现），代码中预留API对接注释"
+      },
+      {
+        "id": "FR-006",
+        "description": "updateFilters action：function updateFilters(newFilters: FilterParams) { filters.value = { ...filters.value, ...newFilters }; if (currentQuery.value) { searchPapers(currentQuery.value, 1) } }，合并新筛选参数并重新搜索（回到第1页）",
+        "priority": "P0",
+        "acceptance_condition": "调用updateFilters后filters合并更新，若currentQuery非空则触发搜索回到第1页"
+      },
+      {
+        "id": "FR-007",
+        "description": "resetSearch action：function resetSearch() { searchResults.value = []; currentQuery.value = ''; filters.value = {}; totalResults.value = 0; currentPage.value = 1; error.value = null }，重置搜索相关状态（不清空selectedPapers和favorites）",
+        "priority": "P0",
+        "acceptance_condition": "调用后searchResults为空、currentQuery为空字符串、filters为空对象、totalResults为0、currentPage为1、error为null"
+      },
+      {
+        "id": "FR-008",
+        "description": "移除filteredResults getter：当前filteredResults做客户端过滤（yearFrom/yearTo/venue/minCitations/sort），与API服务端过滤功能重复。删除filteredResults computed定义及其return导出",
+        "priority": "P0",
+        "acceptance_condition": "paperStore不再包含filteredResults getter"
+      },
+      {
+        "id": "FR-009",
+        "description": "usePagination composable创建：定义函数 usePagination(total: Ref<number>, defaultPageSize: number = 10)，内部维护 currentPage = ref(1)、pageSize = ref(defaultPageSize)，计算 totalPages = computed(() => Math.ceil(total.value / pageSize.value) || 1)",
+        "priority": "P0",
+        "acceptance_condition": "usePagination接受total和可选pageSize参数，返回currentPage/totalPages/pageSize三个响应式值"
+      },
+      {
+        "id": "FR-010",
+        "description": "usePagination handleCurrentChange：返回一个函数供el-pagination的@current-change事件直接绑定，内部更新currentPage后调用callback(page)",
+        "priority": "P0",
+        "acceptance_condition": "handleCurrentChange返回函数，调用后currentPage更新并执行callback"
+      },
+      {
+        "id": "FR-011",
+        "description": "usePagination handleSizeChange：返回一个函数，切换页大小时重置currentPage为1后调用callback(size)",
+        "priority": "P0",
+        "acceptance_condition": "handleSizeChange返回函数，调用后pageSize更新、currentPage重置为1并执行callback"
+      },
+      {
+        "id": "FR-012",
+        "description": "usePagination resetPage：function resetPage() { currentPage.value = 1 }，重置页码到第1页",
+        "priority": "P1",
+        "acceptance_condition": "调用后currentPage为1"
+      },
+      {
+        "id": "FR-013",
+        "description": "usePagination是纯逻辑composable，不依赖任何Store（不import任何Store），仅依赖Vue的ref/computed。所有数据加载逻辑通过callback参数传入，由调用方决定",
+        "priority": "P0",
+        "acceptance_condition": "usePagination.ts无任何Store import，仅import { ref, computed } from 'vue'"
+      },
+      {
+        "id": "FR-014",
+        "description": "paperStore return语句完整导出：导出所有state（searchResults/selectedPapers/favorites/filters/currentQuery/totalResults/currentPage/pageSize/loading/error）、所有getters（selectedPaperIds/hasResults/totalPages）、所有actions（searchPapers/togglePaperSelection/clearSelection/toggleFavorite/fetchFavorites/updateFilters/resetSearch）",
+        "priority": "P0",
+        "acceptance_condition": "paperStore return语句包含10个state + 3个getter + 7个action"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Store camelCase ↔ JSON snake_case",
+        "mappings": [
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+          { "java": "recommendReason", "python": "recommend_reason", "json": "recommend_reason" },
+          { "java": "pdfUrl", "python": "pdf_url", "json": "pdf_url" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/papers/search",
+          "method": "GET",
+          "request_format": { "q": "string", "page": "number", "size": "number", "yearFrom": "number?", "yearTo": "number?", "venue": "string?", "minCitations": "number?", "sort": "'relevance'|'year'|'citations'?" },
+          "response_format": { "code": 200, "data": { "items": "Paper[]", "total": "number", "page": "number", "size": "number", "totalPages": "number" } }
+        }
+      ],
+      "data_flow": "SearchView → paperStore.searchPapers(query, page) → paperApi.search({q, page, size, ...filters}) → 后端GET /api/papers/search → PageResponse<Paper> → 更新searchResults/totalResults/currentQuery/currentPage → 渲染搜索结果列表"
+    }
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+        { "java": "recommendReason", "python": "recommend_reason", "json": "recommend_reason" }
+      ]
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → Store → API，SearchView通过paperStore操作论文数据，通过usePagination处理分页逻辑；异步操作在Store Actions中，不放组件内"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "paperStore.searchPapers使用try/catch/finally管理loading/error状态；toggleFavorite异常向上抛出由组件ElMessage.error提示；usePagination不含错误处理（纯逻辑）"
+      }
+    },
+    "caching": {
+      "pattern": "搜索结果通过paperStore state缓存（Store实例生命周期内有效）；收藏列表通过favorites state缓存"
+    },
+    "logging": {
+      "prohibited": [
+        "console.log API响应数据中的敏感信息",
+        "在循环中打印日志"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    {
+      "id": "FA-001",
+      "action": "usePagination中import或依赖任何Pinia Store",
+      "reason": "usePagination是纯逻辑composable，数据加载通过callback传入，由调用方决定",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-002",
+      "action": "在paperStore中保留filteredResults getter做客户端过滤",
+      "reason": "过滤由API服务端完成（FilterParams透传），客户端二次过滤会导致数据不一致",
+      "severity": "high"
+    },
+    {
+      "id": "FA-003",
+      "action": "searchPapers不设置loading/error状态",
+      "reason": "loading/error是搜索交互的核心状态，缺少会导致UI无法展示加载中和错误提示",
+      "severity": "high"
+    },
+    {
+      "id": "FA-004",
+      "action": "在组件中直接调用paperApi而不通过paperStore",
+      "reason": "遵循View→Store→API分层规范，Store统一管理状态",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-005",
+      "action": "selectedPapers超过5篇",
+      "reason": "MAX_SELECTED_PAPERS=5是业务约束，togglePaperSelection必须严格执行上限",
+      "severity": "high"
+    },
+    {
+      "id": "FA-006",
+      "action": "usePagination的handleCurrentChange/handleSizeChange不通过callback模式",
+      "reason": "composable不应硬编码数据加载逻辑，通过callback解耦",
+      "severity": "high"
+    },
+    {
+      "id": "FA-007",
+      "action": "输出伪代码或TODO注释",
+      "reason": "必须输出完整可执行代码",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-008",
+      "action": "单个文件超过300行",
+      "reason": "单文件≤300行约束",
+      "severity": "high"
+    },
+    {
+      "id": "FA-009",
+      "action": "fetchFavorites直接调用不存在的API",
+      "reason": "后端收藏列表API尚未联调，需占位实现",
+      "severity": "high"
+    },
+    {
+      "id": "FA-010",
+      "action": "前端直接调用Python AI服务API",
+      "reason": "三层架构约束ADR-001",
+      "severity": "critical"
+    }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "paper_store_searchPapers_loading_error",
+        "description": "验证searchPapers的loading/error状态管理：调用开始loading=true/error=null，成功后loading=false，失败后loading=false/error有值",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "paper_store_togglePaperSelection_max5",
+        "description": "验证togglePaperSelection最多5篇限制：添加第6篇时忽略，移除已有论文时正确删除",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "paper_store_clearSelection",
+        "description": "验证clearSelection清空selectedPapers",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "paper_store_updateFilters",
+        "description": "验证updateFilters合并筛选参数并触发重新搜索回到第1页",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "paper_store_resetSearch",
+        "description": "验证resetSearch重置所有搜索状态（不清空selectedPapers和favorites）",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "usePagination_totalPages",
+        "description": "验证totalPages计算：total=0时为1，total=25/pageSize=10时为3，total=10/pageSize=10时为1",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "usePagination_handleCurrentChange",
+        "description": "验证handleCurrentChange更新currentPage并调用callback",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "usePagination_handleSizeChange_resetPage",
+        "description": "验证handleSizeChange更新pageSize、重置currentPage为1并调用callback",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "frontend",
+        "command": "cd Veritas/frontend && npx vue-tsc --noEmit",
+        "expected_result": "无TypeScript错误"
+      },
+      {
+        "layer": "frontend",
+        "command": "cd Veritas/frontend && npx vitest run src/stores/paperStore.ts src/composables/usePagination.ts",
+        "expected_result": "所有测试通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "paperStore包含10个state字段：searchResults, selectedPapers, favorites, filters, currentQuery, totalResults, currentPage, pageSize, loading, error",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "paperStore包含3个getter：selectedPaperIds, hasResults, totalPages（无filteredResults）",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "paperStore包含7个action：searchPapers, togglePaperSelection, clearSelection, toggleFavorite, fetchFavorites, updateFilters, resetSearch",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "searchPapers调用期间loading=true，成功后loading=false/error=null，失败后loading=false/error有值",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "togglePaperSelection严格限制selectedPapers最多5篇",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "updateFilters合并筛选参数并触发重新搜索回到第1页",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "resetSearch重置搜索状态但不清空selectedPapers和favorites",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "usePagination不依赖任何Store，仅依赖Vue ref/computed",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "handleCurrentChange/handleSizeChange通过callback模式解耦数据加载",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-010",
+      "criterion": "TypeScript类型检查通过，两个文件均不超过300行",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-011",
+      "criterion": "fetchFavorites为占位实现（空数组），不调用不存在的API",
+      "verified_by": "code_review"
+    }
+  ]
+}

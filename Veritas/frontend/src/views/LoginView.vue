@@ -39,7 +39,6 @@ async function handleLogin() {
     const redirect = (route.query.redirect as string) || '/'
     router.push(redirect)
   } catch {
-    ElMessage.error('登录失败，请检查用户名和密码')
   } finally {
     loginLoading.value = false
   }

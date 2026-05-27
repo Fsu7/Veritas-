@@ -62,3 +62,112 @@
 **/.idea/
 **/.vscode/
 **/*.iml
+
+# ============================================================
+# 编译产物与构建输出 — 无需版本控制
+# ============================================================
+
+# --- Java / Maven / Gradle ---
+**/target/
+**/build/
+**/*.class
+**/*.jar
+**/*.war
+**/*.ear
+**/.gradle/
+**/gradle-app.setting
+**/out/
+
+# --- Node.js / 前端 ---
+**/node_modules/
+**/dist/
+**/.vite/
+**/.next/
+**/.nuxt/
+**/.output/
+
+# --- Python ---
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/*.egg-info/
+**/.eggs/
+**/build/lib/
+**/build/scripts-*/
+
+# --- 通用编译产物 ---
+**/*.o
+**/*.obj
+**/*.so
+**/*.dll
+**/*.exe
+**/*.out
+**/*.a
+**/*.lib
+
+# ============================================================
+# 缓存文件 — 自动生成，无需跟踪
+# ============================================================
+
+# --- 前端缓存 ---
+**/.cache/
+**/.parcel-cache/
+**/.turbo/
+
+# --- Python缓存 ---
+**/.coverage
+**/htmlcov/
+**/.tox/
+**/.nox/
+
+# --- 操作系统缓存 ---
+**/.Trash/
+**/Trash/
+
+# ============================================================
+# 非核心代码文件 — 开发辅助，非项目核心
+# ============================================================
+
+# --- 本地开发配置 ---
+**/.envrc
+**/local.properties
+**/application-local.yml
+**/application-local.properties
+
+# --- 测试报告与覆盖率 ---
+**/test-results/
+**/coverage/
+**/*.lcov
+
+# --- 临时文件 ---
+**/tmp/
+**/temp/
+**/*.tmp
+**/*.bak
+**/*.orig
+
+# --- 依赖锁定文件（可选忽略，视团队约定）---
+# **/package-lock.json
+# **/yarn.lock
+# **/pnpm-lock.yaml
+# **/poetry.lock
+
+# --- 文档生成 ---
+**/site/
+**/apidoc/
+
+# --- 数据库文件 ---
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+
+# --- Python 虚拟环境 ---
+**/.venv/
+**/.venv*/
+**/venv/
+**/env/
+**/.env/
+**/virtualenv/

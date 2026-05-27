@@ -3,15 +3,18 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/userStore'
+import { usePaperStore } from '@/stores/paperStore'
 import { getRecentSearches, saveRecentSearch, clearRecentSearches } from '@/utils/storage'
 
 const router = useRouter()
 const userStore = useUserStore()
+const paperStore = usePaperStore()
 
 const searchQuery = ref('')
+const isSearching = ref(false)
 const recentSearches = ref<string[]>(getRecentSearches())
 
-function handleSearch() {
+async function handleSearch() {
   const query = searchQuery.value.trim()
   if (!query) return
 
@@ -24,7 +27,15 @@ function handleSearch() {
     return
   }
 
-  router.push({ name: 'Search', query: { q: query } })
+  isSearching.value = true
+  try {
+    await paperStore.searchPapers(query)
+    router.push({ name: 'Search', query: { q: query } })
+  } catch {
+    ElMessage.error('检索失败，请稍后重试')
+  } finally {
+    isSearching.value = false
+  }
 }
 
 function handleRecentClick(query: string) {
@@ -41,31 +52,42 @@ function handleClearRecent() {
 <template>
   <div class="home-view">
     <div class="home-view__content">
-      <div class="home-view__search">
-        <h1 class="home-view__title">🔍 科研文献智能助手</h1>
-        <div class="home-view__search-input">
+      <div class="home-view__search-box">
+        <h1 class="home-view__title">科研文献智能助手</h1>
+        <p class="home-view__subtitle">领域知识个性化生成与多智能体协同决策系统</p>
+        <div class="home-view__input-wrapper">
           <el-input
             v-model="searchQuery"
-            placeholder="输入研究主题，如Multi-Agent协同决策"
             size="large"
             clearable
+            :disabled="isSearching"
+            placeholder="输入研究主题，如Multi-Agent协同决策"
             @keyup.enter="handleSearch"
-          />
+          >
+            <template #append>
+              <el-button
+                type="primary"
+                :loading="isSearching"
+                @click="handleSearch"
+              >
+                检索
+              </el-button>
+            </template>
+          </el-input>
         </div>
-        <el-button type="primary" size="large" @click="handleSearch">检索</el-button>
-        <div class="home-view__recent" v-if="recentSearches.length">
+        <div v-if="recentSearches.length" class="home-view__recent">
           <span class="home-view__recent-label">最近搜索：</span>
           <el-tag
             v-for="tag in recentSearches"
             :key="tag"
             effect="plain"
             size="small"
-            style="cursor: pointer"
+            class="home-view__recent-tag"
             @click="handleRecentClick(tag)"
           >
             {{ tag }}
           </el-tag>
-          <el-button class="home-view__clear-btn" text size="small" @click="handleClearRecent">清除</el-button>
+          <el-button text size="small" @click="handleClearRecent">清除</el-button>
         </div>
       </div>
     </div>
@@ -88,21 +110,28 @@ function handleClearRecent() {
   padding: var(--spacing-xl);
 }
 
-.home-view__search {
+.home-view__search-box {
   width: 100%;
-  max-width: 640px;
-}
-
-.home-view__title {
-  font-size: var(--font-size-xxl);
-  font-weight: 600;
-  margin-bottom: var(--spacing-lg);
-  color: #303133;
+  max-width: 600px;
   text-align: center;
 }
 
-.home-view__search-input {
-  margin-bottom: var(--spacing-md);
+.home-view__title {
+  font-size: 32px;
+  font-weight: 600;
+  margin-bottom: var(--spacing-sm);
+  color: var(--el-text-color-primary);
+  text-align: center;
+}
+
+.home-view__subtitle {
+  font-size: var(--font-size-base);
+  color: var(--el-color-info);
+  margin-bottom: 48px;
+}
+
+.home-view__input-wrapper {
+  margin-bottom: var(--spacing-lg);
 }
 
 .home-view__recent {
@@ -119,7 +148,7 @@ function handleClearRecent() {
   margin-right: var(--spacing-sm);
 }
 
-.home-view__clear-btn {
-  margin-left: auto;
+.home-view__recent-tag {
+  cursor: pointer;
 }
 </style>

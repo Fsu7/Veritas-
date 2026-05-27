@@ -1,0 +1,363 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "FM2：用户界面与论文检索页面可用",
+    "requirement": "论文检索模块联调测试：验证HomeView→SearchView→paperStore→API全链路数据流和交互逻辑，包括首页检索流程（输入→检索→跳转→历史记录→未登录引导）、检索结果页流程（结果展示→PaperCard→分页→收藏→分析跳转→Loading/Empty/Error状态）、paperStore状态一致性（searchResults/currentQuery/totalResults/currentPage/selectedPapers/favorites）、API对接验证（GET /api/papers/search参数传递与响应解析、401处理、网络错误提示），修复联调中发现的bug，确保TypeScript编译无错误、Vue Router导航正常、Pinia Store状态管理正确、Element Plus组件渲染正常",
+    "requirement_ids": ["F1.2.1", "F1.2.2", "F1.2.3", "F1.2.4", "F1.2.5", "F1.2.6"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第5.2节论文检索模块：HomeView和SearchView的UI布局与交互逻辑" },
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第9.1.2节paperStore：searchPapers/toggleFavorite/togglePaperSelection完整定义" },
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第12节组件设计规范：PaperCard组件Props/Events定义" },
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "第6节API契约：GET /api/papers/search请求参数和响应格式" },
+      { "path": "AGENTS.md", "purpose": "第8.1节Java后端API：/api/papers/search端点定义" },
+      { "path": "AGENTS.md", "purpose": "第9.4节前端规范：script setup + Composition API + Store调用规范" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/HomeView.vue", "description": "首页：搜索输入+历史标签+检索跳转（task14产出，已实现）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/SearchView.vue", "description": "检索结果页（task15产出，当前仅有骨架占位符）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/paper/PaperCard.vue", "description": "论文卡片组件（task15产出，当前文件不存在）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "论文状态管理（task16产出，已实现searchPapers/toggleFavorite/togglePaperSelection）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/composables/usePagination.ts", "description": "分页composable（task16产出，当前文件不存在）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/paper.ts", "description": "论文API封装（FM1已实现search/addFavorite/removeFavorite）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/index.ts", "description": "Axios实例+拦截器（FM1已实现JWT注入+401跳转+统一错误处理）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/router/index.ts", "description": "路由配置（FM1已实现/Search路由requiresAuth+全局守卫）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/userStore.ts", "description": "用户状态管理（FM1已实现isLoggedIn/login/logout）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/utils/storage.ts", "description": "搜索历史工具（task14产出，已实现getRecentSearches/saveRecentSearch/clearRecentSearches）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/paper.ts", "description": "Paper/FilterParams类型定义（task06产出）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/common.ts", "description": "ApiResponse/PageResponse类型定义（task06产出）" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/views/HomeView.vue", "description": "首页已实现：searchQuery输入、handleSearch检索跳转、recentSearches历史标签、未登录引导登录、回车触发、clearable输入框", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/views/SearchView.vue", "description": "检索结果页当前仅有骨架占位符'<h2>论文检索结果页</h2><p>页面开发中...</p>'，需验证task15是否已完整实现，如未实现则本任务需补充实现", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/components/paper/PaperCard.vue", "description": "论文卡片组件文件不存在，需验证task15是否已创建，如未创建则本任务需补充创建", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "已实现：searchResults/selectedPapers/favorites/filters/currentQuery/totalResults/currentPage/pageSize状态，searchPapers/togglePaperSelection/toggleFavorite方法，selectedPaperIds/filteredResults计算属性，MAX_SELECTED_PAPERS=5", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/composables/usePagination.ts", "description": "分页composable文件不存在，需验证task16是否已创建，如未创建则本任务需补充创建", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/api/paper.ts", "description": "已实现paperApi：search(params)/addFavorite(paperId)/removeFavorite(paperId)/getDetail(paperId)/list(params)", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/api/index.ts", "description": "Axios实例已实现：baseURL=/api, timeout=30s, JWT请求拦截器, 200解包data, 401跳转登录+logout, 403/404/ECONNABORTED错误处理", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/router/index.ts", "description": "路由已实现：/→Home(requiresAuth:false), /search→Search(requiresAuth:true), /paper/:paperId→PaperDetail(requiresAuth:true), 全局前置守卫（未登录跳转/login?redirect=）", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/stores/userStore.ts", "description": "userStore已实现：token/userId/username持久化, isLoggedIn计算属性, login/logout/fetchProfile/saveProfile", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/utils/storage.ts", "description": "搜索历史工具已实现：getRecentSearches/saveRecentSearch(去重+上限10)/clearRecentSearches", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/types/paper.ts", "description": "Paper接口(paperId/title/authors/abstract/year/venue/keywords/citationCount/pdfUrl/score/recommendReason) + FilterParams接口(yearFrom/yearTo/venue/minCitations/sort)", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/types/common.ts", "description": "ApiResponse<T>(code/message/data/timestamp) + PageResponse<T>(items/total/page/size/totalPages)", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "views/HomeView.vue",
+      "path": "Veritas/frontend/src/views/HomeView.vue",
+      "responsibility": "首页检索入口：搜索输入→handleSearch→router.push(/search?q=xxx)，历史搜索标签，未登录引导",
+      "key_interfaces": [
+        { "name": "handleSearch", "signature": "() => void", "description": "校验输入→保存历史→判断登录→跳转Search路由" },
+        { "name": "handleRecentClick", "signature": "(query: string) => void", "description": "点击历史标签→填入搜索框→触发检索" },
+        { "name": "searchQuery", "signature": "ref<string>('')", "description": "搜索输入框绑定值" },
+        { "name": "recentSearches", "signature": "ref<string[]>(getRecentSearches())", "description": "最近搜索记录（最多10条）" }
+      ]
+    },
+    {
+      "name": "views/SearchView.vue",
+      "path": "Veritas/frontend/src/views/SearchView.vue",
+      "responsibility": "检索结果页：读取paperStore.searchResults展示论文卡片列表，分页切换，收藏操作，分析跳转",
+      "key_interfaces": [
+        { "name": "onMounted", "signature": "() => void", "description": "加载时从route.query.q读取查询词，调用paperStore.searchPapers(q)" },
+        { "name": "handlePageChange", "signature": "(page: number) => void", "description": "分页切换→paperStore.searchPapers(query, page)" },
+        { "name": "handleToggleFavorite", "signature": "(paperId: string) => void", "description": "收藏/取消收藏→paperStore.toggleFavorite(paperId)" },
+        { "name": "handleAnalyze", "signature": "(paperId: string) => void", "description": "分析按钮→router.push({name:'PaperDetail',params:{paperId}})" }
+      ]
+    },
+    {
+      "name": "components/paper/PaperCard.vue",
+      "path": "Veritas/frontend/src/components/paper/PaperCard.vue",
+      "responsibility": "论文卡片：展示标题/作者/摘要/关键词/相关度/推荐理由，收藏按钮，分析按钮",
+      "key_interfaces": [
+        { "name": "paper", "signature": "Props<Paper>", "description": "论文数据prop" },
+        { "name": "isFavorited", "signature": "Props<boolean>", "description": "是否已收藏" },
+        { "name": "isSelected", "signature": "Props<boolean>", "description": "是否已选中（用于多选对比）" },
+        { "name": "favorite-click", "signature": "Emits(paperId: string)", "description": "收藏按钮点击事件上行" },
+        { "name": "analyze-click", "signature": "Emits(paperId: string)", "description": "分析按钮点击事件上行" },
+        { "name": "select-click", "signature": "Emits(paper: Paper)", "description": "选择按钮点击事件上行（用于多选对比）" }
+      ]
+    },
+    {
+      "name": "stores/paperStore.ts",
+      "path": "Veritas/frontend/src/stores/paperStore.ts",
+      "responsibility": "论文状态管理：搜索结果、选中论文、收藏列表、筛选条件、分页状态",
+      "key_interfaces": [
+        { "name": "searchPapers", "signature": "(query: string, page?: number) => Promise<void>", "description": "调用paperApi.search→更新searchResults/totalResults/currentQuery/currentPage" },
+        { "name": "toggleFavorite", "signature": "(paperId: string) => Promise<void>", "description": "切换收藏状态→调用addFavorite/removeFavorite API→更新favorites列表" },
+        { "name": "togglePaperSelection", "signature": "(paper: Paper) => void", "description": "切换论文选中状态（上限5篇）" },
+        { "name": "searchResults", "signature": "ref<Paper[]>([])", "description": "当前搜索结果列表" },
+        { "name": "currentQuery", "signature": "ref<string>('')", "description": "当前搜索查询词" },
+        { "name": "totalResults", "signature": "ref<number>(0)", "description": "搜索结果总数" },
+        { "name": "currentPage", "signature": "ref<number>(1)", "description": "当前分页页码" },
+        { "name": "favorites", "signature": "ref<string[]>([])", "description": "收藏论文ID列表" }
+      ]
+    },
+    {
+      "name": "composables/usePagination.ts",
+      "path": "Veritas/frontend/src/composables/usePagination.ts",
+      "responsibility": "分页逻辑composable：封装页码切换、每页条数、总数计算",
+      "key_interfaces": [
+        { "name": "currentPage", "signature": "ref<number>", "description": "当前页码" },
+        { "name": "pageSize", "signature": "ref<number>", "description": "每页条数（默认10）" },
+        { "name": "total", "signature": "ref<number>", "description": "总条数" },
+        { "name": "totalPages", "signature": "computed<number>", "description": "总页数=Math.ceil(total/pageSize)" },
+        { "name": "handlePageChange", "signature": "(page: number) => void", "description": "页码切换回调" }
+      ]
+    },
+    {
+      "name": "api/paper.ts",
+      "path": "Veritas/frontend/src/api/paper.ts",
+      "responsibility": "论文相关API封装：search/list/getDetail/addFavorite/removeFavorite",
+      "key_interfaces": [
+        { "name": "search", "signature": "(params: {q:string; page?:number; size?:number} & FilterParams) => Promise<PageResponse<Paper>>", "description": "GET /api/papers/search 语义+关键词混合检索" },
+        { "name": "addFavorite", "signature": "(paperId: string) => Promise<unknown>", "description": "POST /api/papers/{paperId}/favorite 收藏论文" },
+        { "name": "removeFavorite", "signature": "(paperId: string) => Promise<unknown>", "description": "DELETE /api/papers/{paperId}/favorite 取消收藏" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/frontend/src/views/HomeView.vue", "description": "联调验证：检查搜索跳转逻辑与paperStore.searchPapers的数据流衔接，如发现bug则修复", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/views/SearchView.vue", "description": "联调验证：当前仅骨架，验证task15是否已完整实现SearchView（论文卡片列表+分页+Loading/Empty/Error状态），如未实现则本任务需补充实现", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/components/paper/PaperCard.vue", "description": "联调验证：当前文件不存在，验证task15是否已创建PaperCard组件，如未创建则本任务需补充创建", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/composables/usePagination.ts", "description": "联调验证：当前文件不存在，验证task16是否已创建usePagination composable，如未创建则本任务需补充创建", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/stores/paperStore.ts", "description": "联调验证：检查searchPapers/toggleFavorite状态一致性，如发现bug（如loading状态缺失、favorites未从API加载）则修复", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "首页检索流程联调验证：验证HomeView搜索输入→点击检索/回车→paperStore.searchPapers()调用→成功后router.push('/search?q=xxx')的完整链路。具体检查点：(1)handleSearch中saveRecentSearch调用后recentSearches是否正确更新；(2)router.push({name:'Search',query:{q:query}})是否正确传递查询参数；(3)未登录用户点击检索→ElMessage.warning('请先登录')→router.push('/login')流程是否正确；(4)历史搜索标签点击handleRecentClick是否正确填入搜索框并触发检索",
+        "priority": "P0",
+        "acceptance_condition": "首页输入'Multi-Agent'→点击检索→URL跳转到/search?q=Multi-Agent，SearchView接收到route.query.q；未登录状态→提示并跳转/login；历史标签点击可快捷检索"
+      },
+      {
+        "id": "FR-002",
+        "description": "SearchView检索结果页联调验证：验证SearchView加载时读取route.query.q→调用paperStore.searchPapers(q)→展示searchResults的完整链路。具体检查点：(1)onMounted中从route.query.q读取查询词，如无查询词则显示el-empty；(2)调用paperStore.searchPapers(q,1)发起搜索；(3)搜索中显示v-loading状态；(4)搜索结果为空时显示el-empty('未找到相关论文，试试调整搜索词？')；(5)搜索失败时显示错误提示+重试按钮；(6)成功时渲染PaperCard列表；(7)监听route.query.q变化，当查询词变化时重新搜索（watch route.query.q）",
+        "priority": "P0",
+        "acceptance_condition": "从首页跳转到搜索页→显示Loading→成功时展示论文卡片列表；无结果时显示el-empty；搜索失败时ElMessage.error提示"
+      },
+      {
+        "id": "FR-003",
+        "description": "PaperCard组件联调验证：验证PaperCard展示完整论文信息。具体检查点：(1)标题(paper.title)展示，超长截断；(2)作者(paper.authors)展示，数组转逗号分隔字符串；(3)摘要(paper.abstract)展示，超长截断+展开/收起；(4)关键词(paper.keywords)展示为el-tag列表，无关键词时不显示；(5)相关度(paper.score)展示为百分比或星级，无score时不显示；(6)推荐理由(paper.recommendReason)展示，无理由时不显示；(7)收藏按钮：根据isFavorited prop显示实心/空心星标，点击触发@favorite-click事件；(8)分析按钮：点击触发@analyze-click事件，跳转/paper/:paperId；(9)卡片hover时shadow提升（shadow='hover'）",
+        "priority": "P0",
+        "acceptance_condition": "PaperCard正确展示论文所有字段信息，收藏/分析按钮交互正常，事件正确上行"
+      },
+      {
+        "id": "FR-004",
+        "description": "分页联调验证：验证分页切换→paperStore.searchPapers(query, page)重新请求的完整链路。具体检查点：(1)使用el-pagination组件，绑定current-page/page-size/total；(2)current-change事件触发paperStore.searchPapers(currentQuery, page)；(3)分页切换时显示loading状态；(4)paperStore中currentPage/totalResults/pageSize状态正确更新；(5)分页参数正确传递给API（page/size）",
+        "priority": "P0",
+        "acceptance_condition": "搜索返回>10条结果→切换到第2页→数据正确加载，URL可保持当前页码状态"
+      },
+      {
+        "id": "FR-005",
+        "description": "收藏功能联调验证：验证收藏按钮→paperStore.toggleFavorite()→API调用→UI状态同步的完整链路。具体检查点：(1)点击收藏→paperStore.toggleFavorite(paperId)→paperApi.addFavorite(paperId)→成功后favorites列表更新；(2)再次点击取消收藏→paperStore.toggleFavorite(paperId)→paperApi.removeFavorite(paperId)→favorites列表移除；(3)PaperCard的收藏图标状态根据paperStore.favorites.includes(paperId)正确显示；(4)收藏API失败时ElMessage.error提示，favorites状态不更新（回滚）",
+        "priority": "P0",
+        "acceptance_condition": "点击收藏按钮→图标从空心变为实心→再次点击取消收藏→图标恢复空心，收藏失败时提示错误"
+      },
+      {
+        "id": "FR-006",
+        "description": "分析按钮联调验证：验证点击PaperCard的分析按钮→router.push({name:'PaperDetail',params:{paperId}})跳转。具体检查点：(1)分析按钮点击→@analyze-click事件上行→SearchView接收→router.push跳转；(2)路由跳转正确传递paperId参数；(3)PaperDetailView页面存在（当前为占位符，联调只需验证路由跳转正确）",
+        "priority": "P1",
+        "acceptance_condition": "点击分析按钮→URL跳转到/paper/{paperId}，路由守卫允许已登录用户访问"
+      },
+      {
+        "id": "FR-007",
+        "description": "paperStore状态一致性验证：验证paperStore内部状态与API返回数据一致。具体检查点：(1)searchPapers成功后searchResults===API返回的items，totalResults===API返回的total，currentPage===传入的page参数；(2)currentQuery在搜索前后正确更新；(3)selectedPapers添加→selectedPaperIds计算属性更新→再次添加同一论文→不重复添加；(4)selectedPapers上限5篇→第6篇添加时忽略或ElMessage.warning提示；(5)toggleFavorite成功后favorites列表正确更新，失败时favorites不更新；(6)filteredResults计算属性正确筛选和排序",
+        "priority": "P0",
+        "acceptance_condition": "paperStore各状态值与API返回数据一致，选中上限5篇，收藏列表与API同步"
+      },
+      {
+        "id": "FR-008",
+        "description": "API对接验证：验证GET /api/papers/search请求参数和响应解析。具体检查点：(1)请求参数正确：{q: query, page: 1, size: 10, ...filters}；(2)API响应经过Axios拦截器解包后得到PageResponse<Paper>格式{items, total, page, size, totalPages}；(3)paperApi.search返回值与paperStore.searchPapers中res.items/res.total赋值对应；(4)401响应→Axios拦截器自动跳转/login+logout（已实现，验证其正常工作）；(5)网络错误→ElMessage.error提示（已实现，验证其正常工作）",
+        "priority": "P0",
+        "acceptance_condition": "API请求参数格式正确，响应数据正确解析为PageResponse<Paper>，401和网络错误正确处理"
+      },
+      {
+        "id": "FR-009",
+        "description": "Loading/Empty/Error三态验证：验证SearchView的三种交互状态正确展示。具体检查点：(1)Loading：paperStore.searchPapers执行期间显示v-loading或el-skeleton；(2)Empty：searchResults.length===0且非loading状态→el-empty('未找到相关论文，试试调整搜索词？')；(3)Error：searchPapers抛出异常→显示错误提示+重试按钮（重试重新调用searchPapers(currentQuery,1)）；(4)三态互斥，不同时显示",
+        "priority": "P0",
+        "acceptance_condition": "Loading时显示加载指示器，搜索无结果显示el-empty，搜索失败显示错误提示+重试按钮"
+      },
+      {
+        "id": "FR-010",
+        "description": "历史搜索记录联调验证：验证HomeView搜索历史功能。具体检查点：(1)执行搜索后saveRecentSearch(query)调用→recentSearches.value=getRecentSearches()更新→el-tag列表刷新；(2)搜索历史去重：重复搜索同一词→该词移到列表首位而非重复添加；(3)搜索历史上限10条：超过10条时最旧的被移除；(4)点击历史标签handleRecentClick→searchQuery填入→handleSearch触发；(5)清除按钮handleClearRecent→clearRecentSearches()→recentSearches=[]→标签消失",
+        "priority": "P1",
+        "acceptance_condition": "搜索3个不同主题→首页显示3条历史标签→点击标签快捷检索→清除后标签消失"
+      },
+      {
+        "id": "FR-011",
+        "description": "paperStore缺失功能补充：检查并补充paperStore中联调发现的缺失功能。(1)loading状态：paperStore缺少searchLoading/favoriteLoading等loading状态ref，联调时需补充searchLoading=ref(false)，在searchPapers中设置loading=true/finally中loading=false；(2)error状态：paperStore缺少searchError状态，联调时需补充searchError=ref<string|null>(null)，在searchPapers catch中设置searchError；(3)fetchFavorites：paperStore.favorites初始为空数组，需提供fetchFavorites方法从API加载用户收藏列表（GET /api/papers接口或单独的收藏列表接口）；(4)toggleFavorite错误回滚：当前toggleFavorite在API失败时不回滚favorites状态，需补充try-catch-rollback逻辑",
+        "priority": "P0",
+        "acceptance_condition": "paperStore补充loading/error状态，toggleFavorite失败时回滚，SearchView可读取loading状态"
+      },
+      {
+        "id": "FR-012",
+        "description": "缺失组件补充：验证并补充task14-16应产出但当前缺失的文件。(1)PaperCard.vue：如文件不存在，需创建components/paper/PaperCard.vue，包含论文卡片完整UI（标题/作者/摘要/关键词/相关度/推荐理由/收藏按钮/分析按钮），使用Paper类型Props，emit favorite-click/analyze-click/select-click事件；(2)usePagination.ts：如文件不存在，需创建composables/usePagination.ts，封装currentPage/pageSize/total/totalPages/handlePageChange逻辑；(3)SearchView.vue完整实现：如当前仅有骨架，需实现完整检索结果页（读取route.query.q→搜索→PaperCard列表→分页→Loading/Empty/Error三态）",
+        "priority": "P0",
+        "acceptance_condition": "PaperCard.vue、usePagination.ts、SearchView.vue文件存在且功能完整，TypeScript编译无错误"
+      },
+      {
+        "id": "FR-013",
+        "description": "浏览器端TypeScript编译验证：执行npx vue-tsc --noEmit确保所有文件TypeScript类型正确。具体检查点：(1)PaperCard.vue的Props类型定义为Paper接口+isFavorited:boolean+isSelected:boolean；(2)SearchView.vue中paperStore的类型推断正确（usePaperStore返回值类型）；(3)router.push参数类型正确（name为string, query为Record<string,string>）；(4)所有ref/reactive/computed类型推断正确或显式标注",
+        "priority": "P0",
+        "acceptance_condition": "npx vue-tsc --noEmit执行无错误输出"
+      },
+      {
+        "id": "FR-014",
+        "description": "开发服务器启动验证：执行npm run dev确保Vite开发服务器正常启动，所有页面可访问。具体检查点：(1)首页/渲染正常，搜索框可交互；(2)搜索跳转/search?q=xxx正常；(3)SearchView页面组件加载无控制台错误；(4)Element Plus组件正常渲染（el-input/el-button/el-tag/el-pagination/el-empty/el-card）；(5)Pinia store在DevTools中可见且状态正确",
+        "priority": "P0",
+        "acceptance_condition": "npm run dev启动成功，首页和搜索页可正常访问和交互"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "前端Store层使用camelCase（TypeScript规范），API请求参数使用snake_case（与JSON对齐），路由query参数使用q（简短约定）",
+        "mappings": [
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+          { "java": "pdfUrl", "python": "pdf_url", "json": "pdf_url" },
+          { "java": "recommendReason", "python": "recommend_reason", "json": "recommend_reason" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "GET /api/papers/search",
+          "method": "GET",
+          "request_format": { "q": "string（查询词）", "page": "number（页码，默认1）", "size": "number（每页条数，默认10）", "yearFrom": "number?", "yearTo": "number?", "venue": "string?", "minCitations": "number?", "sort": "string?" },
+          "response_format": { "code": 200, "message": "success", "data": { "items": "Paper[]", "total": "number", "page": "number", "size": "number", "totalPages": "number" } }
+        },
+        {
+          "endpoint": "POST /api/papers/{paperId}/favorite",
+          "method": "POST",
+          "request_format": { "paperId": "string（路径参数）" },
+          "response_format": { "code": 200, "message": "success", "data": null }
+        },
+        {
+          "endpoint": "DELETE /api/papers/{paperId}/favorite",
+          "method": "DELETE",
+          "request_format": { "paperId": "string（路径参数）" },
+          "response_format": { "code": 200, "message": "success", "data": null }
+        }
+      ],
+      "data_flow": "用户输入 → HomeView.handleSearch → router.push(/search?q=xxx) → SearchView.onMounted → paperStore.searchPapers(q) → paperApi.search({q,page,size}) → Axios GET /api/papers/search → 响应拦截器解包 → paperStore.searchResults更新 → SearchView渲染PaperCard列表 → 用户交互（分页/收藏/分析）→ paperStore对应方法 → API调用 → 状态更新 → UI同步"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "未登录用户不可访问/search路由（requiresAuth:true），路由守卫自动跳转/login?redirect=/search?q=xxx" },
+      { "category": "jwt_auth", "requirement": "401响应由Axios拦截器统一处理：自动logout+跳转/login，不暴露Token信息" },
+      { "category": "data_isolation", "requirement": "收藏列表仅显示当前登录用户的收藏，API请求自动注入JWT" },
+      { "category": "sensitive_info", "requirement": "禁止console.log输出Token或API Key" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue（组件）| camelCase.ts（Store/Composable/API）"
+      },
+      "json": { "field_name": "snake_case" },
+      "cross_system_mapping": [
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+        { "java": "pdfUrl", "python": "pdf_url", "json": "pdf_url" },
+        { "java": "recommendReason", "python": "recommend_reason", "json": "recommend_reason" }
+      ]
+    },
+    "layering": {
+      "frontend": { "rule": "View → Store → API，异步操作在Store Actions中，组件不直接调API" }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "Axios响应拦截器统一处理401/403/404/超时/网络错误 + Store层try-catch保持数据一致性 + 组件层ElMessage.error提示+重试按钮"
+      }
+    },
+    "caching": {
+      "pattern": "Pinia Store State作为前端缓存，searchResults在搜索时更新，避免重复请求相同查询",
+      "ttl_layers": []
+    },
+    "logging": {
+      "prohibited": [
+        "console.log输出Token或API Key",
+        "console.log在循环中输出"
+      ]
+    },
+    "security": {
+      "auth_mechanism": "JWT Token（localStorage持久化）+ 路由守卫（requiresAuth）+ Axios拦截器（401自动跳转）",
+      "three_layer_rule": "前端只调Java后端API（/api/*），禁止直接调Python AI服务"
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码，联调中发现的bug必须完整修复", "severity": "critical" },
+    { "id": "FA-002", "action": "在组件中直接调用API（跳过Store）", "reason": "分层约束：View→Store→API，SearchView必须通过paperStore调用搜索/收藏", "severity": "high" },
+    { "id": "FA-003", "action": "前端直接调用Python AI服务API", "reason": "三层架构约束ADR-001，前端只调Java后端/api/*", "severity": "critical" },
+    { "id": "FA-004", "action": "使用非scoped样式", "reason": "组件样式必须scoped，防止样式污染", "severity": "high" },
+    { "id": "FA-005", "action": "硬编码颜色值或尺寸", "reason": "必须使用CSS变量（--el-color-primary等）和8px间距系统", "severity": "medium" },
+    { "id": "FA-006", "action": "使用any类型", "reason": "TypeScript类型安全约束，Paper/FilterParams/PageResponse等类型必须显式标注", "severity": "high" },
+    { "id": "FA-007", "action": "忽略Loading/Empty/Error三态中的任何一种", "reason": "交互质量约束，每个异步操作必须覆盖三态", "severity": "high" },
+    { "id": "FA-008", "action": "修改非本任务范围内的文件（router/index.ts、api/index.ts等已验证的文件）", "reason": "避免引入无关变更，除非联调中发现该文件存在bug", "severity": "medium" },
+    { "id": "FA-009", "action": "在PaperCard中硬编码收藏状态判断逻辑", "reason": "收藏状态必须通过isFavorited prop传入，由父组件SearchView从paperStore.favorites计算", "severity": "high" },
+    { "id": "FA-010", "action": "paperStore.searchPapers中缺少loading/error状态管理", "reason": "AP-006/008禁止无Loading/Error状态，必须补充searchLoading/searchError", "severity": "high" },
+    { "id": "FA-011", "action": "toggleFavorite失败时不回滚favorites状态", "reason": "数据一致性约束，API失败时必须回滚乐观更新的状态", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "paperStore状态一致性测试",
+        "description": "验证searchPapers更新searchResults/totalResults/currentQuery/currentPage，toggleFavorite更新favorites且失败时回滚，togglePaperSelection上限5篇",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "PaperCard组件渲染测试",
+        "description": "验证PaperCard正确展示论文信息、收藏按钮状态、事件emit",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "SearchView集成测试",
+        "description": "验证SearchView读取route.query.q→搜索→渲染结果→分页→收藏交互→Loading/Empty/Error三态",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "首页→搜索页全链路测试",
+        "description": "验证HomeView搜索输入→router.push→SearchView加载→paperStore.searchPapers→PaperCard渲染→分页→收藏→分析跳转的完整链路",
+        "layers_involved": ["frontend"]
+      },
+      {
+        "test_name": "未登录用户检索流程测试",
+        "description": "验证未登录用户在首页点击检索→ElMessage.warning→跳转/login，访问/search路由→路由守卫拦截→跳转/login?redirect=/search?q=xxx",
+        "layers_involved": ["frontend"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "TypeScript编译无错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run dev", "expected_result": "开发服务器启动成功，首页和搜索页可正常访问" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npm run build", "expected_result": "Vite构建成功，无编译错误" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "首页检索流程：HomeView输入'Multi-Agent'→点击检索→URL跳转/search?q=Multi-Agent，SearchView接收到查询词并调用paperStore.searchPapers()", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "未登录用户检索：未登录状态输入查询→提示'请先登录'→跳转/login；直接访问/search→路由守卫拦截跳转/login", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "SearchView完整实现：搜索结果PaperCard列表展示、分页切换、Loading/Empty/Error三态正确", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "PaperCard组件：标题/作者/摘要/关键词/相关度/推荐理由展示完整，收藏/分析按钮交互正常", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "收藏功能：点击收藏→图标变化→再次点击取消→图标恢复，API失败时提示错误且回滚状态", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "分页功能：搜索返回>10条结果→切换第2页→数据正确加载，分页参数正确传递API", "verified_by": "manual_test" },
+    { "id": "AC-007", "criterion": "paperStore状态一致性：searchResults与API返回一致，selectedPapers上限5篇，favorites与收藏API同步", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "API对接正确：GET /api/papers/search参数{q,page,size,filters}正确传递，响应PageResponse<Paper>正确解析", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "401响应处理：Axios拦截器自动logout+跳转/login，不暴露Token", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "网络错误处理：断网搜索→ElMessage.error提示", "verified_by": "manual_test" },
+    { "id": "AC-011", "criterion": "历史搜索记录：搜索3个不同主题→首页显示3条历史标签→点击标签快捷检索→清除后标签消失", "verified_by": "manual_test" },
+    { "id": "AC-012", "criterion": "paperStore补充loading/error状态：searchLoading/searchError在searchPapers中正确管理", "verified_by": "code_review" },
+    { "id": "AC-013", "criterion": "npx vue-tsc --noEmit编译无错误", "verified_by": "automated_test" },
+    { "id": "AC-014", "criterion": "npm run dev启动成功，首页和搜索页可正常访问和交互", "verified_by": "automated_test" },
+    { "id": "AC-015", "criterion": "npm run build构建成功，无编译错误", "verified_by": "automated_test" }
+  ]
+}
