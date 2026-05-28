@@ -1,0 +1,346 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析+对比页面可用",
+    "requirement": "实现PaperDetailView论文详情页面，展示论文完整元数据（标题/作者/年份/会议/摘要/关键词/引用数/PDF链接），支持收藏操作，提供[触发分析]按钮调用analysisApi.analyzePaper，页面包含返回检索结果导航、论文信息卡片、AI分析区域占位（AnalysisCard将在task19实现）、Loading/Empty/Error三态完整。页面从路由参数route.params.paperId获取论文ID，通过paperStore或paperApi获取论文详情数据。",
+    "requirement_ids": ["F1.3.1"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "PaperDetailView页面设计规范（6.2.1节）、论文元数据展示布局、操作按钮定义" },
+      { "path": "AGENTS.md", "purpose": "API契约（GET /api/papers/{paperId}）、Paper字段映射、收藏API、分析API" },
+      { "path": "docs/开发规范文档.md", "purpose": "前端编码规范、BEM命名、组件结构顺序、8px间距系统" },
+      { "path": "docs/信息架构文档(IA).md", "purpose": "论文数据字段映射、JSON snake_case字段对应关系" },
+      { "path": "docs/架构决策记录(ADR).md", "purpose": "ADR-007 Cache-Aside缓存、ADR-009 SSE实时推送" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/", "description": "页面组件目录，PaperDetailView.vue当前为占位骨架" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "论文状态管理，已实现searchPapers/toggleFavorite等" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "会话状态管理，已实现createSession/fetchAnalysisResult" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/paper.ts", "description": "论文API封装，已实现getDetail/search/addFavorite/removeFavorite" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/analysis.ts", "description": "分析API封装，已实现analyzePaper/getResult/getStatus/getAgentStreamUrl" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/paper.ts", "description": "Paper/FilterParams类型定义" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/analysis.ts", "description": "AnalysisResult/StructuredAnalysis类型定义" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/router/index.ts", "description": "路由配置，/paper/:paperId路由已配置（requiresAuth:true）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/composables/useSSE.ts", "description": "SSE连接composable，已实现connect/disconnect/自动重连" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/views/PaperDetailView.vue", "description": "当前为空壳占位（<h2>论文详情页</h2><p>页面开发中...</p>），需替换为完整实现", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "Pinia setup store，已实现：searchResults(Paper[])、selectedPapers(Paper[])、favorites(string[])、toggleFavorite(paperId)→addFavorite/removeFavorite；Getters: selectedPaperIds。注意：paperStore中没有getDetail方法，需通过paperApi.getDetail直接获取论文详情并缓存在组件local state中", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/api/paper.ts", "description": "paperApi.getDetail(paperId: string): Promise<Paper> — GET /api/papers/{paperId}；paperApi.addFavorite(paperId) / paperApi.removeFavorite(paperId)", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/api/analysis.ts", "description": "analysisApi.analyzePaper({ paperId: string }): Promise<AnalysisResult> — POST /api/analysis/paper；analysisApi.getResult(analysisId): Promise<AnalysisResult>；analysisApi.getStatus(analysisId): Promise<AnalysisResult>", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/types/paper.ts", "description": "Paper接口：{paperId:string, title:string, authors:string[], abstract:string, year:number, venue?:string, keywords?:string[], citationCount?:number, pdfUrl?:string, score?:number, recommendReason?:string}", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/types/analysis.ts", "description": "AnalysisResult接口：{analysisId:string, status:'pending'|'processing'|'completed'|'failed', type:'paper_analysis'|'compare'|'report', result?:{report?:string, citations?:Citation[], analysis?:StructuredAnalysis, comparison?:CompareResult}, agentStates?:AgentState[], degraded?:boolean, degradedReason?:string}；StructuredAnalysis接口：{researchQuestion:string, coreMethod:string, keyExperiments:string, coreFindings:string, limitations:string, plainExplanation?:string}", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/router/index.ts", "description": "/paper/:paperId路由已配置（name:'PaperDetail', component:lazy import, requiresAuth:true）", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/composables/useSSE.ts", "description": "useSSE composable已实现：connect(analysisId)→建立EventSource、监听agent_state_update→agentStore.updateAgentState、自动重连(3s/5次)、onUnmounted自动断开", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/stores/userStore.ts", "description": "用户状态管理，已实现isLoggedIn、profile（含knowledgeLevel/educationLevel等画像信息），用于判断是否显示通俗解释", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "paperApi",
+      "path": "Veritas/frontend/src/api/paper.ts",
+      "responsibility": "论文相关HTTP API封装",
+      "key_interfaces": [
+        { "name": "getDetail", "signature": "getDetail(paperId: string): Promise<Paper>", "description": "GET /api/papers/{paperId}，返回论文完整元数据" },
+        { "name": "addFavorite", "signature": "addFavorite(paperId: string): Promise<void>", "description": "POST /api/papers/{paperId}/favorite" },
+        { "name": "removeFavorite", "signature": "removeFavorite(paperId: string): Promise<void>", "description": "DELETE /api/papers/{paperId}/favorite" }
+      ]
+    },
+    {
+      "name": "analysisApi",
+      "path": "Veritas/frontend/src/api/analysis.ts",
+      "responsibility": "分析相关HTTP API封装",
+      "key_interfaces": [
+        { "name": "analyzePaper", "signature": "analyzePaper(data: { paperId: string }): Promise<AnalysisResult>", "description": "POST /api/analysis/paper，启动论文分析，返回analysisId和初始状态" },
+        { "name": "getResult", "signature": "getResult(analysisId: string): Promise<AnalysisResult>", "description": "GET /api/analysis/{analysisId}，获取分析结果" },
+        { "name": "getStatus", "signature": "getStatus(analysisId: string): Promise<AnalysisResult>", "description": "GET /api/analysis/{analysisId}/status，轮询分析状态" }
+      ]
+    },
+    {
+      "name": "paperStore",
+      "path": "Veritas/frontend/src/stores/paperStore.ts",
+      "responsibility": "论文数据状态管理",
+      "key_interfaces": [
+        { "name": "toggleFavorite", "signature": "async toggleFavorite(paperId: string): Promise<void>", "description": "切换收藏状态：已收藏→removeFavorite+移出favorites；未收藏→addFavorite+push到favorites" },
+        { "name": "favorites", "signature": "favorites: Ref<string[]>", "description": "已收藏论文ID列表，用于判断收藏状态" }
+      ]
+    },
+    {
+      "name": "sessionStore",
+      "path": "Veritas/frontend/src/stores/sessionStore.ts",
+      "responsibility": "会话与分析状态管理",
+      "key_interfaces": [
+        { "name": "createSession", "signature": "async createSession(topic: string): Promise<SessionResponse>", "description": "创建分析会话" },
+        { "name": "currentAnalysisId", "signature": "currentAnalysisId: Ref<string | null>", "description": "当前分析ID" },
+        { "name": "fetchAnalysisResult", "signature": "async fetchAnalysisResult(analysisId: string): Promise<AnalysisResult>", "description": "获取分析结果并缓存到analysisResults Map" }
+      ]
+    },
+    {
+      "name": "Paper",
+      "path": "Veritas/frontend/src/types/paper.ts",
+      "responsibility": "论文实体类型定义",
+      "key_interfaces": [
+        { "name": "Paper", "signature": "interface Paper { paperId: string; title: string; authors: string[]; abstract: string; year: number; venue?: string; keywords?: string[]; citationCount?: number; pdfUrl?: string; score?: number; recommendReason?: string }", "description": "论文完整数据结构" }
+      ]
+    },
+    {
+      "name": "AnalysisResult",
+      "path": "Veritas/frontend/src/types/analysis.ts",
+      "responsibility": "分析结果类型定义",
+      "key_interfaces": [
+        { "name": "AnalysisResult", "signature": "interface AnalysisResult { analysisId: string; status: 'pending' | 'processing' | 'completed' | 'failed'; type: 'paper_analysis' | 'compare' | 'report'; result?: { report?: string; citations?: Citation[]; analysis?: StructuredAnalysis; comparison?: CompareResult }; agentStates?: AgentState[]; degraded?: boolean; degradedReason?: string }", "description": "分析结果完整数据结构" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/frontend/src/views/PaperDetailView.vue", "description": "替换空壳占位为完整论文详情页面：返回导航+论文元数据卡片+AI分析区域(占位/触发)+Loading/Empty/Error三态+收藏按钮+操作按钮", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "PaperDetailView返回导航：页面顶部el-page-header @back='router.back()'，title显示论文标题（加载完成后），content显示'论文详情'。返回操作使用router.back()回到上一页（通常是SearchView）",
+        "priority": "P0",
+        "acceptance_condition": "页面顶部显示返回导航；点击返回按钮回到上一页；标题区域显示论文标题"
+      },
+      {
+        "id": "FR-002",
+        "description": "PaperDetailView论文数据加载：onMounted时从route.params.paperId获取paperId，调用paperApi.getDetail(paperId)获取论文详情，存储到local ref paper中。loading ref控制加载状态，error ref控制错误状态",
+        "priority": "P0",
+        "acceptance_condition": "页面加载时自动获取论文详情；加载中显示loading状态；加载失败显示错误状态；加载成功显示论文信息"
+      },
+      {
+        "id": "FR-003",
+        "description": "PaperDetailView论文元数据卡片：el-card class='paper-detail-view__info'，内容包含：(1)标题h1 class='paper-detail-view__title'；(2)元数据行：作者(paper.authors逗号分隔) · 年份(paper.year) · 会议(paper.venue) · 引用数(paper.citationCount)，使用el-text type='info' size='small'；(3)摘要区域：class='paper-detail-view__abstract'，完整显示paper.abstract，行高1.8；(4)关键词区域：class='paper-detail-view__keywords'，v-for遍历paper.keywords，每个关键词el-tag size='small' type='info'，间距margin-right:8px；(5)操作按钮区域：class='paper-detail-view__actions'，右对齐flex布局",
+        "priority": "P0",
+        "acceptance_condition": "论文标题/作者/年份/会议/引用数/摘要/关键词完整展示；元数据用'·'分隔符连接；关键词标签间距8px"
+      },
+      {
+        "id": "FR-004",
+        "description": "PaperDetailView收藏按钮：在操作按钮区域，el-button :type='isFavorited ? \"danger\" : \"default\"' size='small' @click='handleFavorite'，:icon使用Star/StarFilled。isFavorited = computed(() => paperStore.favorites.includes(paperId))。handleFavorite调用paperStore.toggleFavorite(paperId)，成功ElMessage.success('收藏成功')或('已取消收藏')，失败ElMessage.error('操作失败')",
+        "priority": "P1",
+        "acceptance_condition": "收藏按钮正确反映当前收藏状态；点击切换收藏/取消收藏；操作成功/失败有ElMessage反馈"
+      },
+      {
+        "id": "FR-005",
+        "description": "PaperDetailView查看PDF按钮：如果paper.pdfUrl存在，在操作按钮区域渲染el-button type='primary' size='small' @click='window.open(paper.pdfUrl, \"_blank\")'，文字'查看PDF'，icon使用Document。pdfUrl不存在时不渲染该按钮",
+        "priority": "P2",
+        "acceptance_condition": "pdfUrl存在时显示查看PDF按钮；点击在新标签页打开PDF链接；pdfUrl不存在时不渲染按钮"
+      },
+      {
+        "id": "FR-006",
+        "description": "PaperDetailView触发分析按钮：在操作按钮区域，el-button type='primary' @click='handleAnalyze' :loading='analyzing'，文字'触发AI分析'。handleAnalyze流程：(1)设置analyzing=true；(2)调用sessionStore.createSession(paper.value.title)创建会话；(3)调用analysisApi.analyzePaper({ paperId })启动分析；(4)设置currentAnalysisId；(5)启动轮询pollAnalysisStatus(analysisId)，每3秒调用analysisApi.getStatus(analysisId)，直到status为'completed'或'failed'；(6)完成后analyzing=false，将结果存储到analysisResult ref",
+        "priority": "P0",
+        "acceptance_condition": "点击触发AI分析按钮后显示loading状态；创建会话并启动分析；轮询分析状态直到完成/失败；分析完成后展示结果"
+      },
+      {
+        "id": "FR-007",
+        "description": "PaperDetailView AI分析区域：el-card class='paper-detail-view__analysis'，标题'AI智能分析'。三种状态：(1)未分析时：显示el-empty description='尚未进行分析' + el-button type='primary' '触发AI分析'；(2)分析中：v-loading='analyzing'，显示el-progress :percentage='analysisProgress'(暂用indeterminate)和文字'AI正在分析论文...'；(3)分析完成：显示AnalysisCard组件（:analysis='analysisResult' :showPlainExplanation='showPlainExplanation'），AnalysisCard组件在task19实现，此处先用占位div展示analysisResult.result.analysis的5维度文本（researchQuestion/coreMethod/keyExperiments/coreFindings/limitations）",
+        "priority": "P0",
+        "acceptance_condition": "未分析状态显示空状态引导；分析中显示loading+进度提示；分析完成显示5维度分析结果"
+      },
+      {
+        "id": "FR-008",
+        "description": "PaperDetailView通俗解释显示控制：showPlainExplanation = computed(() => { const profile = userStore.profile; return profile && (profile.knowledgeLevel === 'beginner' || profile.knowledgeLevel === 'intermediate') })。当showPlainExplanation为true且analysisResult.result.analysis.plainExplanation存在时，在分析区域下方显示通俗解释区块",
+        "priority": "P1",
+        "acceptance_condition": "初级/中级用户自动显示通俗解释；高级/专家用户不显示通俗解释；无画像时不显示通俗解释"
+      },
+      {
+        "id": "FR-009",
+        "description": "PaperDetailView Loading状态：论文数据加载中时，整个内容区域v-loading='paperLoading'，element-loading-text='加载论文信息...'。使用el-skeleton :loading='paperLoading' :rows='5' animated作为骨架屏",
+        "priority": "P0",
+        "acceptance_condition": "加载论文时显示骨架屏或loading遮罩；加载完成后显示实际内容"
+      },
+      {
+        "id": "FR-010",
+        "description": "PaperDetailView Empty状态：当paperId无效或论文不存在（API返回404）时，显示el-result icon='warning' title='论文未找到' sub-title='该论文可能已被删除或链接无效' + el-button type='primary' @click='router.push({name:\"Home\"})' '返回首页'",
+        "priority": "P0",
+        "acceptance_condition": "论文不存在时显示未找到提示和返回首页按钮"
+      },
+      {
+        "id": "FR-011",
+        "description": "PaperDetailView Error状态：加载论文失败时，显示el-result icon='error' title='加载失败' sub-title='无法获取论文信息，请稍后重试' + el-button type='primary' @click='fetchPaperDetail' '重试'。分析失败时，在分析区域显示el-alert type='error' title='分析失败' :description='analysisError' show-icon + el-button '重新分析' @click='handleAnalyze'",
+        "priority": "P0",
+        "acceptance_condition": "论文加载失败显示错误状态和重试按钮；分析失败显示错误提示和重新分析按钮"
+      },
+      {
+        "id": "FR-012",
+        "description": "PaperDetailView AI内容标注：在分析区域顶部显示el-text type='info' size='small' 'AI生成，仅供参考'，与项目安全规范一致",
+        "priority": "P1",
+        "acceptance_condition": "AI分析结果区域显示'AI生成，仅供参考'标注"
+      },
+      {
+        "id": "FR-013",
+        "description": "PaperDetailView分析完成后操作按钮：分析完成后在分析区域底部显示两个按钮：(1)[生成综述] el-button type='primary' @click='router.push({name:\"Report\", params:{analysisId: currentAnalysisId}})'；(2)[选择对比] el-button @click='router.push({name:\"Compare\"})'",
+        "priority": "P1",
+        "acceptance_condition": "分析完成后显示生成综述和选择对比按钮；点击生成综述跳转到报告页；点击选择对比跳转到对比页"
+      },
+      {
+        "id": "FR-014",
+        "description": "PaperDetailView BEM样式：使用scoped CSS + BEM命名。类名：paper-detail-view(根)、paper-detail-view__header(返回导航区)、paper-detail-view__info(论文信息卡片)、paper-detail-view__title(论文标题)、paper-detail-view__meta(元数据行)、paper-detail-view__abstract(摘要)、paper-detail-view__keywords(关键词)、paper-detail-view__actions(操作按钮)、paper-detail-view__analysis(AI分析卡片)、paper-detail-view__analysis-header(分析卡片标题)、paper-detail-view__analysis-content(分析内容)、paper-detail-view__plain-explanation(通俗解释)、paper-detail-view__empty(空状态)、paper-detail-view__error(错误状态)。页面max-width:var(--content-max-width, 1200px)，padding:24px，margin:0 auto",
+        "priority": "P0",
+        "acceptance_condition": "所有CSS类名遵循BEM规范；页面宽度受content-max-width约束并居中；间距为8px倍数"
+      },
+      {
+        "id": "FR-015",
+        "description": "PaperDetailView轮询清理：pollAnalysisStatus使用setInterval每3秒轮询，组件卸载时(onUnmounted)必须clearInterval清理定时器，防止内存泄漏。分析完成或失败时自动停止轮询",
+        "priority": "P0",
+        "acceptance_condition": "轮询定时器在组件卸载时正确清理；分析完成/失败时自动停止轮询"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case，前端Store层使用camelCase，API层JSON使用snake_case",
+        "mappings": [
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+          { "java": "recommendReason", "python": "recommend_reason", "json": "recommend_reason" },
+          { "java": "pdfUrl", "python": "pdf_url", "json": "pdf_url" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" },
+          { "java": "researchQuestion", "python": "research_question", "json": "research_question" },
+          { "java": "coreMethod", "python": "core_method", "json": "core_method" },
+          { "java": "keyExperiments", "python": "key_experiments", "json": "key_experiments" },
+          { "java": "coreFindings", "python": "core_findings", "json": "core_findings" },
+          { "java": "plainExplanation", "python": "plain_explanation", "json": "plain_explanation" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/papers/{paperId}",
+          "method": "GET",
+          "request_format": {},
+          "response_format": { "code": 200, "data": "Paper对象" }
+        },
+        {
+          "endpoint": "/api/analysis/paper",
+          "method": "POST",
+          "request_format": { "paperId": "string" },
+          "response_format": { "code": 200, "data": "AnalysisResult对象(含analysisId, status=pending)" }
+        },
+        {
+          "endpoint": "/api/analysis/{analysisId}/status",
+          "method": "GET",
+          "request_format": {},
+          "response_format": { "code": 200, "data": "AnalysisResult对象(含status, result?)" }
+        }
+      ],
+      "data_flow": "用户点击论文卡片 → router.push({name:'PaperDetail',params:{paperId}}) → PaperDetailView.onMounted → paperApi.getDetail(paperId) → Axios GET /api/papers/{paperId} → Java后端PaperController → PaperService → MySQL+Redis缓存 → 返回Paper → 组件渲染元数据 → 用户点击[触发AI分析] → sessionStore.createSession(topic) → analysisApi.analyzePaper({paperId}) → Java后端转发Python AI → 返回AnalysisResult(analysisId, status=pending) → 前端轮询analysisApi.getStatus(analysisId)每3秒 → Python AI Agent工作流执行 → 返回completed AnalysisResult → 组件渲染5维度分析"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "/paper/:paperId路由requiresAuth:true，全局守卫已实现：未登录→跳转/login?redirect=xxx" },
+      { "category": "data_isolation", "requirement": "论文详情为公共数据，但分析操作需JWT认证（Axios拦截器自动注入Token）" },
+      { "category": "sensitive_info", "requirement": "禁止console.log Token/API Key" },
+      { "category": "other", "requirement": "AI生成内容必须标注'AI生成，仅供参考'" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue",
+        "enum_value": "PascalCase"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" },
+        { "java": "researchQuestion", "python": "research_question", "json": "research_question" },
+        { "java": "coreMethod", "python": "core_method", "json": "core_method" },
+        { "java": "keyExperiments", "python": "key_experiments", "json": "key_experiments" },
+        { "java": "coreFindings", "python": "core_findings", "json": "core_findings" },
+        { "java": "plainExplanation", "python": "plain_explanation", "json": "plain_explanation" }
+      ]
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → Store → API，PaperDetailView通过paperApi获取论文详情（paperStore无getDetail方法），分析操作通过sessionStore+analysisApi，收藏操作通过paperStore.toggleFavorite"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "Axios响应拦截器统一处理401/403/404/超时/网络错误；PaperDetailView中try-catch包裹paperApi.getDetail()和analysisApi.analyzePaper()，catch中设置errorRef + ElMessage.error；分析轮询失败时停止轮询并显示错误状态"
+      }
+    },
+    "caching": {
+      "pattern": "论文详情由Java后端Redis缓存30min(paper:detail:{paperId})；分析结果由sessionStore.analysisResults Map作为前端缓存；分析状态轮询不缓存"
+    },
+    "logging": {
+      "prohibited": [
+        "console.log Token/API Key等敏感信息",
+        "在循环(轮询)中打印INFO级别日志"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "在PaperDetailView中直接new EventSource建立SSE连接", "reason": "必须使用useSSE composable封装，遵循SSE连接规范（AP-012）", "severity": "critical" },
+    { "id": "FA-002", "action": "轮询定时器未在onUnmounted中清理", "reason": "内存泄漏风险，setInterval必须配合clearInterval清理", "severity": "critical" },
+    { "id": "FA-003", "action": "论文加载无loading状态", "reason": "产品级前端必备交互状态（AP-006），必须使用v-loading或el-skeleton", "severity": "high" },
+    { "id": "FA-004", "action": "论文不存在时显示空白页面", "reason": "必须显示el-result未找到提示（AP-007）", "severity": "high" },
+    { "id": "FA-005", "action": "加载/分析失败时无用户反馈", "reason": "必须ElMessage.error + 可重试按钮（AP-008）", "severity": "high" },
+    { "id": "FA-006", "action": "硬编码颜色值（如color:#409EFF）", "reason": "必须使用CSS变量（AP-010），如var(--el-color-primary)", "severity": "high" },
+    { "id": "FA-007", "action": "使用非8px倍数间距（如margin:10px）", "reason": "8px间距系统约束（AP-005），可用值:4/8/12/16/24/32/48", "severity": "medium" },
+    { "id": "FA-008", "action": "组件超过300行", "reason": "单组件≤300行约束（AP-001），超过需拆分", "severity": "high" },
+    { "id": "FA-009", "action": "前端直接调用Python AI服务API", "reason": "三层架构约束ADR-001，前端只调Java后端", "severity": "critical" },
+    { "id": "FA-010", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-011", "action": "在轮询中打印INFO级别日志", "reason": "性能约束，轮询每3秒执行一次，频繁日志影响性能", "severity": "medium" },
+    { "id": "FA-012", "action": "分析结果缺少'AI生成，仅供参考'标注", "reason": "安全规范要求，AI生成内容必须标注", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "PaperDetailView_loading_states",
+        "description": "验证PaperDetailView加载状态：初始loading→加载成功显示论文信息→加载失败显示错误状态和重试按钮",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "PaperDetailView_favorite_toggle",
+        "description": "验证收藏功能：点击收藏按钮→调用paperStore.toggleFavorite→成功ElMessage反馈→按钮状态更新",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "PaperDetailView_analyze_flow",
+        "description": "验证分析流程：点击触发AI分析→创建会话→调用analyzePaper→轮询状态→分析完成显示结果→分析失败显示错误",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "PaperDetailView_plain_explanation_visibility",
+        "description": "验证通俗解释显示控制：beginner/intermediate用户显示通俗解释；advanced/expert用户不显示；无画像不显示",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/views/PaperDetailView.vue", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "PaperDetailView返回导航：el-page-header，点击返回router.back()", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "论文元数据完整展示：标题/作者逗号分隔/年份·会议·引用数/摘要/关键词标签", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "Loading状态：论文加载中显示el-skeleton或v-loading", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "Empty状态：论文不存在显示el-result未找到提示+返回首页按钮", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "Error状态：加载失败显示错误+重试按钮；分析失败显示错误+重新分析按钮", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "收藏按钮：正确反映收藏状态，点击切换，操作反馈ElMessage", "verified_by": "manual_test" },
+    { "id": "AC-007", "criterion": "触发AI分析：创建会话→启动分析→轮询状态→完成显示5维度结果", "verified_by": "manual_test" },
+    { "id": "AC-008", "criterion": "通俗解释：beginner/intermediate用户显示；advanced/expert用户不显示", "verified_by": "manual_test" },
+    { "id": "AC-009", "criterion": "AI内容标注：分析结果区域显示'AI生成，仅供参考'", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "轮询清理：onUnmounted中clearInterval清理定时器", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "BEM命名：paper-detail-view__*类名规范，scoped样式", "verified_by": "code_review" },
+    { "id": "AC-012", "criterion": "CSS变量：所有颜色使用var(--el-color-*)，无硬编码色值", "verified_by": "code_review" },
+    { "id": "AC-013", "criterion": "8px间距系统：所有间距为8px倍数", "verified_by": "code_review" },
+    { "id": "AC-014", "criterion": "TypeScript类型检查通过，无类型错误", "verified_by": "automated_test" },
+    { "id": "AC-015", "criterion": "单组件≤300行", "verified_by": "code_review" },
+    { "id": "AC-016", "criterion": "组件结构顺序：imports → Props/Emits → ref/reactive → computed → methods → onMounted/onUnmounted", "verified_by": "code_review" }
+  ]
+}

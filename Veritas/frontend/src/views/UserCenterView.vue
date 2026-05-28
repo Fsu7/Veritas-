@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/userStore'
 import { useSessionStore } from '@/stores/sessionStore'
 import UserProfileForm from '@/components/common/UserProfileForm.vue'
 import type { SessionDetail } from '@/types/session'
 
+const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const sessionStore = useSessionStore()
@@ -14,8 +15,14 @@ const sessionStore = useSessionStore()
 const loading = ref(false)
 const sessions = ref<SessionDetail[]>([])
 
+const isProfileSetup = computed(() => route.query.setupProfile === 'true')
+
 async function handleProfileSaved() {
   await userStore.fetchProfile()
+  ElMessage.success('画像保存成功')
+  if (isProfileSetup.value) {
+    router.push({ name: 'Home' })
+  }
 }
 
 async function handleSessionClick(sessionId: string) {
@@ -85,6 +92,15 @@ async function loadSessions() {
         <template #header>
           <h2 class="user-center-view__card-title">用户画像</h2>
         </template>
+        <el-alert
+          v-if="isProfileSetup"
+          title="欢迎使用科研文献智能助手"
+          description="请先设置您的用户画像，以便我们为您提供个性化的文献分析和综述服务。"
+          type="info"
+          show-icon
+          :closable="false"
+          class="user-center-view__setup-hint"
+        />
         <UserProfileForm
           :initial-data="userStore.profile ?? undefined"
           @saved="handleProfileSaved"
@@ -140,6 +156,10 @@ async function loadSessions() {
     font-size: var(--font-size-lg);
     font-weight: 600;
     margin: 0;
+  }
+
+  &__setup-hint {
+    margin-bottom: var(--spacing-lg);
   }
 
   &__session-item {

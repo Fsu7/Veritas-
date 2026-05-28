@@ -46,17 +46,17 @@ function handleLogout() {
   display: flex;
   align-items: center;
   height: var(--header-height);
-  background-color: #fff;
-  border-bottom: 1px solid #e4e7ed;
-  padding: 0 20px;
+  background-color: var(--el-bg-color);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding: 0 var(--spacing-lg);
 
   &__logo {
-    font-size: 18px;
+    font-size: var(--font-size-lg);
     font-weight: 600;
     color: var(--el-color-primary);
     cursor: pointer;
     white-space: nowrap;
-    margin-right: 20px;
+    margin-right: var(--spacing-lg);
   }
 
   &__menu {
@@ -72,9 +72,9 @@ function handleLogout() {
   }
 
   &__username {
-    margin-right: 8px;
-    font-size: 14px;
-    color: #606266;
+    margin-right: var(--spacing-sm);
+    font-size: var(--font-size-base);
+    color: var(--el-text-color-secondary);
   }
 }
 </style>

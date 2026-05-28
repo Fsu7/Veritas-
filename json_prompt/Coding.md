@@ -218,6 +218,9 @@ json_prompt/
 | 15 | task15_search_view_paper_card | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.2.2, F1.2.3, F1.2.4 |
 | 16 | task16_paper_store_use_pagination | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.2.1, F1.2.2, F1.2.3 |
 | 17 | task17_search_integration_test | v0.2 | M3 / FM2：用户+检索页面 | frontend | F1.2.1-F1.2.6 |
+| 18 | task18_paper_detail_view | v0.3 | M3 / FM3：论文分析+对比页面可用 | frontend | F1.3.1 |
+| 19 | task19_analysis_card_5dim | v0.3 | M3 / FM3：论文分析+对比页面可用 | frontend | F1.3.2, F1.3.3 |
+| 20 | task20_session_store_integration | v0.3 | M3 / FM3：论文分析+对比页面可用 | frontend | F1.1.1, F1.2.2, F1.3.1, F1.3.2, F2.3, F2.4 |
 
 > **维护说明**：每新增一个任务文件夹，必须同步更新对应模块目录的映射表。序号与里程碑对应关系参考 `docs/项目里程碑文档.md` 和 `docs/版本里程碑功能清单.md`。
 

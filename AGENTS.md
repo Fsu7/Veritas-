@@ -628,29 +628,220 @@ F5  模型模块
 
 ---
 
-## 19 文档索引
+## 19 项目文档导航（渐进式加载）
 
-| 文档 | 路径 |
-|------|------|
-| 项目策划案 | docs/XH-202630-科研文献助手/01-策划阶段/01-项目策划案.md |
-| 需求规格说明书 | docs/XH-202630-科研文献助手/01-策划阶段/02-需求规格说明书.md |
-| 系统架构设计文档 | docs/XH-202630-科研文献助手/02-设计阶段/03-系统架构设计文档.md |
-| 模块清单 | docs/XH-202630-科研文献助手/02-设计阶段/04-模块清单.md |
-| 功能实现顺序 | docs/XH-202630-科研文献助手/03-开发阶段/05-功能实现顺序.md |
-| 技术栈 | docs/XH-202630-科研文献助手/03-开发阶段/06-技术栈.md |
-| 零基础学习路线图 | docs/XH-202630-科研文献助手/04-学习资料/07-零基础学习路线图.md |
-| 潜在风险清单 | docs/XH-202630-科研文献助手/05-风险管理/08-潜在风险清单.md |
-| 项目方案 | docs/XH-202630-科研文献助手/05-风险管理/09-项目方案.md |
-| Java后端架构文档 | docs/backend/Java后端模块系统架构文档.md |
-| AI服务架构文档 | docs/ai-service/AI服务模块系统架构文档.md |
-| 前端架构文档 | docs/frontend/前端模块系统架构文档.md |
-| 数据库设计文档 | docs/database/数据库设计文档.md |
-| 信息架构文档 | docs/信息架构文档(IA).md |
-| 开发规范文档 | docs/开发规范文档.md |
-| 架构决策记录 | docs/架构决策记录(ADR).md |
-| 项目里程碑文档 | docs/项目里程碑文档.md |
-| 版本里程碑功能清单 | docs/版本里程碑功能清单.md |
-| 项目模块功能与联系文档 | docs/项目模块功能与联系文档.md |
-| Java后端里程碑文档 | docs/backend/Java后端模块项目里程碑文档.md |
-| AI服务里程碑文档 | docs/ai-service/AI服务模块项目里程碑文档.md |
-| 前端里程碑文档 | docs/frontend/前端模块项目里程碑文档.md |
+> **设计原则**：本 AGENTS.md 已内嵌项目核心上下文（架构、API、数据模型、编码规范等）。以下文档按需渐进式加载 —— Agent 应仅在需要特定领域细节时读取对应文档，避免一次性加载全部文档造成上下文膨胀。
+>
+> **使用方式**：Agent 先查看下方「文档分类与概要」，再根据「按场景触发加载指南」匹配当前任务所需文档，用 Read 工具按需读取。
+
+---
+
+### 19.1 文档全景地图
+
+```
+docs/
+├── 📋 A.项目总体规划 ───────────────────────────────────────────
+│   ├── 01-项目策划案.md                    [策划] 背景/目标/创新点/里程碑
+│   ├── 02-需求规格说明书.md                 [策划] 功能需求/非功能需求/用例
+│   └── 09-项目方案.md                       [策划] 完整技术方案与答辩素材
+│
+├── 🏗️ B.系统架构与设计 ─────────────────────────────────────────
+│   ├── 03-系统架构设计文档.md                [设计] 全系统三层架构/部署/安全
+│   ├── 架构决策记录(ADR).md                 [设计] 11个关键架构决策及理由
+│   └── 信息架构文档(IA).md                  [设计] 页面结构/信息流/导航设计
+│
+├── 📦 C.各模块详细设计 ─────────────────────────────────────────
+│   ├── backend/Java后端模块系统架构文档.md   [模块] Java后端分层架构/组件
+│   ├── ai-service/AI服务模块系统架构文档.md  [模块] Python AI Agent/工具/配置
+│   ├── frontend/前端模块系统架构文档.md      [模块] Vue3组件树/路由/状态管理
+│   ├── database/数据库设计文档.md            [模块] 完整DDL/索引策略/ER图
+│   ├── 项目模块功能与联系文档.md             [模块] 模块间API契约与数据流
+│   └── 系统完整工作流程文档.md               [模块] 端到端业务流程详解
+│
+├── 🔧 D.开发流程与规范 ─────────────────────────────────────────
+│   ├── 04-模块清单.md                       [规范] 功能编号体系(F1~F5)
+│   ├── 05-功能实现顺序.md                   [规范] 按里程碑的编码顺序
+│   ├── 06-技术栈.md                         [规范] 详细版本/选型理由/替代方案
+│   ├── 开发规范文档.md                      [规范] 命名/注释/代码风格/Git规范
+│   └── Git工作流文档.md                     [规范] 分支策略/PR流程/CI/CD
+│
+├── 📊 E.里程碑与进度管理 ──────────────────────────────────────
+│   ├── 项目里程碑文档.md                     [进度] 6个里程碑总览/交付物清单
+│   ├── 版本里程碑功能清单.md                 [进度] v0.1~v0.6每版本功能checklist
+│   ├── backend/Java后端模块项目里程碑文档.md [进度] Java后端逐步实现计划
+│   ├── ai-service/AI服务模块项目里程碑文档.md [进度] AI服务逐步实现计划
+│   └── frontend/前端模块项目里程碑文档.md    [进度] 前端逐步实现计划
+│
+├── 🎨 F.用户体验与交付 ─────────────────────────────────────────
+│   ├── 前端UI-UX设计手册.md                  [UX] 液态玻璃设计系统/组件/动效
+│   └── 用户手册.md                           [UX] 面向终端用户的操作说明
+│
+└── ⚠️ G.风险管理与学习资料 ────────────────────────────────────
+    ├── 08-潜在风险清单.md                    [风险] 32项风险/概率/影响/应对
+    └── 07-零基础学习路线图.md                 [学习] 从零到开发的完整学习路径
+```
+
+---
+
+### 19.2 按场景触发加载指南
+
+> **核心原则**：先判断当前任务属于哪个场景，再精确加载 1~3 份文档，而非全部。
+
+#### 🎯 场景一：理解项目全貌/写项目介绍/准备答辩
+
+| 加载文档 | 提供内容 | 何时加载必读 |
+|---------|---------|-------------|
+| [01-项目策划案](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/XH-202630-科研文献助手/01-策划阶段/01-项目策划案.md) | 课题背景、四大创新点、6个里程碑、团队分工 | 首次了解项目 |
+| [09-项目方案](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/XH-202630-科研文献助手/05-风险管理/09-项目方案.md) | 完整技术方案、系统架构图、创新点论述 | 写技术报告/答辩PPT时 |
+| [项目里程碑文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/项目里程碑文档.md) | M1~M6时间线/交付物/验收标准 | 规划整体进度时 |
+
+#### 🎯 场景二：开发 Java 后端功能
+
+| 加载文档 | 提供内容 | 何时加载必读 |
+|---------|---------|-------------|
+| [Java后端模块系统架构文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/backend/Java后端模块系统架构文档.md) | Controller/Service/Repository分层、DTO设计、安全配置 | **每次写Java代码前必读** |
+| [Java后端模块项目里程碑文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/backend/Java后端模块项目里程碑文档.md) | 后端逐步实现计划与当前进度 | 确认当前应实现的功能范围 |
+| [数据库设计文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/database/数据库设计文档.md) | 完整DDL、索引、ER图、Entity映射 | 需要创建/修改数据库表时 |
+| [项目模块功能与联系文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/项目模块功能与联系文档.md) | Java↔Python API契约、数据流转 | 实现跨服务调用时 |
+
+#### 🎯 场景三：开发 Python AI 服务
+
+| 加载文档 | 提供内容 | 何时加载必读 |
+|---------|---------|-------------|
+| [AI服务模块系统架构文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/ai-service/AI服务模块系统架构文档.md) | Agent模块设计、LangGraph工作流、RAG管道 | **每次写Python AI代码前必读** |
+| [AI服务模块项目里程碑文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/ai-service/AI服务模块项目里程碑文档.md) | AI服务逐步实现计划与当前进度 | 确认当前应实现的功能范围 |
+| [系统完整工作流程文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/系统完整工作流程文档.md) | 用户请求→6 Agent→返回的全链路时序 | 理解全链路数据流时 |
+| [数据库设计文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/database/数据库设计文档.md) | ChromaDB collection设计与分块策略 | 配置向量存储时 |
+
+#### 🎯 场景四：开发前端界面
+
+| 加载文档 | 提供内容 | 何时加载必读 |
+|---------|---------|-------------|
+| [前端模块系统架构文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/frontend/前端模块系统架构文档.md) | 组件树、Pinia Store、路由设计、SSE集成 | **每次写前端代码前必读** |
+| [前端模块项目里程碑文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/frontend/前端模块项目里程碑文档.md) | 前端逐步实现计划与当前进度 | 确认当前应实现的功能范围 |
+| [前端UI-UX设计手册](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/frontend/前端UI-UX设计手册.md) | 液态玻璃设计规范、色彩/字体/动效/组件 | **写UI代码前必读** |
+| [信息架构文档(IA)](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/信息架构文档(IA).md) | 页面层级、导航结构、用户流程 | 设计新页面或修改路由时 |
+
+#### 🎯 场景五：做架构决策或重构
+
+| 加载文档 | 提供内容 | 何时加载必读 |
+|---------|---------|-------------|
+| [架构决策记录(ADR)](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/架构决策记录(ADR).md) | 11个ADR：为什么选这个架构/这个库/这个模式 | **做任何架构决策前必读** |
+| [03-系统架构设计文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/XH-202630-科研文献助手/02-设计阶段/03-系统架构设计文档.md) | 全系统架构图、技术选型理由、部署拓扑 | 评估架构变更影响时 |
+| [项目模块功能与联系文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/项目模块功能与联系文档.md) | 模块间依赖关系 | 重构前评估影响范围时 |
+
+#### 🎯 场景六：制定开发计划/管理进度
+
+| 加载文档 | 提供内容 | 何时加载必读 |
+|---------|---------|-------------|
+| [版本里程碑功能清单](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/版本里程碑功能清单.md) | v0.1~v0.6每个版本逐条功能checklist | **规划开发任务前必读** |
+| [05-功能实现顺序](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/XH-202630-科研文献助手/03-开发阶段/05-功能实现顺序.md) | 按里程碑编码优先级排序 | 确定"下一步做什么"时 |
+| [04-模块清单](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/XH-202630-科研文献助手/02-设计阶段/04-模块清单.md) | F1~F5功能编号全体系 | 需要功能编号引用时 |
+| [项目里程碑文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/项目里程碑文档.md) | M1~M6总览/关键路径 | 总体进度对齐时 |
+
+#### 🎯 场景七：处理风险/团队培训
+
+| 加载文档 | 提供内容 | 何时加载必读 |
+|---------|---------|-------------|
+| [08-潜在风险清单](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/XH-202630-科研文献助手/05-风险管理/08-潜在风险清单.md) | 32项风险、发生概率、影响等级、应对策略 | 风险评估/应对规划时 |
+| [07-零基础学习路线图](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/XH-202630-科研文献助手/04-学习资料/07-零基础学习路线图.md) | 从零到开发的6阶段学习路径 | 新成员入门/技能培训时 |
+
+#### 🎯 场景八：配置开发环境/遵循规范
+
+| 加载文档 | 提供内容 | 何时加载必读 |
+|---------|---------|-------------|
+| [开发规范文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/开发规范文档.md) | 三语言命名规范、代码风格、注释规范 | 提交代码前验证合规时 |
+| [Git工作流文档](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/Git工作流文档.md) | 分支策略、Commit规范、PR流程 | Git操作/GitHub配置时 |
+| [06-技术栈](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/XH-202630-科研文献助手/03-开发阶段/06-技术栈.md) | 每项技术的版本、选型理由、替代方案 | 添加新依赖/升级版本时 |
+| [02-需求规格说明书](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/docs/XH-202630-科研文献助手/01-策划阶段/02-需求规格说明书.md) | 完整功能需求SRS、用例、验收标准 | 确认需求边界时 |
+
+---
+
+### 19.3 文档关系依赖图
+
+```mermaid
+graph TD
+    AGENTS[AGENTS.md<br/>核心上下文，始终加载]
+
+    subgraph 阅读起点
+        CEHUA[01-项目策划案]
+        JIAGOU[03-系统架构设计文档]
+        ADR[架构决策记录 ADR]
+    end
+
+    subgraph 模块详细设计
+        JAVA_BE[Java后端架构文档]
+        AI_SVC[AI服务架构文档]
+        FE[前端架构文档]
+        DB[数据库设计文档]
+        FLOW[系统完整工作流程]
+        MODULE[项目模块功能与联系]
+    end
+
+    subgraph 开发执行
+        SPEC[02-需求规格说明书]
+        STACK[06-技术栈]
+        CHECKLIST[04-模块清单]
+        ORDER[05-功能实现顺序]
+        CODING[开发规范文档]
+        GIT[Git工作流文档]
+    end
+
+    subgraph 进度跟踪
+        MS[项目里程碑文档]
+        MS_VER[版本里程碑功能清单]
+        MS_JAVA[Java后端里程碑]
+        MS_AI[AI服务里程碑]
+        MS_FE[前端里程碑]
+    end
+
+    subgraph 质量交付
+        UIUX[前端UI-UX设计手册]
+        USER[用户手册]
+        RISK[08-潜在风险清单]
+        LEARN[07-零基础学习路线图]
+        PLAN[09-项目方案]
+        IA[信息架构文档 IA]
+    end
+
+    AGENTS --> 阅读起点
+    阅读起点 --> 模块详细设计
+    模块详细设计 --> 开发执行
+    开发执行 --> 进度跟踪
+    进度跟踪 --> 质量交付
+```
+
+> **阅读建议**：以上依赖图为文档间的逻辑先后关系。实际开发时，AGENTS.md 已覆盖大部分核心信息，仅在需要细节时按 19.2 场景表逐份加载即可。
+
+---
+
+### 19.4 文档完整路径索引
+
+| 分类 | 文档 | 完整路径 |
+|------|------|---------|
+| A | 项目策划案 | `docs/XH-202630-科研文献助手/01-策划阶段/01-项目策划案.md` |
+| A | 需求规格说明书 | `docs/XH-202630-科研文献助手/01-策划阶段/02-需求规格说明书.md` |
+| A | 项目方案 | `docs/XH-202630-科研文献助手/05-风险管理/09-项目方案.md` |
+| B | 系统架构设计文档 | `docs/XH-202630-科研文献助手/02-设计阶段/03-系统架构设计文档.md` |
+| B | 架构决策记录 | `docs/架构决策记录(ADR).md` |
+| B | 信息架构文档 | `docs/信息架构文档(IA).md` |
+| C | Java后端架构文档 | `docs/backend/Java后端模块系统架构文档.md` |
+| C | AI服务架构文档 | `docs/ai-service/AI服务模块系统架构文档.md` |
+| C | 前端架构文档 | `docs/frontend/前端模块系统架构文档.md` |
+| C | 数据库设计文档 | `docs/database/数据库设计文档.md` |
+| C | 模块功能与联系 | `docs/项目模块功能与联系文档.md` |
+| C | 系统工作流程 | `docs/系统完整工作流程文档.md` |
+| D | 模块清单 | `docs/XH-202630-科研文献助手/02-设计阶段/04-模块清单.md` |
+| D | 功能实现顺序 | `docs/XH-202630-科研文献助手/03-开发阶段/05-功能实现顺序.md` |
+| D | 技术栈 | `docs/XH-202630-科研文献助手/03-开发阶段/06-技术栈.md` |
+| D | 开发规范 | `docs/开发规范文档.md` |
+| D | Git工作流 | `docs/Git工作流文档.md` |
+| E | 项目里程碑 | `docs/项目里程碑文档.md` |
+| E | 版本里程碑功能清单 | `docs/版本里程碑功能清单.md` |
+| E | Java后端里程碑 | `docs/backend/Java后端模块项目里程碑文档.md` |
+| E | AI服务里程碑 | `docs/ai-service/AI服务模块项目里程碑文档.md` |
+| E | 前端里程碑 | `docs/frontend/前端模块项目里程碑文档.md` |
+| F | UI-UX设计手册 | `docs/frontend/前端UI-UX设计手册.md` |
+| F | 用户手册 | `docs/用户手册.md` |
+| G | 潜在风险清单 | `docs/XH-202630-科研文献助手/05-风险管理/08-潜在风险清单.md` |
+| G | 零基础学习路线图 | `docs/XH-202630-科研文献助手/04-学习资料/07-零基础学习路线图.md` |

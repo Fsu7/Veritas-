@@ -1,0 +1,264 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析+对比页面可用",
+    "requirement": "实现AnalysisCard分析卡片业务组件和PlainExplanation通俗解释组件。AnalysisCard展示5维度结构化分析结果（研究问题/核心方法/主要实验/核心结论/局限性），每个维度使用图标+标签+内容格式，支持降级标签显示、通俗解释区域条件渲染、[生成综述]和[选择对比]操作按钮上行。PlainExplanation为独立组件，展示通俗解释内容，仅对beginner/intermediate用户可见。同时将PaperDetailView中的5维度占位替换为AnalysisCard组件集成。",
+    "requirement_ids": ["F1.3.2", "F1.3.3"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "AnalysisCard组件规范（6.3节）、PlainExplanation组件规范、5维度展示格式、通俗解释显示逻辑" },
+      { "path": "AGENTS.md", "purpose": "StructuredAnalysis字段定义、个性化引擎4维度画像、通俗解释策略" },
+      { "path": "docs/开发规范文档.md", "purpose": "前端编码规范、BEM命名、组件结构顺序、8px间距系统" },
+      { "path": "docs/信息架构文档(IA).md", "purpose": "分析结果字段映射、JSON snake_case字段对应关系" },
+      { "path": "docs/架构决策记录(ADR).md", "purpose": "ADR-006 个性化引擎、ADR-003 LLM三级降级" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/analysis/", "description": "分析业务组件目录，当前仅有.gitkeep占位，需创建AnalysisCard.vue和PlainExplanation.vue" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/PaperDetailView.vue", "description": "论文详情页面，task18实现后包含5维度占位展示，需替换为AnalysisCard组件" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/analysis.ts", "description": "AnalysisResult/StructuredAnalysis类型定义" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/userStore.ts", "description": "用户状态管理，含profile(knowledgeLevel/educationLevel等画像信息)" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/types/analysis.ts", "description": "StructuredAnalysis接口：{researchQuestion:string, coreMethod:string, keyExperiments:string, coreFindings:string, limitations:string, plainExplanation?:string}；AnalysisResult接口：{analysisId:string, status, type, result?:{analysis?:StructuredAnalysis, ...}, degraded?:boolean, degradedReason?:string}", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/stores/userStore.ts", "description": "userStore.profile含knowledgeLevel('beginner'|'intermediate'|'advanced'|'expert')和educationLevel('undergraduate'|'master'|'phd'|'faculty')，用于控制通俗解释显示", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/views/PaperDetailView.vue", "description": "task18实现后的PaperDetailView，包含5维度文本占位展示，需替换为AnalysisCard组件集成", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "StructuredAnalysis",
+      "path": "Veritas/frontend/src/types/analysis.ts",
+      "responsibility": "5维度结构化分析类型定义",
+      "key_interfaces": [
+        { "name": "StructuredAnalysis", "signature": "interface StructuredAnalysis { researchQuestion: string; coreMethod: string; keyExperiments: string; coreFindings: string; limitations: string; plainExplanation?: string }", "description": "5维度分析结果：研究问题/核心方法/主要实验/核心结论/局限性 + 可选通俗解释" }
+      ]
+    },
+    {
+      "name": "AnalysisResult",
+      "path": "Veritas/frontend/src/types/analysis.ts",
+      "responsibility": "分析结果完整类型定义",
+      "key_interfaces": [
+        { "name": "AnalysisResult", "signature": "interface AnalysisResult { analysisId: string; status: 'pending'|'processing'|'completed'|'failed'; type: 'paper_analysis'|'compare'|'report'; result?: { report?: string; citations?: Citation[]; analysis?: StructuredAnalysis; comparison?: CompareResult }; agentStates?: AgentState[]; degraded?: boolean; degradedReason?: string }", "description": "分析结果含5维度analysis、降级标记degraded、降级原因degradedReason" }
+      ]
+    },
+    {
+      "name": "userStore",
+      "path": "Veritas/frontend/src/stores/userStore.ts",
+      "responsibility": "用户状态管理，含画像信息",
+      "key_interfaces": [
+        { "name": "profile", "signature": "profile: Ref<UserProfile | null>", "description": "用户画像，含knowledgeLevel和educationLevel" },
+        { "name": "hasProfile", "signature": "hasProfile: ComputedRef<boolean>", "description": "是否已设置画像" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue", "description": "分析卡片业务组件：5维度结构化展示+降级标签+通俗解释区域+操作按钮上行，BEM命名，可被PaperDetailView和CompareView复用", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/components/analysis/PlainExplanation.vue", "description": "通俗解释独立组件：展示plainExplanation内容，使用el-alert type='info'包裹，前缀'💡 通俗理解：'，仅beginner/intermediate用户可见（由父组件通过v-if控制）", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/views/PaperDetailView.vue", "description": "将5维度占位文本替换为AnalysisCard组件集成：import AnalysisCard + PlainExplanation，传入:analysis和:showPlainExplanation props", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "AnalysisCard Props定义：defineProps<{ analysis: AnalysisResult; showPlainExplanation?: boolean }>()，showPlainExplanation默认false。analysis为必传prop，类型为AnalysisResult",
+        "priority": "P0",
+        "acceptance_condition": "Props类型完整，含TypeScript泛型，默认值正确"
+      },
+      {
+        "id": "FR-002",
+        "description": "AnalysisCard Emits定义：defineEmits<{ (e: 'generate-report', analysisId: string): void; (e: 'select-compare', analysisId: string): void }>()",
+        "priority": "P0",
+        "acceptance_condition": "Emits类型完整，含TypeScript泛型，两个事件签名正确"
+      },
+      {
+        "id": "FR-003",
+        "description": "AnalysisCard 5维度展示：定义dimensions常量数组，每项包含{key, label, icon}：[{key:'researchQuestion', label:'研究问题', icon:'🎯'}, {key:'coreMethod', label:'核心方法', icon:'🔧'}, {key:'keyExperiments', label:'主要实验', icon:'🧪'}, {key:'coreFindings', label:'核心结论', icon:'📊'}, {key:'limitations', label:'局限性', icon:'⚠️'}]。v-for遍历dimensions，每个维度渲染一个div class='analysis-card__dimension'，包含h4标题（icon+label）和p内容（analysis.result.analysis[dim.key]）",
+        "priority": "P0",
+        "acceptance_condition": "5个维度完整展示；每个维度有图标+标签+内容；内容从StructuredAnalysis对应字段读取"
+      },
+      {
+        "id": "FR-004",
+        "description": "AnalysisCard降级标签：如果analysis.degraded为true，在卡片header区域显示el-tag type='warning' size='small' '部分降级'。如果analysis.degradedReason存在，在降级标签下方显示el-text type='warning' size='small'显示降级原因",
+        "priority": "P1",
+        "acceptance_condition": "降级时显示'部分降级'标签和原因；未降级时不显示"
+      },
+      {
+        "id": "FR-005",
+        "description": "AnalysisCard通俗解释区域：如果showPlainExplanation为true且analysis.result.analysis.plainExplanation存在，渲染PlainExplanation组件，传入:content='analysis.result.analysis.plainExplanation'。PlainExplanation放在5维度展示区域下方",
+        "priority": "P0",
+        "acceptance_condition": "showPlainExplanation=true且有内容时显示通俗解释；showPlainExplanation=false时不显示；无plainExplanation时不显示"
+      },
+      {
+        "id": "FR-006",
+        "description": "AnalysisCard操作按钮：在卡片底部渲染div class='analysis-card__actions'，右对齐flex布局。(1)[生成综述] el-button type='primary' size='small' @click='emit(\"generate-report\", analysis.analysisId)'；(2)[选择对比] el-button size='small' @click='emit(\"select-compare\", analysis.analysisId)'",
+        "priority": "P0",
+        "acceptance_condition": "两个操作按钮正确渲染；点击触发对应emit事件并传递analysisId"
+      },
+      {
+        "id": "FR-007",
+        "description": "AnalysisCard AI内容标注：在卡片header区域显示el-text type='info' size='small' '🤖 AI智能分析 · AI生成，仅供参考'，与安全规范一致",
+        "priority": "P1",
+        "acceptance_condition": "卡片header显示'AI智能分析'标题和'AI生成，仅供参考'标注"
+      },
+      {
+        "id": "FR-008",
+        "description": "AnalysisCard BEM样式：使用scoped CSS + BEM命名。类名：analysis-card(根)、analysis-card__header(标题区)、analysis-card__degraded(降级标签)、analysis-card__dimension(维度项)、analysis-card__dimension-title(维度标题h4)、analysis-card__dimension-content(维度内容p)、analysis-card__actions(操作按钮区)。维度项间距margin-bottom:16px，维度标题font-size:16px font-weight:600，维度内容line-height:1.8 color:var(--el-text-color-regular)，卡片圆角8px",
+        "priority": "P0",
+        "acceptance_condition": "所有CSS类名遵循BEM规范；颜色全部使用CSS变量；间距为8px倍数"
+      },
+      {
+        "id": "FR-009",
+        "description": "PlainExplanation Props定义：defineProps<{ content: string }>()，content为必传prop，类型string",
+        "priority": "P0",
+        "acceptance_condition": "Props类型完整，含TypeScript泛型"
+      },
+      {
+        "id": "FR-010",
+        "description": "PlainExplanation展示：使用el-alert type='info' :closable='false' show-icon包裹，class='plain-explanation'。标题前缀'💡 通俗理解：'使用el-text tag='b'，内容使用el-text line-height:1.8。整体放在el-card class='plain-explanation__card'中，margin-top:16px",
+        "priority": "P0",
+        "acceptance_condition": "通俗解释使用el-alert包裹；前缀'💡 通俗理解：'醒目；内容行高1.8易读"
+      },
+      {
+        "id": "FR-011",
+        "description": "PlainExplanation BEM样式：类名：plain-explanation(根)、plain-explanation__card(外层卡片)、plain-explanation__title(标题前缀)、plain-explanation__content(内容区)。scoped CSS，颜色使用CSS变量，间距8px倍数",
+        "priority": "P0",
+        "acceptance_condition": "所有CSS类名遵循BEM规范；颜色使用CSS变量；间距8px倍数"
+      },
+      {
+        "id": "FR-012",
+        "description": "PaperDetailView集成AnalysisCard：import AnalysisCard from '@/components/analysis/AnalysisCard.vue'和import PlainExplanation from '@/components/analysis/PlainExplanation.vue'。将task18中的5维度占位文本替换为<AnalysisCard :analysis='analysisResult' :showPlainExplanation='showPlainExplanation' @generate-report='handleGenerateReport' @select-compare='handleSelectCompare' />。handleGenerateReport(analysisId)→router.push({name:'Report',params:{analysisId}})，handleSelectCompare(analysisId)→router.push({name:'Compare'})。移除PaperDetailView中task18的5维度占位文本和操作按钮（已由AnalysisCard内部提供）",
+        "priority": "P0",
+        "acceptance_condition": "PaperDetailView使用AnalysisCard组件展示分析结果；AnalysisCard的emit事件正确处理路由跳转；原占位文本和操作按钮已移除"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case，前端Store层使用camelCase，API层JSON使用snake_case",
+        "mappings": [
+          { "java": "researchQuestion", "python": "research_question", "json": "research_question" },
+          { "java": "coreMethod", "python": "core_method", "json": "core_method" },
+          { "java": "keyExperiments", "python": "key_experiments", "json": "key_experiments" },
+          { "java": "coreFindings", "python": "core_findings", "json": "core_findings" },
+          { "java": "plainExplanation", "python": "plain_explanation", "json": "plain_explanation" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" },
+          { "java": "degradedReason", "python": "degraded_reason", "json": "degraded_reason" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "analysisApi.analyzePaper返回AnalysisResult → PaperDetailView存储analysisResult ref → 传入AnalysisCard :analysis prop → AnalysisCard读取result.analysis的5维度字段渲染 → 用户点击[生成综述]→emit上行→PaperDetailView路由跳转"
+    },
+    "security_requirements": [
+      { "category": "other", "requirement": "AI生成内容必须标注'AI生成，仅供参考'，在AnalysisCard header区域显示" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue",
+        "enum_value": "PascalCase"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "researchQuestion", "python": "research_question", "json": "research_question" },
+        { "java": "coreMethod", "python": "core_method", "json": "core_method" },
+        { "java": "keyExperiments", "python": "key_experiments", "json": "key_experiments" },
+        { "java": "coreFindings", "python": "core_findings", "json": "core_findings" },
+        { "java": "plainExplanation", "python": "plain_explanation", "json": "plain_explanation" },
+        { "java": "degradedReason", "python": "degraded_reason", "json": "degraded_reason" }
+      ]
+    },
+    "layering": {
+      "frontend": {
+        "rule": "AnalysisCard是纯展示+事件上行组件，不直接操作Store或API；PlainExplanation是纯展示组件，无事件；PaperDetailView负责数据获取和路由跳转"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "AnalysisCard不处理API错误（由父组件PaperDetailView处理）；如果analysis.result.analysis为undefined，不渲染5维度区域（v-if='analysis.result?.analysis'）"
+      }
+    },
+    "caching": {
+      "pattern": "AnalysisCard不涉及缓存逻辑，数据由父组件通过props传入"
+    },
+    "logging": {
+      "prohibited": [
+        "console.log Token/API Key等敏感信息",
+        "在v-for循环中打印日志"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "AnalysisCard内部直接调用paperStore/analysisApi/sessionStore", "reason": "AnalysisCard是纯展示+事件上行组件，所有数据操作由父组件处理，保证可复用性（AP-012）", "severity": "critical" },
+    { "id": "FA-002", "action": "PlainExplanation内部访问userStore判断是否显示", "reason": "显示/隐藏由父组件通过v-if控制，PlainExplanation只负责展示内容，保证组件独立性", "severity": "high" },
+    { "id": "FA-003", "action": "硬编码颜色值（如color:#409EFF）", "reason": "必须使用CSS变量（AP-010），如var(--el-color-primary)", "severity": "high" },
+    { "id": "FA-004", "action": "使用非8px倍数间距（如margin:10px）", "reason": "8px间距系统约束（AP-005）", "severity": "medium" },
+    { "id": "FA-005", "action": "组件超过300行", "reason": "单组件≤300行约束（AP-001）", "severity": "high" },
+    { "id": "FA-006", "action": "前端直接调用Python AI服务API", "reason": "三层架构约束ADR-001", "severity": "critical" },
+    { "id": "FA-007", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-008", "action": "分析结果缺少'AI生成，仅供参考'标注", "reason": "安全规范要求", "severity": "high" },
+    { "id": "FA-009", "action": "在PaperDetailView中保留5维度占位文本不替换", "reason": "必须用AnalysisCard组件替换占位文本，实现组件化", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "AnalysisCard_5_dimensions",
+        "description": "验证AnalysisCard正确渲染5个维度：研究问题/核心方法/主要实验/核心结论/局限性，每个维度有图标+标签+内容",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "AnalysisCard_degraded_tag",
+        "description": "验证降级标签：degraded=true时显示'部分降级'标签和原因；degraded=false时不显示",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "AnalysisCard_events",
+        "description": "验证AnalysisCard事件触发：点击[生成综述]→generate-report事件、点击[选择对比]→select-compare事件，均传递analysisId",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "AnalysisCard_plain_explanation",
+        "description": "验证通俗解释：showPlainExplanation=true且有plainExplanation时显示PlainExplanation组件；showPlainExplanation=false时不显示；无plainExplanation时不显示",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "PlainExplanation_rendering",
+        "description": "验证PlainExplanation组件：正确渲染content内容，显示'💡 通俗理解：'前缀，使用el-alert包裹",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/components/analysis/AnalysisCard.vue", "expected_result": "所有测试通过" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/components/analysis/PlainExplanation.vue", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "AnalysisCard 5维度完整展示：研究问题🎯/核心方法🔧/主要实验🧪/核心结论📊/局限性⚠️，每项有图标+标签+内容", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "AnalysisCard降级标签：degraded=true时显示'部分降级'+原因；degraded=false时不显示", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "AnalysisCard通俗解释：showPlainExplanation=true且有plainExplanation时显示PlainExplanation组件", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "AnalysisCard操作按钮：[生成综述]→emit('generate-report', analysisId)、[选择对比]→emit('select-compare', analysisId)", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "AnalysisCard AI内容标注：header显示'AI智能分析 · AI生成，仅供参考'", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "PlainExplanation展示：el-alert type='info'包裹，前缀'💡 通俗理解：'，内容行高1.8", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "PaperDetailView集成：5维度占位文本替换为AnalysisCard组件，emit事件正确处理路由跳转", "verified_by": "manual_test" },
+    { "id": "AC-008", "criterion": "AnalysisCard可复用：Props/Emits完整定义，不依赖Store/API，PaperDetailView和CompareView均可使用", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "BEM命名：analysis-card__* / plain-explanation__* 类名规范，scoped样式", "verified_by": "code_review" },
+    { "id": "AC-010", "criterion": "CSS变量：所有颜色使用var(--el-color-*)，无硬编码色值", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "8px间距系统：所有间距为8px倍数", "verified_by": "code_review" },
+    { "id": "AC-012", "criterion": "TypeScript类型检查通过，无类型错误", "verified_by": "automated_test" },
+    { "id": "AC-013", "criterion": "单组件≤300行：AnalysisCard.vue和PlainExplanation.vue均不超过300行", "verified_by": "code_review" },
+    { "id": "AC-014", "criterion": "组件结构顺序：imports → Props/Emits → ref/reactive → computed → methods → 生命周期", "verified_by": "code_review" }
+  ]
+}

@@ -117,7 +117,7 @@ function handleClearRecent() {
 }
 
 .home-view__title {
-  font-size: 32px;
+  font-size: var(--font-size-xxl);
   font-weight: 600;
   margin-bottom: var(--spacing-sm);
   color: var(--el-text-color-primary);
@@ -127,7 +127,7 @@ function handleClearRecent() {
 .home-view__subtitle {
   font-size: var(--font-size-base);
   color: var(--el-color-info);
-  margin-bottom: 48px;
+  margin-bottom: var(--spacing-xl);
 }
 
 .home-view__input-wrapper {

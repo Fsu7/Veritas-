@@ -2,19 +2,19 @@ import http from './index'
 import type { AnalysisResult } from '@/types/analysis'
 
 export const analysisApi = {
-  analyzePaper: (data: { paperId: string }) =>
+  analyzePaper: (data: { paperId: string }): Promise<AnalysisResult> =>
     http.post('/analysis/paper', data),
 
-  comparePapers: (data: { paperIds: string[] }) =>
+  comparePapers: (data: { paperIds: string[] }): Promise<AnalysisResult> =>
     http.post('/analysis/compare', data),
 
-  generateReport: (data: { topic: string; paperIds: string[] }) =>
+  generateReport: (data: { topic: string; paperIds: string[] }): Promise<AnalysisResult> =>
     http.post('/analysis/report', data),
 
   getResult: (analysisId: string): Promise<AnalysisResult> =>
     http.get(`/analysis/${analysisId}`),
 
-  getStatus: (analysisId: string) =>
+  getStatus: (analysisId: string): Promise<AnalysisResult> =>
     http.get(`/analysis/${analysisId}/status`),
 
   getAgentStreamUrl: (analysisId: string): string =>
