@@ -37,6 +37,8 @@ async def health_check():
         "embedding": app_state.embedding_service.status if app_state.embedding_service else "not_loaded",
         "chroma": app_state.vector_store_service.status if app_state.vector_store_service else "not_connected",
         "prompts": app_state.prompt_manager.status if app_state.prompt_manager else "not_loaded",
+        "search_service": "ready" if app_state.search_service else "not_initialized",
+        "reranker": "ready" if app_state.reranker else "not_initialized",
     }
 
 

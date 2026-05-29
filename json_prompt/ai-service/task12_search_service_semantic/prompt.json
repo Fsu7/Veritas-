@@ -1,0 +1,357 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2：单Agent可用 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "实现 SearchService 语义检索服务，作为 RAG 检索模块（F3.2）的核心服务层。当前 search.py 端点直接调用 EmbeddingService + VectorStoreService，缺少服务层抽象。需要新建 services/search_service.py，封装语义检索全流程（查询向量化 → ChromaDB检索 → 结果格式化），并为后续混合检索（RRF融合）和重排序预留扩展点。同时将 SearchService 注册到 AppState 生命周期管理中。",
+    "requirement_ids": ["F3.2.3", "F3.2.1", "F3.2.2"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "第6章 RAG检索模块设计，SearchService类设计、检索流程、功能清单"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "第11章 混合检索架构（RAG），RRF融合算法，个性化排序调整公式"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-005 混合RAG检索决策，语义+关键词双路检索+RRF融合"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/vector_store_service.py",
+        "purpose": "现有VectorStoreService实现，search()方法签名和返回格式"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/embedding_service.py",
+        "purpose": "现有EmbeddingService实现，encode()方法签名"
+      },
+      {
+        "path": "Veritas/ai-service/app/core/events.py",
+        "purpose": "AppState生命周期管理，需注册SearchService"
+      },
+      {
+        "path": "Veritas/ai-service/app/api/endpoints/search.py",
+        "purpose": "当前search端点实现，需重构为调用SearchService"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/",
+        "description": "服务层，包含LLMService/EmbeddingService/VectorStoreService/PromptManager，缺少SearchService"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/api/endpoints/search.py",
+        "description": "检索API端点，当前直接调用EmbeddingService+VectorStoreService，需重构为调用SearchService"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/events.py",
+        "description": "应用生命周期管理，AppState需新增search_service属性"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/services/vector_store_service.py",
+        "description": "VectorStoreService已实现：search(embedding, top_k, filters) → List[dict]，返回格式{paperId, title, abstract, score, year, venue}，score=1-cosine_distance",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/embedding_service.py",
+        "description": "EmbeddingService已实现：encode(text) → np.ndarray(1024维)，支持DashScope API和本地bge-m3双模式",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/api/endpoints/search.py",
+        "description": "当前search端点直接调用embedding+vector_store，需重构为调用SearchService",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/events.py",
+        "description": "AppState类和on_startup/on_shutdown生命周期，需新增search_service初始化",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/models/schemas.py",
+        "description": "SearchRequest/SearchResponse/SearchResultItem Pydantic模型已定义，含camelCase alias",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/exception.py",
+        "description": "AIServiceException/VectorStoreException异常体系已定义",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "VectorStoreService",
+      "path": "Veritas/ai-service/app/services/vector_store_service.py",
+      "responsibility": "ChromaDB向量存储与检索，提供search(embedding, top_k, filters)接口",
+      "key_interfaces": [
+        {
+          "name": "search",
+          "signature": "async def search(self, embedding: List[float], top_k: int = 10, filters: Optional[Dict] = None) -> List[dict]",
+          "description": "向量相似度检索，返回[{paperId, title, abstract, score, year, venue}]"
+        },
+        {
+          "name": "count",
+          "signature": "async def count(self) -> int",
+          "description": "获取向量库中论文总数"
+        }
+      ]
+    },
+    {
+      "name": "EmbeddingService",
+      "path": "Veritas/ai-service/app/services/embedding_service.py",
+      "responsibility": "文本向量化，支持DashScope API和本地bge-m3",
+      "key_interfaces": [
+        {
+          "name": "encode",
+          "signature": "async def encode(self, text: Union[str, list]) -> np.ndarray",
+          "description": "文本→1024维向量，normalize_embeddings=True"
+        }
+      ]
+    },
+    {
+      "name": "AppState",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "responsibility": "全局应用状态管理，服务生命周期",
+      "key_interfaces": [
+        {
+          "name": "on_startup",
+          "signature": "async def on_startup() -> None",
+          "description": "应用启动时初始化所有服务"
+        },
+        {
+          "name": "on_shutdown",
+          "signature": "async def on_shutdown() -> None",
+          "description": "应用关闭时释放资源"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/services/search_service.py",
+      "description": "新建SearchService类，封装语义检索全流程，预留hybrid_search和reranker扩展点",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "description": "AppState新增search_service属性，on_startup中初始化SearchService",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/api/endpoints/search.py",
+      "description": "重构search端点，从直接调用EmbeddingService+VectorStoreService改为调用SearchService",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "实现SearchService类，构造函数接收vector_store_service和embedding_service依赖注入。提供search(query, top_k, filters)方法，内部流程：1)调用embedding_service.encode(query)获取查询向量 2)调用vector_store_service.search(embedding, top_k, filters)获取原始结果 3)格式化结果并返回List[dict]。每个结果包含paper_id/title/abstract/score/year/venue字段",
+        "priority": "P0",
+        "acceptance_condition": "SearchService.search()能完成查询→向量化→检索→返回完整流程，返回格式与现有VectorStoreService.search()一致"
+      },
+      {
+        "id": "FR-002",
+        "description": "SearchService需实现keyword_search(query, top_k, filters)方法，利用ChromaDB的where_document过滤进行关键词检索。将查询文本拆分为关键词列表，使用{$contains: keyword}进行文档内容匹配，合并结果并去重。此方法为后续RRF融合的第二路检索提供基础",
+        "priority": "P1",
+        "acceptance_condition": "keyword_search()能根据关键词在ChromaDB文档内容中检索匹配论文，返回格式与search()一致"
+      },
+      {
+        "id": "FR-003",
+        "description": "SearchService需实现_reciprocal_rank_fusion(list1, list2, k=60)方法，实现RRF融合算法。RRF_score(d) = Σ 1/(k + rank_i(d))，k=60为架构文档ADR-005规定值。融合时以paper_id为唯一标识进行去重合并，按融合分数降序排列",
+        "priority": "P1",
+        "acceptance_condition": "RRF融合能正确合并两路检索结果，相同paper_id的论文只出现一次且分数为两路RRF分数之和"
+      },
+      {
+        "id": "FR-004",
+        "description": "SearchService需实现hybrid_search(query, top_k, filters)方法，并行执行语义检索(search)和关键词检索(keyword_search)，使用RRF融合两路结果，返回融合排序后的TopK结果。语义检索和关键词检索各取top_k*2候选，融合后截取top_k",
+        "priority": "P1",
+        "acceptance_condition": "hybrid_search()能并行执行双路检索并正确融合，响应时间≤3秒"
+      },
+      {
+        "id": "FR-005",
+        "description": "SearchService预留reranker扩展点。构造函数可选接收reranker参数，search()和hybrid_search()在返回结果前，若reranker存在则调用reranker.rerank(query, results)进行重排序",
+        "priority": "P1",
+        "acceptance_condition": "SearchService构造函数和search/hybrid_search方法均支持可选reranker，reranker=None时正常工作"
+      },
+      {
+        "id": "FR-006",
+        "description": "将SearchService注册到AppState生命周期。AppState新增search_service=None属性，on_startup中在embedding_service和vector_store_service初始化后创建SearchService实例，on_shutdown中无需特殊处理（SearchService无资源需释放）",
+        "priority": "P0",
+        "acceptance_condition": "app_state.search_service在启动后不为None，/health端点可查询到search_service状态"
+      },
+      {
+        "id": "FR-007",
+        "description": "重构search.py端点，从直接调用EmbeddingService+VectorStoreService改为调用app_state.search_service.search()。保持现有API契约不变（POST /api/search，请求/响应格式不变）。添加服务就绪检查：若search_service为None则返回503",
+        "priority": "P0",
+        "acceptance_condition": "重构后API行为与重构前完全一致，但内部通过SearchService调用"
+      },
+      {
+        "id": "FR-008",
+        "description": "SearchService所有方法需添加完善的日志记录：检索请求(query/top_k/filters)、检索结果数量、检索耗时(ms)。使用loguru logger，日志级别：INFO记录检索完成，DEBUG记录详细参数",
+        "priority": "P0",
+        "acceptance_condition": "每次检索请求都有INFO级别日志输出，包含query/top_k/结果数/耗时"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Python内部使用snake_case，API输出通过Pydantic alias转camelCase",
+        "mappings": [
+          {"java": "paperId", "python": "paper_id", "json": "paperId"},
+          {"java": "topK", "python": "top_k", "json": "topK"},
+          {"java": "yearFrom", "python": "year_from", "json": "yearFrom"},
+          {"java": "yearTo", "python": "year_to", "json": "yearTo"}
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/search",
+          "method": "POST",
+          "request_format": {"query": "string", "topK": "int(default=10,1-50)", "filters": {"yearFrom": "int?", "yearTo": "int?", "venue": "string?"}},
+          "response_format": {"results": [{"paperId": "string", "title": "string", "abstract": "string", "score": "float", "year": "int", "venue": "string"}], "total": "int"}
+        }
+      ],
+      "data_flow": "Java后端POST /api/search → Python FastAPI search.py → SearchService.search() → EmbeddingService.encode() → VectorStoreService.search() → 返回SearchResponse"
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "SearchService内部检索失败时，捕获异常并返回空结果列表+日志WARNING，不抛出异常阻塞调用方",
+        "multi_agent_failure": "N/A（本任务不涉及Agent协同）",
+        "review_retry_limit": 0
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "日志中不得输出完整查询向量（1024维float数组），仅记录查询文本和结果数量"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case (API输出通过Pydantic alias转camelCase)"
+      },
+      "cross_system_mapping": [
+        {"java": "paperId", "python": "paper_id", "json": "paperId"},
+        {"java": "topK", "python": "top_k", "json": "topK"}
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → 底层Service，检索逻辑不在路由函数中。search.py仅做请求校验和调用SearchService，不直接操作EmbeddingService/VectorStoreService"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except包裹检索全流程，EmbeddingService/VectorStoreService异常时返回空结果+日志WARNING，不抛出异常阻塞调用方",
+        "agent_error_handling": "N/A"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：后续由Java后端管理Redis缓存，Python侧暂不实现缓存",
+      "ttl_layers": []
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（完整查询向量、API Key）",
+        "在日志中输出完整abstract文本（仅记录前100字符）"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（如LLMService、Agent模块）", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "在search.py路由函数中直接调用EmbeddingService或VectorStoreService", "reason": "分层架构约束：Router → Service", "severity": "critical"},
+    {"id": "FA-004", "action": "硬编码敏感配置（API Key等）", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-005", "action": "修改SearchRequest/SearchResponse/SearchResultItem的Pydantic模型定义", "reason": "API契约稳定性，本次任务不修改数据模型", "severity": "high"},
+    {"id": "FA-006", "action": "在日志中输出完整1024维查询向量", "reason": "日志可读性和性能", "severity": "medium"},
+    {"id": "FA-007", "action": "检索异常时直接raise阻断请求", "reason": "降级约束：检索失败应返回空结果而非500错误", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_search_service_semantic_search",
+        "description": "测试SearchService.search()语义检索流程：mock EmbeddingService.encode()返回固定向量，mock VectorStoreService.search()返回固定结果，验证调用顺序和返回格式正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_search_service_keyword_search",
+        "description": "测试SearchService.keyword_search()关键词检索：验证关键词拆分逻辑、ChromaDB where_document过滤构造、结果去重",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_search_service_rrf_fusion",
+        "description": "测试_reciprocal_rank_fusion()：构造两路检索结果（含重叠paper_id），验证RRF分数计算正确、去重合并、降序排列",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_search_service_hybrid_search",
+        "description": "测试hybrid_search()：mock双路检索，验证并行调用、RRF融合、TopK截取",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "test_search_service_reranker_integration",
+        "description": "测试reracker扩展点：验证reranker=None时正常工作，reranker=mock时调用reranker.rerank()",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_search_service_error_handling",
+        "description": "测试异常处理：EmbeddingService.encode()异常时返回空结果+日志WARNING，VectorStoreService.search()异常时返回空结果",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_search_service.py -v",
+        "expected_result": "所有测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.services.search_service import SearchService; print('Import OK')\"",
+        "expected_result": "输出 Import OK"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "SearchService类实现完整，search/keyword_search/hybrid_search/_reciprocal_rank_fusion方法均可调用", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "AppState正确注册SearchService，on_startup后app_state.search_service不为None", "verified_by": "code_review"},
+    {"id": "AC-003", "criterion": "search.py端点重构后API行为与重构前一致（POST /api/search请求/响应格式不变）", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "RRF融合算法实现正确，k=60，相同paper_id去重合并", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "reranker扩展点预留，reracker=None时正常工作", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "检索异常时返回空结果而非抛出异常", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "日志输出规范，不包含完整向量或敏感信息", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "代码符合Python编码规范（snake_case命名、4空格缩进、完整imports）", "verified_by": "code_review"}
+  ]
+}

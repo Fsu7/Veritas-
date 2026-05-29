@@ -1,0 +1,142 @@
+[
+  {
+    "query_id": "q001",
+    "query": "Multi-Agent",
+    "query_type": "single_keyword",
+    "relevant_paper_ids": ["arxiv_2401_0001", "arxiv_2401_0002", "arxiv_2401_0005"],
+    "description": "单关键词查询，匹配多Agent相关论文"
+  },
+  {
+    "query_id": "q002",
+    "query": "RAG",
+    "query_type": "single_keyword",
+    "relevant_paper_ids": ["arxiv_2401_0003", "arxiv_2401_0004"],
+    "description": "单关键词查询，匹配检索增强生成相关论文"
+  },
+  {
+    "query_id": "q003",
+    "query_type": "single_keyword",
+    "query": "benchmark",
+    "relevant_paper_ids": ["arxiv_2401_0002"],
+    "description": "单关键词查询，匹配基准测试相关论文"
+  },
+  {
+    "query_id": "q004",
+    "query_type": "single_keyword",
+    "query": "knowledge graph",
+    "relevant_paper_ids": ["arxiv_2401_0004"],
+    "description": "单关键词查询，匹配知识图谱相关论文"
+  },
+  {
+    "query_id": "q005",
+    "query_type": "single_keyword",
+    "query": "collaboration",
+    "relevant_paper_ids": ["arxiv_2401_0001", "arxiv_2401_0005"],
+    "description": "单关键词查询，匹配协作相关论文"
+  },
+  {
+    "query_id": "q006",
+    "query_type": "phrase",
+    "query": "retrieval-augmented generation",
+    "relevant_paper_ids": ["arxiv_2401_0003", "arxiv_2401_0004"],
+    "description": "短语查询，匹配RAG全称"
+  },
+  {
+    "query_id": "q007",
+    "query_type": "phrase",
+    "query": "task decomposition",
+    "relevant_paper_ids": ["arxiv_2401_0001"],
+    "description": "短语查询，匹配任务分解"
+  },
+  {
+    "query_id": "q008",
+    "query_type": "phrase",
+    "query": "multi-hop reasoning",
+    "relevant_paper_ids": ["arxiv_2401_0004"],
+    "description": "短语查询，匹配多跳推理"
+  },
+  {
+    "query_id": "q009",
+    "query_type": "phrase",
+    "query": "adaptive autonomy",
+    "relevant_paper_ids": ["arxiv_2401_0005"],
+    "description": "短语查询，匹配自适应自主性"
+  },
+  {
+    "query_id": "q010",
+    "query_type": "phrase",
+    "query": "agent evaluation",
+    "relevant_paper_ids": ["arxiv_2401_0002"],
+    "description": "短语查询，匹配Agent评估"
+  },
+  {
+    "query_id": "q011",
+    "query_type": "academic",
+    "query": "Multi-Agent协同决策",
+    "relevant_paper_ids": ["arxiv_2401_0001", "arxiv_2401_0005"],
+    "description": "学术查询，匹配多Agent协同决策"
+  },
+  {
+    "query_id": "q012",
+    "query_type": "academic",
+    "query": "检索增强生成在科学文献中的应用",
+    "relevant_paper_ids": ["arxiv_2401_0003"],
+    "description": "学术查询，匹配RAG在科学文献中的应用"
+  },
+  {
+    "query_id": "q013",
+    "query_type": "academic",
+    "query": "知识图谱增强的多跳问答",
+    "relevant_paper_ids": ["arxiv_2401_0004"],
+    "description": "学术查询，匹配知识图谱增强问答"
+  },
+  {
+    "query_id": "q014",
+    "query_type": "academic",
+    "query": "LLM-based Agent评估基准",
+    "relevant_paper_ids": ["arxiv_2401_0002"],
+    "description": "学术查询，匹配Agent评估基准"
+  },
+  {
+    "query_id": "q015",
+    "query_type": "academic",
+    "query": "人机协作中的混合主导框架",
+    "relevant_paper_ids": ["arxiv_2401_0005"],
+    "description": "学术查询，匹配人机协作混合主导"
+  },
+  {
+    "query_id": "q016",
+    "query_type": "cross_domain",
+    "query": "强化学习在Agent任务规划中的应用",
+    "relevant_paper_ids": ["arxiv_2401_0002", "arxiv_2401_0001"],
+    "description": "跨领域查询，RL+Agent规划"
+  },
+  {
+    "query_id": "q017",
+    "query_type": "cross_domain",
+    "query": "知识图谱与检索增强生成的结合",
+    "relevant_paper_ids": ["arxiv_2401_0003", "arxiv_2401_0004"],
+    "description": "跨领域查询，KG+RAG结合"
+  },
+  {
+    "query_id": "q018",
+    "query_type": "cross_domain",
+    "query": "大语言模型在多Agent系统中的协调作用",
+    "relevant_paper_ids": ["arxiv_2401_0001", "arxiv_2401_0002", "arxiv_2401_0005"],
+    "description": "跨领域查询，LLM+多Agent协调"
+  },
+  {
+    "query_id": "q019",
+    "query_type": "cross_domain",
+    "query": "用户研究与Agent自主性调节",
+    "relevant_paper_ids": ["arxiv_2401_0005", "arxiv_2401_0002"],
+    "description": "跨领域查询，用户研究+Agent自主性"
+  },
+  {
+    "query_id": "q020",
+    "query_type": "cross_domain",
+    "query": "混合检索方法在科学文献综述中的效果",
+    "relevant_paper_ids": ["arxiv_2401_0003", "arxiv_2401_0004"],
+    "description": "跨领域查询，混合检索+科学文献综述"
+  }
+]

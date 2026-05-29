@@ -9,6 +9,8 @@ class AppState:
     vector_store_service = None
     llm_service = None
     prompt_manager = None
+    search_service = None
+    reranker = None
 
 
 app_state = AppState()
@@ -56,6 +58,26 @@ async def on_startup() -> None:
         await app_state.prompt_manager.load_templates()
     except Exception as e:
         logger.error(f"PromptManager load_templates failed: {e}")
+
+    from app.services.search_service import SearchService
+
+    if app_state.embedding_service is not None and app_state.vector_store_service is not None:
+        app_state.search_service = SearchService(
+            vector_store_service=app_state.vector_store_service,
+            embedding_service=app_state.embedding_service,
+        )
+        logger.info("SearchService initialized")
+    else:
+        logger.warning("SearchService not initialized: embedding_service or vector_store_service unavailable")
+
+    from app.services.reranker import Reranker
+
+    app_state.reranker = Reranker()
+    if app_state.search_service is not None:
+        app_state.search_service.reranker = app_state.reranker
+        logger.info("Reranker initialized and injected into SearchService")
+    else:
+        logger.warning("Reranker initialized but SearchService unavailable for injection")
 
     logger.info("AI Service started successfully")
 

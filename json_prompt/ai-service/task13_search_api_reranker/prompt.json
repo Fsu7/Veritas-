@@ -1,0 +1,341 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2：单Agent可用 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "实现检索API增强和规则重排序器（Reranker）。1) 重构 api/endpoints/search.py，新增混合检索路由（POST /api/search/hybrid）和检索建议路由（GET /api/search/suggest），完善请求校验和错误处理。2) 新建 services/reranker.py，实现基于规则的重排序器，包含标题匹配加分、关键词密度加分、引用数加分、年份衰减等多维度评分策略，按架构文档ADR-005的个性化排序公式 score_rrf×0.5 + field×0.3 + popularity×0.2 进行最终排序。",
+    "requirement_ids": ["F3.2.4", "F3.2.5", "F3.5.2"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "第6章 Reranker类设计、重排序策略、检索流程；第4章 检索接口设计"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "第11章 混合检索架构，个性化排序调整公式 score_rrf×0.5 + field×0.3 + popularity×0.2"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-005 混合RAG检索决策，RRF融合+重排序+个性化排序"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/search_service.py",
+        "purpose": "task12产出的SearchService，reranker扩展点"
+      },
+      {
+        "path": "Veritas/ai-service/app/api/endpoints/search.py",
+        "purpose": "当前search端点，需新增hybrid和suggest路由"
+      },
+      {
+        "path": "Veritas/ai-service/app/models/schemas.py",
+        "purpose": "现有Pydantic模型，需新增HybridSearchRequest等"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/",
+        "description": "服务层，task12产出SearchService后，需新增Reranker服务"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/api/endpoints/search.py",
+        "description": "检索API端点，需新增hybrid和suggest路由"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/models/schemas.py",
+        "description": "Pydantic数据模型，需新增HybridSearchRequest/SearchSuggestRequest等"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/services/search_service.py",
+        "description": "task12产出的SearchService，已预留reranker扩展点（构造函数可选reranker参数，search/hybrid_search方法在返回前调用reranker.rerank()）",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/api/endpoints/search.py",
+        "description": "当前仅POST /路由，需新增hybrid和suggest路由",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/models/schemas.py",
+        "description": "SearchRequest/SearchResponse/SearchResultItem已定义，需新增模型",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/events.py",
+        "description": "AppState生命周期管理，需注册Reranker并注入SearchService",
+        "reuse_type": "extend"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "SearchService",
+      "path": "Veritas/ai-service/app/services/search_service.py",
+      "responsibility": "语义检索+关键词检索+RRF融合，预留reracker扩展点",
+      "key_interfaces": [
+        {
+          "name": "search",
+          "signature": "async def search(self, query: str, top_k: int = 10, filters: Optional[Dict] = None) -> List[dict]",
+          "description": "语义检索"
+        },
+        {
+          "name": "hybrid_search",
+          "signature": "async def hybrid_search(self, query: str, top_k: int = 10, filters: Optional[Dict] = None) -> List[dict]",
+          "description": "混合检索（语义+关键词+RRF融合）"
+        }
+      ]
+    },
+    {
+      "name": "search.py endpoint",
+      "path": "Veritas/ai-service/app/api/endpoints/search.py",
+      "responsibility": "检索API路由",
+      "key_interfaces": [
+        {
+          "name": "search",
+          "signature": "@router.post('/', response_model=SearchResponse) async def search(request: SearchRequest) -> SearchResponse",
+          "description": "当前唯一的检索路由"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/services/reranker.py",
+      "description": "新建Reranker类，实现规则重排序（标题匹配+关键词密度+引用数+年份衰减+个性化排序公式）",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/api/endpoints/search.py",
+      "description": "新增POST /hybrid混合检索路由和GET /suggest检索建议路由，完善错误处理",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/models/schemas.py",
+      "description": "新增HybridSearchRequest、SearchSuggestRequest、SearchSuggestResponse等Pydantic模型",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "description": "AppState新增reranker属性，on_startup中创建Reranker并注入SearchService",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "新建Reranker类（services/reranker.py），实现rerank(query, results, user_profile=None)方法。重排序流程：1)对每个结果计算多维度分数 2)标题匹配加分：查询关键词出现在标题中+0.1 3)关键词密度加分：查询关键词在abstract中出现次数/abstract长度，归一化后×0.05 4)引用数加分：citation_count归一化(min(citation/100, 1))×0.1 5)年份衰减：score_year = exp(-0.05 × (current_year - paper_year))，近3年论文不衰减 6)综合分数 = score_rrf×0.5 + field_score×0.3 + popularity_score×0.2（架构文档ADR-005公式）7)按综合分数降序排列",
+        "priority": "P0",
+        "acceptance_condition": "Reranker.rerank()能对检索结果进行多维度重排序，标题包含查询词的论文排名提升"
+      },
+      {
+        "id": "FR-002",
+        "description": "Reranker支持个性化排序调整。当user_profile不为None时，research_field匹配venue或keywords时额外加分（+0.05）。此功能为ADR-006个性化引擎在检索层的体现",
+        "priority": "P1",
+        "acceptance_condition": "传入user_profile后，研究方向匹配的论文排名提升"
+      },
+      {
+        "id": "FR-003",
+        "description": "新增POST /api/search/hybrid路由，接收HybridSearchRequest（query, topK, filters, userProfile可选），调用SearchService.hybrid_search()，结果经Reranker重排序后返回SearchResponse",
+        "priority": "P0",
+        "acceptance_condition": "POST /api/search/hybrid能返回混合检索+重排序结果"
+      },
+      {
+        "id": "FR-004",
+        "description": "新增GET /api/search/suggest路由，接收query参数（min_length=1, max_length=100），返回搜索建议（基于查询前缀的论文标题匹配，Top5）。实现：从ChromaDB检索标题包含query的论文，提取去重标题列表",
+        "priority": "P2",
+        "acceptance_condition": "GET /api/search/suggest?query=Transformer返回包含Transformer的论文标题建议"
+      },
+      {
+        "id": "FR-005",
+        "description": "新增HybridSearchRequest Pydantic模型：query(str,1-500), top_k(int,1-50,default=10,alias=topK), filters(Optional[Dict]), user_profile(Optional[UserProfile],alias=userProfile)。新增SearchSuggestRequest：query(str,1-100)。新增SearchSuggestResponse：suggestions(List[str]), total(int)",
+        "priority": "P0",
+        "acceptance_condition": "新Pydantic模型定义完整，含Field约束和camelCase alias"
+      },
+      {
+        "id": "FR-006",
+        "description": "将Reranker注册到AppState生命周期。AppState新增reranker=None属性，on_startup中创建Reranker实例并注入到SearchService（app_state.search_service.reranker = reranker）。/health端点新增reranker状态",
+        "priority": "P0",
+        "acceptance_condition": "app_state.reranker启动后不为None，SearchService.reracker已注入"
+      },
+      {
+        "id": "FR-007",
+        "description": "Reranker所有方法添加完善日志：重排序输入结果数、输出结果数、Top1分数、耗时(ms)。使用loguru logger",
+        "priority": "P0",
+        "acceptance_condition": "每次重排序都有INFO级别日志输出"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Python内部snake_case，API输出camelCase（Pydantic alias）",
+        "mappings": [
+          {"java": "userProfile", "python": "user_profile", "json": "userProfile"},
+          {"java": "researchField", "python": "research_field", "json": "researchField"},
+          {"java": "topK", "python": "top_k", "json": "topK"}
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/search/hybrid",
+          "method": "POST",
+          "request_format": {"query": "string", "topK": "int", "filters": "object?", "userProfile": "object?"},
+          "response_format": {"results": [{"paperId": "string", "title": "string", "abstract": "string", "score": "float", "year": "int", "venue": "string"}], "total": "int"}
+        },
+        {
+          "endpoint": "GET /api/search/suggest",
+          "method": "GET",
+          "request_format": {"query": "string(query param)"},
+          "response_format": {"suggestions": ["string"], "total": "int"}
+        }
+      ],
+      "data_flow": "Java后端POST /api/search/hybrid → search.py → SearchService.hybrid_search() → Reranker.rerank() → 返回SearchResponse"
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "Reranker重排序失败时，返回原始未排序结果+日志WARNING，不阻断检索流程",
+        "multi_agent_failure": "N/A",
+        "review_retry_limit": 0
+      }
+    },
+    "security_requirements": []
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case (API输出通过Pydantic alias转camelCase)"
+      },
+      "cross_system_mapping": [
+        {"java": "userProfile", "python": "user_profile", "json": "userProfile"},
+        {"java": "topK", "python": "top_k", "json": "topK"}
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Reranker，路由函数仅做请求校验和调用Service，重排序逻辑在Reranker中"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "Reranker异常时返回原始结果+日志WARNING；API端点服务不可用时返回503 AIServiceException",
+        "agent_error_handling": "N/A"
+      }
+    },
+    "caching": {
+      "pattern": "暂不实现缓存，后续由Java后端Redis管理"
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出完整abstract文本"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（如LLMService、Agent模块、前端）", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "使用LLM模型进行重排序（Cross-Encoder等）", "reason": "当前仅实现规则方法重排序，Cross-Encoder为P2功能", "severity": "high"},
+    {"id": "FA-004", "action": "修改已有POST /api/search路由的请求/响应格式", "reason": "API契约稳定性", "severity": "critical"},
+    {"id": "FA-005", "action": "硬编码重排序权重参数", "reason": "权重应作为类常量或配置项，便于后续调优", "severity": "medium"},
+    {"id": "FA-006", "action": "Reranker异常时抛出异常阻断检索流程", "reason": "降级约束：重排序失败应返回原始结果", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_reranker_title_match_boost",
+        "description": "测试标题匹配加分：查询词出现在标题中的论文rerank_score应高于未出现的",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_reranker_keyword_density",
+        "description": "测试关键词密度加分：abstract中查询词出现次数多的论文排名提升",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_reranker_citation_boost",
+        "description": "测试引用数加分：高引用论文排名提升，citation_count归一化到[0,1]",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_reranker_year_decay",
+        "description": "测试年份衰减：近3年论文不衰减，老论文分数衰减，exp(-0.05×delta_year)",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_reranker_personalization",
+        "description": "测试个性化排序：传入user_profile(research_field=NLP)后，venue含NLP的论文排名提升",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_reranker_composite_score",
+        "description": "测试综合分数公式：score_rrf×0.5 + field×0.3 + popularity×0.2，验证权重正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_reranker_error_handling",
+        "description": "测试异常处理：输入空列表、None结果时返回原始结果不抛异常",
+        "framework": "pytest",
+        "coverage": ["error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_hybrid_search_endpoint",
+        "description": "测试POST /api/search/hybrid端点：mock SearchService和Reranker，验证请求校验和响应格式",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "test_suggest_endpoint",
+        "description": "测试GET /api/search/suggest端点：验证query参数校验和返回格式",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_reranker.py tests/test_search_endpoint.py -v",
+        "expected_result": "所有测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.services.reranker import Reranker; print('Import OK')\"",
+        "expected_result": "输出 Import OK"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "Reranker类实现完整，rerank()方法支持多维度评分+个性化排序", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "综合分数公式正确：score_rrf×0.5 + field×0.3 + popularity×0.2", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "POST /api/search/hybrid路由可用，返回混合检索+重排序结果", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "GET /api/search/suggest路由可用，返回搜索建议", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "Reranker异常时返回原始结果不阻断检索", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "AppState正确注册Reranker并注入SearchService", "verified_by": "code_review"},
+    {"id": "AC-007", "criterion": "新增Pydantic模型定义完整，含Field约束和camelCase alias", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "代码符合Python编码规范", "verified_by": "code_review"}
+  ]
+}

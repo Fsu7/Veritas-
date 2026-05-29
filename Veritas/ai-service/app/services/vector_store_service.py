@@ -111,6 +111,7 @@ class VectorStoreService:
                         "score": 1 - results["distances"][0][i],
                         "year": results["metadatas"][0][i].get("year"),
                         "venue": results["metadatas"][0][i].get("venue"),
+                        "citation_count": results["metadatas"][0][i].get("citation_count", 0),
                     }
                 )
 
@@ -222,3 +223,102 @@ class VectorStoreService:
             logger.warning(
                 f"Failed to update metadata for paper '{paper_id}': {e}"
             )
+
+    async def search_by_keywords(
+        self,
+        query_text: str,
+        top_k: int = 10,
+        filters: Optional[Dict] = None,
+    ) -> List[dict]:
+        if self.collection is None:
+            return []
+
+        where_filter = None
+        if filters:
+            conditions = []
+            if filters.get("yearFrom"):
+                conditions.append({"year": {"$gte": filters["yearFrom"]}})
+            if filters.get("yearTo"):
+                conditions.append({"year": {"$lte": filters["yearTo"]}})
+            if filters.get("venue"):
+                conditions.append({"venue": {"$eq": filters["venue"]}})
+            if conditions:
+                where_filter = (
+                    {"$and": conditions} if len(conditions) > 1 else conditions[0]
+                )
+
+        keywords = [kw.strip() for kw in query_text.split() if kw.strip()]
+        if not keywords:
+            return []
+
+        seen_ids = set()
+        all_results = {}
+
+        for keyword in keywords:
+            try:
+                where_doc = {"$contains": keyword}
+                combined_where = where_filter
+                if where_filter:
+                    combined_where = {"$and": [where_filter, where_doc]}
+                else:
+                    combined_where = where_doc
+
+                results = self.collection.query(
+                    query_texts=[keyword],
+                    n_results=top_k,
+                    where=combined_where,
+                    include=["metadatas", "distances", "documents"],
+                )
+
+                if results["ids"] and results["ids"][0]:
+                    for i in range(len(results["ids"][0])):
+                        pid = results["metadatas"][0][i].get("paper_id", "")
+                        if pid and pid not in seen_ids:
+                            seen_ids.add(pid)
+                            all_results[pid] = {
+                                "paperId": pid,
+                                "title": results["metadatas"][0][i].get("title"),
+                                "abstract": results["documents"][0][i],
+                                "score": 1 - results["distances"][0][i],
+                                "year": results["metadatas"][0][i].get("year"),
+                                "venue": results["metadatas"][0][i].get("venue"),
+                                "citation_count": results["metadatas"][0][i].get("citation_count", 0),
+                            }
+            except Exception as e:
+                logger.warning(f"Keyword search failed for '{keyword}': {e}")
+                continue
+
+        result_list = list(all_results.values())
+        result_list.sort(key=lambda x: x.get("score", 0), reverse=True)
+        return result_list[:top_k]
+
+    async def suggest_titles(
+        self,
+        query: str,
+        top_k: int = 5,
+    ) -> List[str]:
+        if self.collection is None:
+            return []
+
+        try:
+            results = self.collection.query(
+                query_texts=[query],
+                n_results=top_k * 3,
+                include=["metadatas"],
+            )
+
+            titles = []
+            seen = set()
+            if results["ids"] and results["ids"][0]:
+                for i in range(len(results["ids"][0])):
+                    title = results["metadatas"][0][i].get("title", "")
+                    if title and title not in seen:
+                        seen.add(title)
+                        titles.append(title)
+                        if len(titles) >= top_k:
+                            break
+
+            return titles
+        except Exception as e:
+            logger.warning(f"Title suggestion failed for '{query}': {e}")
+            return []

@@ -1,0 +1,284 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2：单Agent可用 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "实现检索准确率测试套件和参数调优框架。1) 新建 tests/test_search_accuracy.py，包含检索准确率测试（MRR/NDCG@10/Precision@10/Recall@10指标）、RRF融合效果测试、重排序效果对比测试。2) 新建 scripts/evaluate_search.py 评估脚本，支持批量查询评估和参数网格搜索（top_k候选值、RRF k值、重排序权重组合）。3) 产出评估报告模板，记录各参数组合下的检索质量指标，为后续参数调优提供数据支撑。目标：Top10相关性>80%（验收标准）。",
+    "requirement_ids": ["F3.2.6", "F3.2.3", "F3.2.5"],
+    "reference_docs": [
+      {
+        "path": "AGENTS.md",
+        "purpose": "第18章 验收标准：智能检索Top10相关性>80%，检索响应≤3秒"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "第6章 RAG检索模块功能清单F3.2.6检索优化，参数调整说明"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/search_service.py",
+        "purpose": "task12产出的SearchService，需测试其检索准确率"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/reranker.py",
+        "purpose": "task13产出的Reranker，需测试重排序效果"
+      },
+      {
+        "path": "Veritas/ai-service/tests/conftest.py",
+        "purpose": "现有测试配置和fixtures"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/search_service.py",
+        "description": "task12产出的SearchService，语义检索+关键词检索+RRF融合"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/reranker.py",
+        "description": "task13产出的Reranker，规则重排序"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "tests/",
+        "description": "现有测试目录，需新增检索准确率测试"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "scripts/",
+        "description": "现有脚本目录，需新增评估脚本"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/tests/conftest.py",
+        "description": "现有pytest配置和fixtures，可参考其mock模式",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/tests/test_vector_store.py",
+        "description": "现有VectorStore测试，可参考其测试结构",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/data/papers/sample_papers.json",
+        "description": "样本论文数据，可用于构建测试查询集",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "SearchService",
+      "path": "Veritas/ai-service/app/services/search_service.py",
+      "responsibility": "语义检索+关键词检索+RRF融合",
+      "key_interfaces": [
+        {"name": "search", "signature": "async def search(self, query: str, top_k: int = 10, filters: Optional[Dict] = None) -> List[dict]", "description": "语义检索"},
+        {"name": "hybrid_search", "signature": "async def hybrid_search(self, query: str, top_k: int = 10, filters: Optional[Dict] = None) -> List[dict]", "description": "混合检索"}
+      ]
+    },
+    {
+      "name": "Reranker",
+      "path": "Veritas/ai-service/app/services/reranker.py",
+      "responsibility": "规则重排序，多维度评分",
+      "key_interfaces": [
+        {"name": "rerank", "signature": "async def rerank(self, query: str, results: List[dict], user_profile: Optional[Dict] = None) -> List[dict]", "description": "重排序"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_search_accuracy.py",
+      "description": "检索准确率测试套件：MRR/NDCG/Precision/Recall指标测试、RRF融合效果测试、重排序效果对比测试",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/scripts/evaluate_search.py",
+      "description": "评估脚本：批量查询评估、参数网格搜索、评估报告生成",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_data/search_queries.json",
+      "description": "测试查询集：标注了相关论文ID的查询-答案对，用于计算检索准确率指标",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "实现检索准确率指标计算工具函数（tests/test_search_accuracy.py中或独立模块）：1) MRR(Mean Reciprocal Rank)：第一个相关结果的排名倒数的均值 2) NDCG@10(Normalized Discounted Cumulative Gain)：考虑位置权重的排序质量 3) Precision@10：Top10中相关结果的比例 4) Recall@10：Top10中相关结果占所有相关结果的比例。每个指标函数签名：def calc_mrr(results, relevant_ids) -> float 等",
+        "priority": "P0",
+        "acceptance_condition": "四个指标函数可正确计算，边界条件（空结果、无相关结果）返回0.0"
+      },
+      {
+        "id": "FR-002",
+        "description": "构建测试查询集（tests/test_data/search_queries.json）：至少20条查询，每条查询标注3-5篇相关论文paper_id。查询覆盖：单关键词查询(如'Transformer')、短语查询(如'注意力机制')、学术查询(如'Multi-Agent协同决策')、跨领域查询(如'强化学习在NLP中的应用')。相关论文从sample_papers.json中选取",
+        "priority": "P0",
+        "acceptance_condition": "查询集JSON格式正确，每条查询有query和relevant_paper_ids字段"
+      },
+      {
+        "id": "FR-003",
+        "description": "实现语义检索准确率测试：mock EmbeddingService和VectorStoreService，构造包含已知相关论文的检索结果，验证MRR≥0.6、Precision@10≥0.5（mock环境下）。测试SearchService.search()在不同查询类型下的表现",
+        "priority": "P0",
+        "acceptance_condition": "test_semantic_search_accuracy测试通过，指标计算正确"
+      },
+      {
+        "id": "FR-004",
+        "description": "实现RRF融合效果测试：构造语义检索和关键词检索两路结果（部分重叠、部分互补），验证hybrid_search的MRR/Precision高于单路语义检索。测试不同RRF k值(30/60/120)对融合效果的影响",
+        "priority": "P1",
+        "acceptance_condition": "test_rrf_fusion_improvement测试通过，融合后指标≥单路指标"
+      },
+      {
+        "id": "FR-005",
+        "description": "实现重排序效果对比测试：构造检索结果，对比重排序前后的NDCG@10变化。验证：1)标题匹配的论文排名提升 2)高引用论文排名提升 3)近年论文排名提升 4)个性化排序（research_field匹配）提升相关领域论文排名",
+        "priority": "P1",
+        "acceptance_condition": "test_reranker_improvement测试通过，重排序后NDCG@10≥重排序前"
+      },
+      {
+        "id": "FR-006",
+        "description": "实现评估脚本（scripts/evaluate_search.py）：1)加载测试查询集 2)对每条查询执行search/hybrid_search+rerank 3)计算MRR/NDCG/Precision/Recall 4)支持参数网格搜索：--top-k候选值(5/10/20)、--rrf-k值(30/60/120)、--reranker-weights(0.5/0.3/0.2等组合) 5)输出评估报告JSON到data/search_eval_report.json",
+        "priority": "P1",
+        "acceptance_condition": "评估脚本可执行，输出包含各参数组合下的检索质量指标"
+      },
+      {
+        "id": "FR-007",
+        "description": "评估报告模板：JSON格式，包含{timestamp, parameters, metrics: {mrr, ndcg_at_10, precision_at_10, recall_at_10}, per_query_details: [{query, relevant_ids, retrieved_ids, metrics}]}。脚本支持--output参数指定输出路径",
+        "priority": "P2",
+        "acceptance_condition": "评估报告JSON格式正确，包含所有字段"
+      },
+      {
+        "id": "FR-008",
+        "description": "检索性能测试：验证单次语义检索响应时间≤3秒（mock环境下应<100ms），混合检索响应时间≤5秒。使用pytest的time测量或time.perf_counter()",
+        "priority": "P1",
+        "acceptance_condition": "test_search_performance测试通过，响应时间在阈值内"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "测试代码内部使用snake_case，测试数据JSON使用snake_case",
+        "mappings": []
+      },
+      "api_contracts": [],
+      "data_flow": "N/A（测试代码不涉及跨系统交互）"
+    },
+    "degradation_requirements": {},
+    "security_requirements": []
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "测试代码使用mock，不依赖真实EmbeddingService/VectorStoreService/LLMService"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "测试中mock服务异常场景，验证降级行为",
+        "agent_error_handling": "N/A"
+      }
+    },
+    "caching": {},
+    "logging": {
+      "python": "Loguru（评估脚本使用），测试代码使用pytest caplog",
+      "prohibited": [
+        "测试中使用print而非logger/pytest输出"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改SearchService或Reranker的实现代码", "reason": "本任务仅新增测试和评估脚本，不修改业务代码", "severity": "high"},
+    {"id": "FA-003", "action": "测试依赖真实LLM/Embedding API调用", "reason": "测试必须使用mock，不产生API费用", "severity": "critical"},
+    {"id": "FA-004", "action": "硬编码API Key在测试代码中", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-005", "action": "评估脚本修改业务代码或数据库", "reason": "评估脚本只读不写", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_mrr_calculation",
+        "description": "测试MRR指标计算：已知排名的正确性验证",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_ndcg_calculation",
+        "description": "测试NDCG@10指标计算：验证DCG和IDCG计算正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_precision_recall_calculation",
+        "description": "测试Precision@10和Recall@10计算",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_semantic_search_accuracy",
+        "description": "语义检索准确率测试：mock环境下验证指标",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_rrf_fusion_improvement",
+        "description": "RRF融合效果测试：融合≥单路",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_reranker_improvement",
+        "description": "重排序效果测试：重排序后NDCG≥重排序前",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_search_performance",
+        "description": "检索性能测试：响应时间阈值验证",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_search_accuracy.py -v",
+        "expected_result": "所有测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python scripts/evaluate_search.py --help",
+        "expected_result": "显示评估脚本帮助信息"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python scripts/evaluate_search.py --top-k 10 --rrf-k 60 --output data/search_eval_report.json",
+        "expected_result": "生成评估报告JSON文件"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "MRR/NDCG@10/Precision@10/Recall@10四个指标计算函数实现正确", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "测试查询集至少20条，每条标注3-5篇相关论文", "verified_by": "code_review"},
+    {"id": "AC-003", "criterion": "语义检索准确率测试通过（mock环境下）", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "RRF融合效果≥单路语义检索", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "重排序后NDCG@10≥重排序前", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "评估脚本可执行，支持参数网格搜索", "verified_by": "manual_test"},
+    {"id": "AC-007", "criterion": "检索性能测试通过，响应时间在阈值内", "verified_by": "automated_test"},
+    {"id": "AC-008", "criterion": "测试代码使用mock，不依赖真实API", "verified_by": "code_review"}
+  ]
+}
