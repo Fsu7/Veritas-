@@ -1,0 +1,503 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "实现检索Agent（RetrieverAgent）和Agent工具定义模块（tools.py），产出 agents/retriever.py + agents/tools.py。RetrieverAgent继承BaseAgent，角色为图书管理员，负责接收检索关键词、调用混合检索（语义+关键词+RRF融合）、返回Top10论文列表。tools.py定义Agent可调用的工具函数（vector_search_tool、keyword_search_tool、hybrid_search_tool），封装SearchService的调用为Agent可用的工具接口。",
+    "requirement_ids": ["F3.1.2", "F3.2.1", "F3.2.2", "F3.2.3", "F3.2.4", "F3.2.5"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "Section 5.4.2 检索Agent设计 + Section 6 RAG检索模块 — RetrieverAgent职责和检索流程"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "Section 4 AM2交付物 #6 RetrieverAgent — 验收标准"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "Section 3 多Agent系统设计 — Retriever角色定义、混合检索架构(ADR-005)"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/base.py",
+        "purpose": "Task15产出的BaseAgent基类 — RetrieverAgent必须继承此类"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/search_service.py",
+        "purpose": "已有SearchService — search()/keyword_search()/hybrid_search()接口，tools.py封装此服务"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/reranker.py",
+        "purpose": "已有Reranker — rerank(query, results, user_profile)接口，RetrieverAgent需调用"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/llm_service.py",
+        "purpose": "已有LLMService — generate()接口，RetrieverAgent用LLM生成检索策略"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "purpose": "已有PromptManager — get_prompt('retriever', **kwargs)接口"
+      },
+      {
+        "path": "Veritas/ai-service/prompts/retriever.txt",
+        "purpose": "已有检索Agent Prompt模板 — $topic/$top_k变量"
+      },
+      {
+        "path": "Veritas/ai-service/app/core/events.py",
+        "purpose": "AppState — 全局服务实例管理，RetrieverAgent需获取search_service/reranker"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/base.py",
+        "description": "Task15产出的BaseAgent基类，RetrieverAgent必须继承此类，实现_run()和build_prompt()"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/search_service.py",
+        "description": "检索服务，提供search()/keyword_search()/hybrid_search()接口，tools.py封装此服务"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/reranker.py",
+        "description": "重排序服务，提供rerank(query, results, user_profile)接口"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/llm_service.py",
+        "description": "LLM推理服务，RetrieverAgent用LLM分析查询生成检索策略"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/prompt_manager.py",
+        "description": "Prompt模板管理，RetrieverAgent通过get_prompt('retriever', **kwargs)渲染Prompt"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/events.py",
+        "description": "AppState全局服务实例管理，RetrieverAgent需从中获取search_service/reranker"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "Task15产出的BaseAgent/AgentStatus/AgentState，RetrieverAgent继承BaseAgent",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/search_service.py",
+        "description": "SearchService，含search()/keyword_search()/hybrid_search()，RRF_K=60",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/reranker.py",
+        "description": "Reranker，含rerank(query, results, user_profile)接口，个性化排序调整",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/llm_service.py",
+        "description": "LLMService，含generate(prompt, max_tokens, temperature)接口",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "description": "PromptManager，含get_prompt(agent_name, **kwargs)接口",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/prompts/retriever.txt",
+        "description": "检索Agent Prompt模板，含$topic/$top_k变量，输出JSON格式检索策略",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/events.py",
+        "description": "AppState类，管理全局服务实例（search_service/reranker/llm_service/prompt_manager）",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "agents/retriever.py（待创建）",
+      "path": "Veritas/ai-service/app/agents/retriever.py",
+      "responsibility": "检索Agent，图书管理员角色。接收检索关键词，调用混合检索，返回Top10论文列表。继承BaseAgent。",
+      "key_interfaces": [
+        {
+          "name": "RetrieverAgent.__init__",
+          "signature": "def __init__(self, llm_service, prompt_manager, search_service, reranker=None, timeout=30)",
+          "description": "初始化，注入search_service和可选reranker"
+        },
+        {
+          "name": "RetrieverAgent._run",
+          "signature": "async def _run(self, prompt: str, input_data: dict, context: dict) -> dict",
+          "description": "核心执行逻辑：(1)LLM生成检索策略→(2)调用hybrid_search→(3)可选rerank→(4)返回Top10"
+        },
+        {
+          "name": "RetrieverAgent.build_prompt",
+          "signature": "def build_prompt(self, input_data: dict, context: dict) -> str",
+          "description": "使用PromptManager渲染retriever.txt模板，注入topic和top_k"
+        },
+        {
+          "name": "RetrieverAgent._parse_search_strategy",
+          "signature": "def _parse_search_strategy(self, llm_output: str) -> dict",
+          "description": "解析LLM输出的检索策略JSON，提取core_keywords/filters等"
+        }
+      ]
+    },
+    {
+      "name": "agents/tools.py（待创建）",
+      "path": "Veritas/ai-service/app/agents/tools.py",
+      "responsibility": "Agent工具定义模块，封装SearchService调用为Agent可用的工具函数。供RetrieverAgent和其他Agent调用。",
+      "key_interfaces": [
+        {
+          "name": "vector_search_tool",
+          "signature": "async def vector_search_tool(search_service, query: str, top_k: int = 20, filters: dict = None) -> list",
+          "description": "语义向量检索工具，封装SearchService.search()"
+        },
+        {
+          "name": "keyword_search_tool",
+          "signature": "async def keyword_search_tool(search_service, query: str, top_k: int = 20, filters: dict = None) -> list",
+          "description": "关键词检索工具，封装SearchService.keyword_search()"
+        },
+        {
+          "name": "hybrid_search_tool",
+          "signature": "async def hybrid_search_tool(search_service, query: str, top_k: int = 10, filters: dict = None) -> list",
+          "description": "混合检索工具（语义+关键词+RRF融合），封装SearchService.hybrid_search()"
+        },
+        {
+          "name": "rerank_tool",
+          "signature": "async def rerank_tool(reranker, query: str, results: list, user_profile: dict = None) -> list",
+          "description": "重排序工具，封装Reranker.rerank()"
+        },
+        {
+          "name": "TOOL_REGISTRY",
+          "signature": "TOOL_REGISTRY: dict[str, Callable]",
+          "description": "工具注册表，映射工具名到工具函数，供Agent动态查找和调用"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/agents/retriever.py",
+      "description": "检索Agent实现，继承BaseAgent，实现_run()和build_prompt()",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/agents/tools.py",
+      "description": "Agent工具定义模块，封装SearchService/Reranker为工具函数，含TOOL_REGISTRY",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/__init__.py",
+      "description": "导出RetrieverAgent和工具函数",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "实现RetrieverAgent类，继承BaseAgent。__init__(self, llm_service, prompt_manager, search_service, reranker=None, timeout=30)。注入search_service（必须）和reranker（可选）。name设为\"retriever\"。",
+        "priority": "P0",
+        "acceptance_condition": "isinstance(agent, BaseAgent)为True；agent.name=='retriever'"
+      },
+      {
+        "id": "FR-002",
+        "description": "实现RetrieverAgent.build_prompt(self, input_data, context) -> str。使用self.prompt_manager.get_prompt('retriever', topic=input_data.get('topic',''), top_k=input_data.get('top_k',10))渲染Prompt模板。",
+        "priority": "P0",
+        "acceptance_condition": "返回包含topic和top_k的完整Prompt字符串"
+      },
+      {
+        "id": "FR-003",
+        "description": "实现RetrieverAgent._run(self, prompt, input_data, context) -> dict。执行流程：(1)调用self.llm_service.generate(prompt)获取检索策略JSON；(2)解析检索策略（_parse_search_strategy）；(3)提取core_keywords组合为查询字符串；(4)调用self.search_service.hybrid_search(query, top_k, filters)执行混合检索；(5)如果self.reranker存在且user_profile在context中，调用reranker.rerank(query, results, user_profile)；(6)更新self.state.intermediate_result为\"找到N篇相关论文\"；(7)返回{\"papers\": results[:top_k], \"total_found\": len(results), \"search_strategy\": strategy}。",
+        "priority": "P0",
+        "acceptance_condition": "输入topic返回papers列表；papers每项含paper_id/title/abstract/score/year/venue"
+      },
+      {
+        "id": "FR-004",
+        "description": "实现RetrieverAgent._parse_search_strategy(self, llm_output:str) -> dict。解析LLM输出的JSON检索策略，提取core_keywords/expanded_keywords/search_strategy/filters。JSON解析失败时降级为使用原始topic作为查询词。返回{\"query\": 组合查询词, \"filters\": 过滤条件dict}。",
+        "priority": "P0",
+        "acceptance_condition": "正常JSON输出返回解析结果；非法JSON降级为{query:原始topic, filters:{}}"
+      },
+      {
+        "id": "FR-005",
+        "description": "实现tools.py中的vector_search_tool(search_service, query, top_k=20, filters=None) -> list。封装SearchService.search()调用，异常时返回空列表[]并记录WARNING日志。",
+        "priority": "P0",
+        "acceptance_condition": "正常返回检索结果列表；异常返回[]不抛出异常"
+      },
+      {
+        "id": "FR-006",
+        "description": "实现tools.py中的keyword_search_tool(search_service, query, top_k=20, filters=None) -> list。封装SearchService.keyword_search()调用，异常时返回空列表[]并记录WARNING日志。",
+        "priority": "P0",
+        "acceptance_condition": "正常返回检索结果列表；异常返回[]不抛出异常"
+      },
+      {
+        "id": "FR-007",
+        "description": "实现tools.py中的hybrid_search_tool(search_service, query, top_k=10, filters=None) -> list。封装SearchService.hybrid_search()调用（语义+关键词+RRF融合），异常时返回空列表[]并记录WARNING日志。",
+        "priority": "P0",
+        "acceptance_condition": "正常返回融合排序结果；异常返回[]不抛出异常"
+      },
+      {
+        "id": "FR-008",
+        "description": "实现tools.py中的rerank_tool(reranker, query, results, user_profile=None) -> list。封装Reranker.rerank()调用，异常时返回原始results不抛出异常并记录WARNING日志。",
+        "priority": "P1",
+        "acceptance_condition": "正常返回重排序结果；异常返回原始results"
+      },
+      {
+        "id": "FR-009",
+        "description": "实现tools.py中的TOOL_REGISTRY: dict[str, Callable]工具注册表。映射：{\"vector_search\": vector_search_tool, \"keyword_search\": keyword_search_tool, \"hybrid_search\": hybrid_search_tool, \"rerank\": rerank_tool}。供Agent动态查找工具。",
+        "priority": "P1",
+        "acceptance_condition": "TOOL_REGISTRY['hybrid_search'] is hybrid_search_tool为True"
+      },
+      {
+        "id": "FR-010",
+        "description": "RetrieverAgent._run()中，当LLM生成检索策略失败时（超时/异常/JSON解析失败），降级为直接使用input_data中的topic作为查询词调用hybrid_search，确保检索功能不因LLM失败而完全不可用。",
+        "priority": "P0",
+        "acceptance_condition": "LLM失败时仍能返回检索结果（降级检索）"
+      },
+      {
+        "id": "FR-011",
+        "description": "RetrieverAgent._run()中更新self.state.progress进度：(1)LLM生成策略时progress=0.2；(2)混合检索时progress=0.6；(3)重排序时progress=0.8；(4)完成时progress=1.0。通过update_progress()方法更新。",
+        "priority": "P1",
+        "acceptance_condition": "执行过程中state.progress从0.2递增到1.0"
+      }
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "RetrieverAgent超时30s时BaseAgent.execute()返回降级结果；LLM生成策略失败时降级为直接hybrid_search；hybrid_search失败时返回空结果",
+        "multi_agent_failure": "由LangGraph工作流层处理",
+        "review_retry_limit": 1
+      }
+    },
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Python内部使用snake_case，JSON输出使用snake_case",
+        "mappings": [
+          {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+          {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"}
+        ]
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "RetrieverAgent属于Agent层，通过tools.py调用Service层（SearchService/Reranker），不直接操作ChromaDB或EmbeddingService"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "tools.py中每个工具函数捕获异常返回空结果/原始结果，不抛出异常；RetrieverAgent._run()中LLM失败降级为直接检索",
+        "agent_error_handling": "state.update_progress()更新中间状态；LLM策略失败降级为直接hybrid_search"
+      }
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    {
+      "id": "FA-001",
+      "action": "输出伪代码或TODO注释",
+      "reason": "必须输出完整可执行代码",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-002",
+      "action": "修改需求范围外的模块（不修改search_service.py/reranker.py/llm_service.py等已有文件）",
+      "reason": "本任务仅新增retriever.py/tools.py和修改agents/__init__.py",
+      "severity": "high"
+    },
+    {
+      "id": "FA-003",
+      "action": "RetrieverAgent直接操作ChromaDB或EmbeddingService",
+      "reason": "必须通过SearchService间接调用，遵循分层架构",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-004",
+      "action": "tools.py中的工具函数抛出异常到调用方",
+      "reason": "工具函数必须捕获异常返回空结果/原始结果，不向上层抛出",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-005",
+      "action": "LLM检索策略失败时直接返回空结果而不降级检索",
+      "reason": "LLM失败应降级为直接hybrid_search，确保检索功能可用",
+      "severity": "high"
+    },
+    {
+      "id": "FA-006",
+      "action": "硬编码ChromaDB路径或Embedding模型名",
+      "reason": "配置必须从settings读取",
+      "severity": "high"
+    },
+    {
+      "id": "FA-007",
+      "action": "忽略降级场景（检索失败/LLM失败/Reranker失败）",
+      "reason": "可用性约束ADR-003/ADR-005",
+      "severity": "critical"
+    }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_retriever_agent_build_prompt",
+        "description": "测试build_prompt正确渲染retriever.txt模板，注入topic和top_k",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_retriever_agent_run_success",
+        "description": "测试_run正常流程：LLM生成策略→hybrid_search→返回papers列表。Mock llm_service和search_service。",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_retriever_agent_run_with_reranker",
+        "description": "测试_run含reranker流程：hybrid_search→rerank→返回重排序结果",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_retriever_agent_llm_failure_degradation",
+        "description": "测试LLM生成策略失败时降级为直接hybrid_search，仍返回结果",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_retriever_agent_search_failure",
+        "description": "测试hybrid_search返回空结果时的处理",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "test_parse_search_strategy_valid_json",
+        "description": "测试_parse_search_strategy正常解析LLM输出的JSON检索策略",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_parse_search_strategy_invalid_json",
+        "description": "测试_parse_search_strategy解析失败时降级为使用原始topic",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_vector_search_tool",
+        "description": "测试vector_search_tool正常调用和异常降级",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "test_keyword_search_tool",
+        "description": "测试keyword_search_tool正常调用和异常降级",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "test_hybrid_search_tool",
+        "description": "测试hybrid_search_tool正常调用和异常降级",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "test_rerank_tool",
+        "description": "测试rerank_tool正常调用和异常降级（返回原始results）",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "test_tool_registry",
+        "description": "测试TOOL_REGISTRY包含所有4个工具映射",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_retriever_agent.py -v",
+        "expected_result": "所有测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.agents.retriever import RetrieverAgent; from app.agents.tools import TOOL_REGISTRY; print('Import OK, tools:', list(TOOL_REGISTRY.keys()))\"",
+        "expected_result": "输出 Import OK, tools: ['vector_search', 'keyword_search', 'hybrid_search', 'rerank']"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "RetrieverAgent继承BaseAgent，name='retriever'，实现_run()和build_prompt()",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "build_prompt使用PromptManager渲染retriever.txt模板，注入topic和top_k",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "_run调用hybrid_search执行混合检索，返回Top10论文列表",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "LLM检索策略失败时降级为直接hybrid_search，仍返回结果",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "_parse_search_strategy解析LLM JSON输出，失败时降级为原始topic",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "tools.py中4个工具函数均捕获异常返回空结果/原始结果，不抛出异常",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "TOOL_REGISTRY包含vector_search/keyword_search/hybrid_search/rerank四个映射",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "RetrieverAgent通过SearchService间接调用检索，不直接操作ChromaDB",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "执行过程中state.progress从0.2递增到1.0，intermediate_result更新",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-010",
+      "criterion": "所有pytest单元测试通过",
+      "verified_by": "automated_test"
+    }
+  ]
+}

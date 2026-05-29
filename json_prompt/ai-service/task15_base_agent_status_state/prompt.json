@@ -1,0 +1,439 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "实现 Agent 基类 BaseAgent、Agent 状态枚举 AgentStatus、Agent 运行状态数据类 AgentState，产出 agents/base.py。BaseAgent 是 6-Agent 协同引擎的基础，所有具体 Agent（Retriever/Analyzer/Comparer/Generator/Reviewer/Coordinator）均继承此类。BaseAgent 必须提供统一的 execute() 方法（含超时控制、状态管理、降级处理）、抽象方法 _run() 和 build_prompt()、以及降级返回 _fallback_result()。AgentState 必须支持 SSE 推送所需的全部字段。",
+    "requirement_ids": ["F3.1.1", "F3.1.2", "F3.1.3", "F3.1.4", "F3.1.5", "F3.1.6", "F3.1.7", "F3.1.8"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "Section 5.3 Agent基类设计 — AgentStatus/AgentState/BaseAgent 的完整设计规范"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "Section 4 AM2交付物 #5 BaseAgent基类 — 验收标准和检查点"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-002 多智能体协同编排 — Agent超时30s/全流程120s/Reviewer重试1次"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "Section 3 多Agent系统设计 — AgentState TypedDict定义和降级策略"
+      },
+      {
+        "path": "Veritas/ai-service/app/exception.py",
+        "purpose": "已有异常体系 — AgentTimeoutException 可复用"
+      },
+      {
+        "path": "Veritas/ai-service/app/core/config.py",
+        "purpose": "已有配置 — AGENT_TIMEOUT=30, AGENT_FULL_TIMEOUT=120, AGENT_MAX_REGENERATE=1"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/llm_service.py",
+        "purpose": "已有LLM服务 — LLMService.generate() 接口，BaseAgent需依赖此服务"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "purpose": "已有Prompt管理 — PromptManager.get_prompt() 接口，BaseAgent需依赖此服务"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/",
+        "description": "Agent模块目录，当前仅有空的__init__.py，需新增base.py/retriever.py/tools.py等"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/llm_service.py",
+        "description": "LLM推理服务，BaseAgent通过此服务调用大模型，接口：generate(prompt, max_tokens, temperature) -> str"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/prompt_manager.py",
+        "description": "Prompt模板管理，BaseAgent通过此服务渲染Prompt，接口：get_prompt(agent_name, **kwargs) -> str"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/config.py",
+        "description": "配置管理，AGENT_TIMEOUT/AGENT_FULL_TIMEOUT/AGENT_MAX_REGENERATE配置项"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/exception.py",
+        "description": "异常体系，AgentTimeoutException(408)已定义，BaseAgent需使用"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/__init__.py",
+        "description": "空文件，Agent模块入口",
+        "reuse_type": "modify"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/exception.py",
+        "description": "AIServiceException体系，含AgentTimeoutException(code=408)",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/config.py",
+        "description": "Settings类，含AGENT_TIMEOUT=30, AGENT_FULL_TIMEOUT=120, AGENT_MAX_REGENERATE=1",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/llm_service.py",
+        "description": "LLMService，含generate()/generate_stream()接口和三路降级",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "description": "PromptManager，含get_prompt(agent_name, **kwargs)接口",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/events.py",
+        "description": "AppState类，管理全局服务实例（llm_service/prompt_manager等）",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "agents/base.py（待创建）",
+      "path": "Veritas/ai-service/app/agents/base.py",
+      "responsibility": "Agent基类，定义AgentStatus枚举、AgentState数据类、BaseAgent抽象基类。所有6个Agent继承此类。",
+      "key_interfaces": [
+        {
+          "name": "AgentStatus",
+          "signature": "class AgentStatus(str, Enum)",
+          "description": "Agent状态枚举：WAITING/RUNNING/COMPLETED/FAILED"
+        },
+        {
+          "name": "AgentState",
+          "signature": "@dataclass class AgentState",
+          "description": "Agent运行状态数据类，含name/status/started_at/completed_at/duration_ms/progress/intermediate_result/error字段，支持SSE推送"
+        },
+        {
+          "name": "BaseAgent.execute",
+          "signature": "async def execute(self, input_data: dict, context: dict) -> dict",
+          "description": "统一执行入口：状态管理→构建Prompt→超时控制→核心逻辑→降级处理"
+        },
+        {
+          "name": "BaseAgent._run",
+          "signature": "@abstractmethod async def _run(self, prompt: str, input_data: dict, context: dict) -> dict",
+          "description": "子类实现的核心执行逻辑"
+        },
+        {
+          "name": "BaseAgent.build_prompt",
+          "signature": "@abstractmethod def build_prompt(self, input_data: dict, context: dict) -> str",
+          "description": "子类实现的Prompt构建逻辑"
+        },
+        {
+          "name": "BaseAgent._fallback_result",
+          "signature": "def _fallback_result(self, input_data: dict) -> dict",
+          "description": "降级时的默认返回：{\"degraded\": True, \"agent\": self.name, \"error\": ...}"
+        },
+        {
+          "name": "BaseAgent._summarize_result",
+          "signature": "def _summarize_result(self, result: dict) -> str",
+          "description": "生成中间结果摘要（用于SSE推送可视化），截断200字符"
+        },
+        {
+          "name": "AgentState.to_dict",
+          "signature": "def to_dict(self) -> dict",
+          "description": "将AgentState转为dict，用于SSE推送和JSON序列化"
+        },
+        {
+          "name": "AgentState.update_progress",
+          "signature": "def update_progress(self, progress: float, intermediate_result: str = None)",
+          "description": "更新进度和中间结果，供子Agent在执行过程中调用"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/agents/base.py",
+      "description": "Agent基类文件，包含AgentStatus枚举、AgentState数据类、BaseAgent抽象基类",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/__init__.py",
+      "description": "导出AgentStatus、AgentState、BaseAgent，方便其他模块from app.agents import BaseAgent",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "实现AgentStatus枚举(str, Enum)，包含4个状态：WAITING=\"waiting\"、RUNNING=\"running\"、COMPLETED=\"completed\"、FAILED=\"failed\"。继承str和Enum确保JSON序列化友好。",
+        "priority": "P0",
+        "acceptance_condition": "AgentStatus.WAITING == 'waiting' 为True；json.dumps(AgentStatus.RUNNING) 输出 '\"running\"'"
+      },
+      {
+        "id": "FR-002",
+        "description": "实现AgentState数据类(@dataclass)，字段：name:str、status:AgentStatus=AgentStatus.WAITING、started_at:Optional[datetime]=None、completed_at:Optional[datetime]=None、duration_ms:Optional[int]=None、progress:float=0.0、intermediate_result:Optional[str]=None、error:Optional[str]=None。提供to_dict()方法转为dict（datetime转ISO格式字符串），提供update_progress(progress, intermediate_result)方法更新进度。",
+        "priority": "P0",
+        "acceptance_condition": "state = AgentState(name='retriever')；state.status == AgentStatus.WAITING；state.to_dict()返回dict含所有字段；state.update_progress(0.5, '找到5篇')后state.progress==0.5"
+      },
+      {
+        "id": "FR-003",
+        "description": "实现BaseAgent抽象基类(ABC)，__init__(self, name:str, llm_service, prompt_manager, timeout:int=30)。属性：self.name、self.llm_service、self.prompt_manager、self.state=AgentState(name=name)、self.timeout。timeout默认从settings.AGENT_TIMEOUT读取。",
+        "priority": "P0",
+        "acceptance_condition": "BaseAgent不可直接实例化（ABC）；子类必须实现_run和build_prompt"
+      },
+      {
+        "id": "FR-004",
+        "description": "实现BaseAgent.execute(self, input_data:dict, context:dict) -> dict异步方法。执行流程：(1)更新state.status=RUNNING，记录started_at；(2)调用self.build_prompt(input_data, context)构建Prompt；(3)使用asyncio.wait_for执行self._run(prompt, input_data, context)，超时=self.timeout秒；(4)成功时更新state.status=COMPLETED，记录completed_at和duration_ms，调用_summarize_result记录intermediate_result；(5)超时时更新state.status=FAILED，记录error，返回_fallback_result；(6)异常时更新state.status=FAILED，记录error，返回_fallback_result。",
+        "priority": "P0",
+        "acceptance_condition": "正常执行返回_run结果；超时30s后返回降级结果且state.status==FAILED；异常后返回降级结果且不抛出异常"
+      },
+      {
+        "id": "FR-005",
+        "description": "实现BaseAgent._run(self, prompt:str, input_data:dict, context:dict) -> dict抽象方法，子类必须实现核心执行逻辑。",
+        "priority": "P0",
+        "acceptance_condition": "BaseAgent._run是@abstractmethod；子类未实现则无法实例化"
+      },
+      {
+        "id": "FR-006",
+        "description": "实现BaseAgent.build_prompt(self, input_data:dict, context:dict) -> str抽象方法，子类必须实现Prompt构建逻辑。",
+        "priority": "P0",
+        "acceptance_condition": "BaseAgent.build_prompt是@abstractmethod；子类未实现则无法实例化"
+      },
+      {
+        "id": "FR-007",
+        "description": "实现BaseAgent._fallback_result(self, input_data:dict) -> dict方法，返回降级默认结果：{\"degraded\": True, \"agent\": self.name, \"error\": self.state.error}。确保即使Agent失败，后续流程仍可继续。",
+        "priority": "P0",
+        "acceptance_condition": "返回dict含degraded=True和agent名称和error信息"
+      },
+      {
+        "id": "FR-008",
+        "description": "实现BaseAgent._summarize_result(self, result:dict) -> str方法，将结果转为字符串并截断200字符，用于SSE推送中间结果摘要。",
+        "priority": "P1",
+        "acceptance_condition": "返回str，长度<=200"
+      },
+      {
+        "id": "FR-009",
+        "description": "AgentState.to_dict()方法中，datetime字段转为ISO格式字符串，AgentStatus枚举转为字符串值，确保JSON序列化兼容。",
+        "priority": "P0",
+        "acceptance_condition": "json.dumps(state.to_dict())不报错；datetime字段输出ISO格式字符串"
+      },
+      {
+        "id": "FR-010",
+        "description": "BaseAgent.execute()中记录关键日志：Agent启动(WARNING级别)、Agent完成含耗时(INFO级别)、Agent超时(WARNING级别)、Agent异常(ERROR级别)。日志格式遵循项目Loguru规范。",
+        "priority": "P1",
+        "acceptance_condition": "日志包含agent名称、耗时、错误信息；不包含敏感信息"
+      }
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "单Agent超时30s或异常时，execute()捕获异常，更新state.status=FAILED，返回_fallback_result()，不抛出异常到上层，不阻塞后续Agent执行",
+        "multi_agent_failure": "多Agent失败由LangGraph工作流层处理（graph.py），BaseAgent层面仅保证单个Agent失败不崩溃",
+        "review_retry_limit": 1
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中。BaseAgent属于Agent层，可调用Service层（LLMService/PromptManager），不可直接调用API层或操作数据库"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent。execute()方法内部捕获所有异常，返回降级结果，不向上层抛出",
+        "agent_error_handling": "state.status = AgentStatus.FAILED; state.error = str(e); return self._fallback_result(input_data)"
+      }
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    {
+      "id": "FA-001",
+      "action": "输出伪代码或TODO注释",
+      "reason": "必须输出完整可执行代码",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-002",
+      "action": "修改需求范围外的模块（不修改llm_service.py/prompt_manager.py/config.py等已有文件）",
+      "reason": "本任务仅新增agents/base.py和修改agents/__init__.py",
+      "severity": "high"
+    },
+    {
+      "id": "FA-003",
+      "action": "BaseAgent.execute()中向上层抛出未捕获的异常",
+      "reason": "Agent异常必须内部消化，返回降级结果，不阻塞后续Agent",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-004",
+      "action": "在AgentState中硬编码超时时间",
+      "reason": "超时时间必须从settings.AGENT_TIMEOUT读取",
+      "severity": "high"
+    },
+    {
+      "id": "FA-005",
+      "action": "AgentStatus使用IntEnum而非str+Enum",
+      "reason": "str+Enum确保JSON序列化输出字符串值而非整数，与SSE推送格式一致",
+      "severity": "high"
+    },
+    {
+      "id": "FA-006",
+      "action": "忽略降级场景（Agent超时/异常时不返回_fallback_result）",
+      "reason": "可用性约束ADR-003，Agent失败必须返回降级结果",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-007",
+      "action": "在日志中输出API Key或敏感配置",
+      "reason": "安全约束",
+      "severity": "critical"
+    }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_agent_status_enum",
+        "description": "测试AgentStatus枚举值正确、JSON序列化输出字符串、str()输出正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_agent_state_creation_and_to_dict",
+        "description": "测试AgentState创建、默认值、to_dict()输出、datetime序列化、update_progress()更新",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_base_agent_cannot_instantiate",
+        "description": "测试BaseAgent因抽象方法无法直接实例化",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "test_base_agent_execute_success",
+        "description": "测试子Agent正常执行：state从WAITING→RUNNING→COMPLETED，duration_ms有值，intermediate_result有值",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_base_agent_execute_timeout",
+        "description": "测试子Agent超时：state.status==FAILED，返回降级结果{degraded:True}，不抛出异常",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_base_agent_execute_exception",
+        "description": "测试子Agent抛异常：state.status==FAILED，state.error有值，返回降级结果",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_fallback_result_format",
+        "description": "测试_fallback_result返回格式：含degraded=True、agent名称、error信息",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_summarize_result_truncation",
+        "description": "测试_summarize_result截断200字符",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_base_agent.py -v",
+        "expected_result": "所有测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.agents.base import AgentStatus, AgentState, BaseAgent; print('Import OK')\"",
+        "expected_result": "输出 Import OK"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.agents import AgentStatus, AgentState, BaseAgent; print('Package import OK')\"",
+        "expected_result": "输出 Package import OK"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "AgentStatus枚举包含WAITING/RUNNING/COMPLETED/FAILED四个值，继承str+Enum，JSON序列化输出字符串",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "AgentState数据类包含所有SSE推送所需字段，to_dict()方法JSON序列化兼容",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "BaseAgent是ABC抽象基类，_run和build_prompt是@abstractmethod",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "execute()方法含完整超时控制（asyncio.wait_for），超时30s后返回降级结果不抛异常",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "execute()方法含完整异常捕获，Agent异常后state.status=FAILED，返回_fallback_result",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "_fallback_result返回{degraded:True, agent:name, error:msg}格式",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "超时时间从settings.AGENT_TIMEOUT读取，不硬编码",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "agents/__init__.py正确导出AgentStatus/AgentState/BaseAgent",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "代码符合Python命名规范（类名PascalCase/函数snake_case/常量UPPER_SNAKE_CASE）",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-010",
+      "criterion": "所有pytest单元测试通过",
+      "verified_by": "automated_test"
+    }
+  ]
+}
