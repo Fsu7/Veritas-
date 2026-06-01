@@ -1,0 +1,338 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "增强 prompts/analyzer.txt Prompt 模板，实现 AnalyzerAgent 的完整 LLM 推理集成。当前模板使用 $variable 语法且为初稿版本。需要升级为包含完整5维度结构化JSON Schema输出规范、CoT（Chain-of-Thought）推理步骤、个性化适配变量注入、降级兼容说明的生产级 Prompt。同时确保模板与 AnalyzerAgent（task17产出的agents/analyzer.py）的 build_analysis_prompt() 方法传入的变量完全对齐。",
+    "requirement_ids": ["F3.1.3", "F3.3.4"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "Section 5.4.3 AnalyzerAgent — _run/parse方法接口、5维度定义；Section 12.2 analyzer.txt Prompt模板示例；Section 12.3 Prompt变量替换规范"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-006 个性化引擎 — 用户画像4维度映射到Prompt个性化片段"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "Section 3.1 Agent角色定义 — Analyzer输入输出规范；Section 4.1 个性化4维度策略表"
+      },
+      {
+        "path": "Veritas/ai-service/prompts/analyzer.txt",
+        "purpose": "当前版本Prompt模板 — 需升级增强，为本次修改的目标文件"
+      },
+      {
+        "path": "Veritas/ai-service/prompts/retriever.txt",
+        "purpose": "已有Retriever Prompt模板 — 参考Prompt模板结构和变量语法风格"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/analyzer.py",
+        "purpose": "task17产出的AnalyzerAgent — build_analysis_prompt()传入的变量名（paper_title/paper_abstract/extra_instruction）需与模板变量名对齐"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "purpose": "已有PromptManager — get_prompt()使用string.Template或Jinja2渲染，需确认模板变量语法"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "prompts/analyzer.txt",
+        "description": "分析Agent Prompt模板（待增强），当前为初稿版本，使用$variable语法，缺少CoT/个性化/降级说明"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/analyzer.py",
+        "description": "task17产出的AnalyzerAgent — build_analysis_prompt()调用prompt_manager.get_prompt('analyzer', paper_title=, paper_abstract=, extra_instruction=)"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/prompt_manager.py",
+        "description": "PromptManager — get_prompt(agent_name, **kwargs)渲染模板，当前使用string.Template语法"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/prompts/analyzer.txt",
+        "description": "当前版本 — 初稿Prompt模板，定义基本5维度JSON输出格式（researchQuestion/coreMethod/keyExperiments/coreFindings/limitations），使用$variable语法，缺少CoT推理链和个性化变量",
+        "reuse_type": "modify"
+      },
+      {
+        "file_path": "Veritas/ai-service/prompts/retriever.txt",
+        "description": "Retriever Prompt模板 — 参考结构风格（角色定义→任务→工具→执行步骤→输出格式）",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/retriever.py",
+        "description": "RetrieverAgent.build_prompt() — 参考prompt_manager.get_prompt()调用模式",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "prompts/analyzer.txt（待增强）",
+      "path": "Veritas/ai-service/prompts/analyzer.txt",
+      "responsibility": "AnalyzerAgent的LLM推理Prompt模板。定义角色身份、5维度输出JSON Schema、CoT推理链、个性化注入变量、降级兼容说明。由PromptManager通过get_prompt('analyzer', **kwargs)渲染。",
+      "key_interfaces": [
+        {
+          "name": "模板变量：$paper_title",
+          "signature": "string",
+          "description": "论文标题，由AnalyzerAgent.build_analysis_prompt()传入，必填"
+        },
+        {
+          "name": "模板变量：$paper_abstract",
+          "signature": "string",
+          "description": "论文摘要，由AnalyzerAgent.build_analysis_prompt()传入，必填"
+        },
+        {
+          "name": "模板变量：$extra_instruction",
+          "signature": "string",
+          "description": "个性化额外指令，由AnalyzerAgent._get_extra_instruction()生成，可为空字符串"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/prompts/analyzer.txt",
+      "description": "增强分析Agent Prompt模板：添加CoT推理链、升级5维度JSON Schema（含confidence/references）、注入个性化适配变量、添加降级输出格式说明",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "Prompt模板结构必须包含以下8个区块：(1)Role Block — 资深学术论文审稿人身份定义；(2)Task Block — 当前分析任务说明；(3)Input Block — 论文信息（$paper_title/$paper_abstract）；(4)Personalization Block — 个性化适配变量注入（$extra_instruction）；(5)CoT Block — 5步推理链（Skim→Extract_Problem→Extract_Method→Extract_Experiments→Extract_Conclusions→Identify_Limitations）；(6)Output Schema Block — 严格JSON Schema定义；(7)Constraint Block — 行为边界（禁止臆造、必须原文引用、100-200字/维度）；(8)Fallback Block — 无相关信息时填写'论文未明确提及'。",
+        "priority": "P0",
+        "acceptance_condition": "Prompt模板包含全部8个区块；变量名与prompt_manager调用参数一致"
+      },
+      {
+        "id": "FR-002",
+        "description": "5维度JSON Schema升级为嵌套结构。每个维度不再是简单字符串，而是包含3个子字段的对象：summary（100-200字描述）、confidence（0-1置信度，必须有）、references（原文引用片段列表）。输出格式示例：{\"research_problem\": {\"summary\": \"...\", \"confidence\": 0.85, \"references\": [\"原文第3段：...\"]}, ...}。5个字段key改为snake_case：research_problem/core_method/main_experiments/core_conclusions/limitations。",
+        "priority": "P0",
+        "acceptance_condition": "Schema中每个维度含summary/confidence/references三个子字段；字段名全部snake_case"
+      },
+      {
+        "id": "FR-003",
+        "description": "添加CoT（Chain-of-Thought）推理链。Step 1 Skim: 快速浏览摘要，识别论文领域和类型。Step 2 Extract_Problem: 提取研究问题，找到'本文旨在/针对/解决'等信号词。Step 3 Extract_Method: 提取核心方法，注意方法名称、创新点、适用条件。Step 4 Extract_Experiments: 提取实验设置，关注数据集、评估指标、对比基线。Step 5 Extract_Conclusions: 提取核心结论，区分客观发现与主观推测。Step 6 Identify_Limitations: 识别局限性，包括作者自述局限和你基于方法的合理推断（标注为推断）。",
+        "priority": "P0",
+        "acceptance_condition": "Prompt包含6步CoT推理链，每步有明确指令"
+      },
+      {
+        "id": "FR-004",
+        "description": "Personalization Block注入$extra_instruction变量。当$extra_instruction非空时，在Constraint Block之后添加个性化适配要求。$extra_instruction空字符串时个人化区块不产生额外内容。格式：'$extra_instruction'（单独一行，不添加前缀文本）。",
+        "priority": "P0",
+        "acceptance_condition": "Dashboard验证$extra_instruction有值时Prompt含个性化指令；$extra_instruction=''时无额外内容"
+      },
+      {
+        "id": "FR-005",
+        "description": "Constraint Block包含：(1)每个维度摘要100-200字；(2)信息必须基于论文原文不可臆造；(3)confidence根据信息完整度评估（原文明确提到=0.8-1.0，推断=0.5-0.7，完全缺失=0.3）；(4)如某维度无相关信息填写summary='论文未明确提及'，confidence=0.3，references=[]；(5)核心方法必须含方法名称和创新点；(6)主要实验必须含数据集/指标/基线；(7)局限性需区分作者自述和推理。",
+        "priority": "P0",
+        "acceptance_condition": "约束覆盖摘要长度/信息源/confidence标准/空维度处理/方法实验局限性具体要求"
+      },
+      {
+        "id": "FR-006",
+        "description": "Fallback Block定义降级输出格式。当论文信息严重不足（如仅有标题无摘要）时，仍必须输出完整JSON结构，所有维度confidence=0.3，summary使用'论文未明确提及'。禁止因信息不足而拒绝输出。",
+        "priority": "P1",
+        "acceptance_condition": "Fallback部分明确定义降级输出格式；Prompt不因信息不足而拒绝输出"
+      },
+      {
+        "id": "FR-007",
+        "description": "模板变量语法必须与PromptManager兼容。当前PromptManager使用string.Template（$variable或${variable}语法）。变量名必须与AnalyzerAgent.build_analysis_prompt()传入的kwargs完全匹配：paper_title、paper_abstract、extra_instruction。",
+        "priority": "P0",
+        "acceptance_condition": "prompt_manager.get_prompt('analyzer', paper_title='test', paper_abstract='abs', extra_instruction='inst')正确渲染"
+      },
+      {
+        "id": "FR-008",
+        "description": "添加AI内容声明。在Prompt底部添加：'注意：你生成的分析内容将被标注为AI生成，确保所有意见基于原文事实。' 要求LLM输出的analysis结果中包含ai_disclaimer字段。",
+        "priority": "P1",
+        "acceptance_condition": "Prompt含AI声明指令；输出Schema含ai_disclaimer字段"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Python/JSON统一使用 snake_case",
+        "mappings": [
+          {"python": "research_problem", "json": "research_problem"},
+          {"python": "core_method", "json": "core_method"},
+          {"python": "main_experiments", "json": "main_experiments"},
+          {"python": "core_conclusions", "json": "core_conclusions"},
+          {"python": "limitations", "json": "limitations"}
+        ]
+      },
+      "data_flow": "PromptManager读取analyzer.txt → string.Template替换$variable → 返回完整Prompt → AnalyzerAgent传入LLMService.generate() → LLM输出JSON → AnalyzerAgent._parse_analysis_result()解析"
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "config_key": "UPPER_SNAKE_CASE"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "Prompt模板独立于代码，不依赖Python模块。模板中的JSON Schema字段名使用snake_case与Python一致"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "Prompt层面：定义信息不足时的fallback输出格式，LLM必须输出完整JSON而非空或拒答。代码层面由AnalyzerAgent处理JSON解析异常。",
+        "agent_error_handling": "Prompt本身不处理错误，错误处理由AnalyzerAgent._parse_analysis_result()负责"
+      }
+    }
+  },
+  "forbidden_actions": [
+    {
+      "id": "FA-001",
+      "action": "在Prompt中保留旧的camelCase字段名（researchQuestion/coreMethod等）",
+      "reason": "必须统一使用snake_case与Python端一致",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-002",
+      "action": "修改prompt_manager.py的模板渲染逻辑",
+      "reason": "本任务仅修改prompts/analyzer.txt，prompt_manager.py是已有模块不可修改",
+      "severity": "high"
+    },
+    {
+      "id": "FA-003",
+      "action": "使用Jinja2语法（{{variable}}）替代string.Template语法（$variable）",
+      "reason": "PromptManager当前使用string.Template，必须保持语法一致",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-004",
+      "action": "Prompt中硬编码具体API Key或密码",
+      "reason": "安全约束，Prompt模板公开存储不可含密钥",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-005",
+      "action": "新增不在需求范围内的Prompt模板或修改其他Prompt文件",
+      "reason": "本任务仅修改prompts/analyzer.txt",
+      "severity": "high"
+    },
+    {
+      "id": "FA-006",
+      "action": "Prompt中变量名与AnalyzerAgent.build_analysis_prompt()传入的kwargs不一致",
+      "reason": "变量名必须严格匹配，否则运行时渲染失败",
+      "severity": "critical"
+    }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_prompt_template_structure",
+        "description": "测试Prompt模板包含全部8个必要区块（Role/Task/Input/Personalization/CoT/Output/Constraint/Fallback）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_prompt_variable_rendering",
+        "description": "测试使用string.Template渲染模板：paper_title/paper_abstract/extra_instruction正确替换",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_prompt_extra_instruction_empty",
+        "description": "测试$extra_instruction为空字符串时模板正确渲染（不产生多余空白行）",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_prompt_json_schema_snake_case",
+        "description": "测试Prompt中JSON Schema字段名全部为snake_case（research_problem而非researchProblem）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_prompt_json_schema_nested_structure",
+        "description": "测试Prompt中每个维度定义为嵌套对象{summary, confidence, references}而非简单字符串",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_prompt_cot_steps",
+        "description": "测试Prompt包含6步完整CoT推理链",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_prompt_manager_integration",
+        "description": "集成测试：通过PromptManager.get_prompt('analyzer', paper_title=, paper_abstract=, extra_instruction=)验证模板正确渲染",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_prompt_manager.py -v -k \"analyzer\"",
+        "expected_result": "analyzer相关测试全部通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"import string; t=open('prompts/analyzer.txt').read(); s=string.Template(t).substitute(paper_title='Test',paper_abstract='Abs',extra_instruction=''); print('Render OK, length:', len(s))\"",
+        "expected_result": "输出 Render OK, length: NNNN"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "Prompt模板包含8个完整区块：Role/Task/Input/Personalization/CoT/Output/Constraint/Fallback",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "5维度JSON Schema使用嵌套结构{summary, confidence, references}，字段名全部snake_case",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "包含6步完整CoT推理链（Skim→Extract_Problem→Extract_Method→Extract_Experiments→Extract_Conclusions→Identify_Limitations）",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "3个模板变量（$paper_title/$paper_abstract/$extra_instruction）与AnalyzerAgent传入参数完全对齐",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "使用string.Template语法（$variable），兼容已有PromptManager",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "$extra_instruction为空时模板正确渲染不产生多余内容",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "Constraint Block覆盖摘要长度/confidence标准/空维度处理/信息源约束",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "Prompt中不含硬编码密钥/密码，不含camelCase字段名",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "所有Prompt相关pytest测试通过",
+      "verified_by": "automated_test"
+    }
+  ]
+}

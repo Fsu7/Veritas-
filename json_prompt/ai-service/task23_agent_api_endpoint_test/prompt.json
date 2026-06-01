@@ -1,0 +1,439 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "实现Agent调用API端点（POST /api/agent/analyze），将FastAPI路由层与LangGraph工作流接通，使外部请求能端到端触发3-Agent协同分析并返回结构化结果。同时编写完整的端到端测试代码，验证从HTTP请求到工作流执行到响应返回的全链路。",
+    "requirement_ids": ["F3.5.1", "F3.1.7"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "4.4.1节Agent调用接口设计，请求/响应格式，SSE事件格式"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "4.3节AM2 Week4 Day7任务：Agent调用API + 端到端测试"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-009 SSE实时推送，ADR-001三层分离架构"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "8.2节Python AI服务API，8.4节Java→Python请求契约，8.5节SSE事件格式"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/api/endpoints/agent.py",
+        "description": "Agent分析API端点（当前仅返回analysis_id和processing状态，未接通工作流）"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/graph.py",
+        "description": "LangGraph工作流（task22产出，包含WorkflowState/build_agent_graph/run_workflow）"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/base.py",
+        "description": "Agent基类：AgentStatus/AgentState/BaseAgent"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/retriever.py",
+        "description": "检索Agent"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/analyzer.py",
+        "description": "分析Agent"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/generator.py",
+        "description": "生成Agent"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/events.py",
+        "description": "AppState全局状态管理，on_startup初始化所有服务"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/models/schemas.py",
+        "description": "Pydantic请求/响应模型：AnalyzeRequest/AnalyzeResponse/AgentStateResponse"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/api/router.py",
+        "description": "路由聚合：/agent, /search, /model"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/api/endpoints/agent.py",
+        "description": "当前仅有analyze()函数，返回analysis_id和processing状态，未调用工作流",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/graph.py",
+        "description": "task22产出的LangGraph工作流：WorkflowState、build_agent_graph、run_workflow",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/events.py",
+        "description": "AppState全局状态：llm_service/search_service/prompt_manager等，on_startup初始化",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/models/schemas.py",
+        "description": "AnalyzeRequest(topic/paper_ids/user_profile/analysis_type/analysis_id)、AnalyzeResponse(analysis_id/status/report/citations/agent_states/degraded/degraded_reason)、AgentStateResponse",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/retriever.py",
+        "description": "RetrieverAgent，构造函数接收llm_service/search_service/reranker/prompt_manager",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/analyzer.py",
+        "description": "AnalyzerAgent，构造函数接收llm_service/prompt_manager",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/generator.py",
+        "description": "GeneratorAgent，构造函数接收llm_service/prompt_manager",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "api/endpoints/agent.py（待修改）",
+      "path": "Veritas/ai-service/app/api/endpoints/agent.py",
+      "responsibility": "Agent分析API端点：接收请求、构建Agent实例、调用工作流、返回结果",
+      "key_interfaces": [
+        {
+          "name": "analyze",
+          "signature": "async def analyze(request: AnalyzeRequest) -> AnalyzeResponse",
+          "description": "POST /api/agent/analyze — 启动3-Agent协同分析，同步返回结果"
+        },
+        {
+          "name": "_build_agent_instances",
+          "signature": "def _build_agent_instances() -> Dict[str, BaseAgent]",
+          "description": "从AppState构建3个Agent实例（retriever/analyzer/generator）"
+        }
+      ]
+    },
+    {
+      "name": "agents/graph.py",
+      "path": "Veritas/ai-service/app/agents/graph.py",
+      "responsibility": "LangGraph工作流编排（task22产出）",
+      "key_interfaces": [
+        {
+          "name": "run_workflow",
+          "signature": "async def run_workflow(request: AnalyzeRequest, agent_instances: dict) -> dict",
+          "description": "运行3-Agent工作流，返回结果字典"
+        },
+        {
+          "name": "build_agent_graph",
+          "signature": "def build_agent_graph(agent_instances: dict) -> CompiledGraph",
+          "description": "构建LangGraph StateGraph"
+        }
+      ]
+    },
+    {
+      "name": "core/events.py",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "responsibility": "AppState全局状态管理",
+      "key_interfaces": [
+        {
+          "name": "app_state",
+          "signature": "app_state: AppState",
+          "description": "全局状态对象，包含llm_service/search_service/prompt_manager/reranker"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/api/endpoints/agent.py",
+      "description": "重写analyze()端点：构建Agent实例→调用run_workflow→格式化响应。新增_build_agent_instances()辅助函数",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_agent_endpoint.py",
+      "description": "Agent API端点端到端测试：使用FastAPI TestClient，mock Agent依赖，验证请求/响应格式/错误处理/降级",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "重写analyze()端点函数：\n1. 接收AnalyzeRequest请求体（Pydantic自动校验）\n2. 调用_build_agent_instances()构建3个Agent实例\n3. 调用run_workflow(request, agent_instances)执行工作流\n4. 将run_workflow返回的dict转换为AnalyzeResponse\n5. 返回AnalyzeResponse（设置response_model_by_alias=True以输出camelCase）\n6. 异常时返回统一错误格式{code, message, data, timestamp}",
+        "priority": "P0",
+        "acceptance_condition": "POST /api/agent/analyze返回AnalyzeResponse格式，字段完整"
+      },
+      {
+        "id": "FR-002",
+        "description": "实现_build_agent_instances()辅助函数：\n1. 从app_state获取llm_service/search_service/prompt_manager/reranker\n2. 构建RetrieverAgent(name='retriever', llm_service=..., search_service=..., reranker=..., prompt_manager=...)\n3. 构建AnalyzerAgent(name='analyzer', llm_service=..., prompt_manager=...)\n4. 构建GeneratorAgent(name='generator', llm_service=..., prompt_manager=...)\n5. 返回{'retriever': retriever, 'analyzer': analyzer, 'generator': generator}字典\n6. 如果app_state中某服务未初始化，抛出ModelNotLoadedException",
+        "priority": "P0",
+        "acceptance_condition": "3个Agent实例正确构建，依赖服务从app_state注入"
+      },
+      {
+        "id": "FR-003",
+        "description": "run_workflow返回结果到AnalyzeResponse的映射：\n- analysis_id ← result['analysis_id']\n- status ← result.get('status', 'completed')\n- report ← result.get('report')\n- citations ← result.get('citations', [])\n- agent_states ← 将result['agent_states']字典转为List[AgentStateResponse]\n- degraded ← result.get('degraded', False)\n- degraded_reason ← result.get('degraded_reason')",
+        "priority": "P0",
+        "acceptance_condition": "响应字段映射正确，camelCase输出格式正确"
+      },
+      {
+        "id": "FR-004",
+        "description": "AgentStateResponse转换逻辑：\n将agent_states字典中的每个Agent状态转为AgentStateResponse：\n- agent_name ← key\n- status ← value['status']\n- progress ← value.get('progress')\n- intermediate_result ← value.get('intermediate_result')\n- duration_ms ← value.get('duration_ms')",
+        "priority": "P0",
+        "acceptance_condition": "agent_states列表格式正确，每个元素符合AgentStateResponse"
+      },
+      {
+        "id": "FR-005",
+        "description": "端到端测试文件test_agent_endpoint.py：\n1. 使用FastAPI TestClient + httpx.AsyncClient\n2. Mock所有Agent依赖（llm_service/search_service/prompt_manager/reranker）\n3. 测试正常流程：POST /api/agent/analyze返回200 + AnalyzeResponse格式\n4. 测试请求校验：空topic返回422，非法analysis_type返回422\n5. 测试Agent降级：mock某Agent失败，返回degraded=True\n6. 测试全流程超时：mock慢速Agent，验证超时处理\n7. 测试服务未初始化：app_state为空时返回503\n8. 测试camelCase输出：验证响应字段名为camelCase格式",
+        "priority": "P0",
+        "acceptance_condition": "所有测试通过，覆盖正常/异常/降级/校验场景"
+      },
+      {
+        "id": "FR-006",
+        "description": "在on_startup中初始化Agent实例（可选优化）：\n在events.py的on_startup中预构建3个Agent实例并存储到app_state，避免每次请求都重新构建。\n如果选择此方案，需修改AppState添加agent_instances字段。\n如果选择每次请求构建，则无需修改events.py。",
+        "priority": "P2",
+        "acceptance_condition": "Agent实例构建方式明确，不影响功能正确性"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          {"java": "analysisId", "python": "analysis_id", "json": "analysisId"},
+          {"java": "agentStates", "python": "agent_states", "json": "agentStates"},
+          {"java": "agentName", "python": "agent_name", "json": "agentName"},
+          {"java": "intermediateResult", "python": "intermediate_result", "json": "intermediateResult"},
+          {"java": "durationMs", "python": "duration_ms", "json": "durationMs"},
+          {"java": "degradedReason", "python": "degraded_reason", "json": "degradedReason"},
+          {"java": "paperIds", "python": "paper_ids", "json": "paperIds"},
+          {"java": "userProfile", "python": "user_profile", "json": "userProfile"},
+          {"java": "analysisType", "python": "analysis_type", "json": "analysisType"}
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/agent/analyze",
+          "method": "POST",
+          "request_format": {
+            "topic": "Multi-Agent协同决策",
+            "paperIds": ["arxiv_2024_001"],
+            "userProfile": {
+              "educationLevel": "master",
+              "researchField": "NLP",
+              "knowledgeLevel": "intermediate",
+              "preferredStyle": "balanced"
+            },
+            "analysisType": "report",
+            "analysisId": "anl_20240523_001"
+          },
+          "response_format": {
+            "analysisId": "anl_20240523_001",
+            "status": "completed",
+            "report": "## 文献综述\n...",
+            "citations": [{"paperId": "arxiv_2024_001", "text": "原文片段"}],
+            "agentStates": [
+              {"agentName": "retriever", "status": "completed", "durationMs": 1200, "intermediateResult": "找到10篇论文"},
+              {"agentName": "analyzer", "status": "completed", "durationMs": 8000},
+              {"agentName": "generator", "status": "completed", "durationMs": 15000}
+            ],
+            "degraded": false,
+            "degradedReason": null
+          }
+        }
+      ],
+      "data_flow": "Java后端POST /api/agent/analyze(camelCase) → FastAPI Pydantic校验(alias转snake_case) → run_workflow(内部snake_case) → 响应(通过alias输出camelCase) → Java后端解析"
+    },
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          {"priority": 1, "name": "BuiltinLLMProvider", "description": "软件方云端模型"},
+          {"priority": 2, "name": "APILLMProvider", "description": "外接API"},
+          {"priority": 3, "name": "LocalLLMProvider", "description": "本地Qwen2"}
+        ],
+        "trigger_conditions": ["连续3次调用失败", "超时30s", "HTTP 5xx"],
+        "recovery_strategy": "每5分钟尝试恢复"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "单Agent失败→degraded=True→继续后续Agent",
+        "multi_agent_failure": "多Agent失败→返回降级结果+degraded_reason",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "响应中不包含API Key/密码等敏感信息"
+      },
+      {
+        "category": "other",
+        "requirement": "生成内容标注'AI生成，仅供参考'（GeneratorAgent已内置）"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case（Python内部），camelCase（API输出通过Pydantic alias）"
+      },
+      "cross_system_mapping": [
+        {"java": "analysisId", "python": "analysis_id", "json": "analysisId"},
+        {"java": "agentStates", "python": "agent_states", "json": "agentStates"},
+        {"java": "agentName", "python": "agent_name", "json": "agentName"},
+        {"java": "intermediateResult", "python": "intermediate_result", "json": "intermediateResult"},
+        {"java": "durationMs", "python": "duration_ms", "json": "durationMs"},
+        {"java": "degradedReason", "python": "degraded_reason", "json": "degradedReason"}
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent。agent.py端点函数仅做请求分发和响应格式化，工作流逻辑在graph.py中"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "端点函数try-except捕获异常，返回统一错误格式{code,message,data,timestamp}",
+        "agent_error_handling": "工作流内部降级处理，端点层不直接处理Agent异常"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside",
+      "ttl_layers": [
+        {"cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min"}
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息"]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci"
+    },
+    "security": {
+      "ai_content_label": "AI生成，仅供参考"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（如修改graph.py/retriever.py/analyzer.py/generator.py）", "reason": "仅修改agent.py端点和创建测试文件", "severity": "high"},
+    {"id": "FA-003", "action": "在端点函数中编写工作流逻辑", "reason": "工作流逻辑在graph.py中，端点仅做分发和格式化", "severity": "high"},
+    {"id": "FA-004", "action": "硬编码Agent实例或服务依赖", "reason": "从app_state获取服务实例，不硬编码", "severity": "high"},
+    {"id": "FA-005", "action": "忽略降级场景", "reason": "可用性约束ADR-003", "severity": "critical"},
+    {"id": "FA-006", "action": "违反camelCase输出格式", "reason": "Java后端期望camelCase，Pydantic alias必须正确", "severity": "high"},
+    {"id": "FA-007", "action": "测试中使用真实LLM/Embedding调用", "reason": "测试必须mock所有外部依赖", "severity": "high"},
+    {"id": "FA-008", "action": "在响应中暴露内部错误堆栈", "reason": "安全约束，错误响应仅包含code和message", "severity": "critical"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_analyze_success",
+        "description": "测试正常流程：mock 3个Agent返回成功结果，POST /api/agent/analyze返回200 + AnalyzeResponse格式",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_analyze_validation_empty_topic",
+        "description": "测试请求校验：topic为空字符串返回422",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "test_analyze_validation_invalid_analysis_type",
+        "description": "测试请求校验：analysis_type为非法值返回422",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "test_analyze_degraded_single_agent_failure",
+        "description": "测试单Agent降级：mock analyzer失败，返回degraded=True，report为降级报告",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_analyze_degraded_multi_agent_failure",
+        "description": "测试多Agent降级：mock 2个Agent失败，返回degraded=True + degraded_reason",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_analyze_response_camelcase",
+        "description": "测试响应字段名为camelCase格式：analysisId/agentStates/agentName/durationMs/intermediateResult/degradedReason",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_analyze_service_not_initialized",
+        "description": "测试服务未初始化：app_state中llm_service为None时返回503",
+        "framework": "pytest",
+        "coverage": ["error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_build_agent_instances",
+        "description": "测试_build_agent_instances()正确构建3个Agent实例",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_agent_state_response_conversion",
+        "description": "测试agent_states字典到AgentStateResponse列表的转换正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_analyze_end_to_end_with_mock_llm",
+        "description": "端到端集成测试：mock LLM返回固定文本，验证从HTTP请求到工作流执行到响应返回的全链路",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python3 -m pytest tests/test_agent_endpoint.py -v",
+        "expected_result": "所有测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python3 -m pytest tests/test_graph.py tests/test_agent_endpoint.py -v",
+        "expected_result": "task22和task23所有测试均通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "POST /api/agent/analyze返回AnalyzeResponse格式，字段完整", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "响应字段名为camelCase格式（analysisId/agentStates/agentName/durationMs等）", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "Agent实例从app_state获取服务依赖，不硬编码", "verified_by": "code_review"},
+    {"id": "AC-004", "criterion": "端点函数仅做分发和格式化，工作流逻辑在graph.py中", "verified_by": "code_review"},
+    {"id": "AC-005", "criterion": "请求校验生效：空topic/非法枚举返回422", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "Agent降级时返回degraded=True + degraded_reason", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "服务未初始化时返回503而非500", "verified_by": "automated_test"},
+    {"id": "AC-008", "criterion": "测试覆盖正常/异常/降级/校验场景，全部mock外部依赖", "verified_by": "automated_test"},
+    {"id": "AC-009", "criterion": "未修改graph.py/retriever.py/analyzer.py/generator.py", "verified_by": "code_review"},
+    {"id": "AC-010", "criterion": "错误响应不暴露内部堆栈信息", "verified_by": "automated_test"}
+  ]
+}

@@ -1,0 +1,583 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "升级 Generator Agent Prompt模板（prompts/generator.txt），实现4维度用户画像→个性化Prompt片段注入的PersonalizationService（app/services/personalization_service.py）。当前generator.txt为初稿版本，缺少CoT推理链、个性化适配变量注入、严格JSON输出Schema。需升级为生产级Prompt模板，并创建PersonalizationService为Analyzer/Generator等Agent提供个性化指令生成能力。",
+    "requirement_ids": ["F3.4.1", "F3.4.2", "F3.4.3", "F3.4.4"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "Section 5.4.5 GeneratorAgent — 生成Agent接口定义；Section 5.5 PersonalizationService — 4维度画像映射设计；Section 12.2 generator.txt Prompt模板示例"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-006 个性化引擎 — 用户画像4维度映射到Prompt个性化片段的设计决策"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "Section 3.1 Agent角色定义 — Generator输入输出规范；Section 4 个性化引擎 — 4维度画像策略映射表、DIFFICULTY_MAP/STYLE_MAP定义"
+      },
+      {
+        "path": "Veritas/ai-service/prompts/generator.txt",
+        "purpose": "当前版本Generator Prompt模板（初稿） — 需升级增强，为本次修改的目标文件"
+      },
+      {
+        "path": "Veritas/ai-service/prompts/analyzer.txt",
+        "purpose": "已升级的Analyzer Prompt模板 — 参考结构风格（8区块：Role/Task/Input/Personalization/CoT/Output/Constraint/Fallback）"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/analyzer.py",
+        "purpose": "AnalyzerAgent — _get_extra_instruction()方法已预留personalization_service集成接口，需与PersonalizationService.get_extra_instruction()对齐"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "purpose": "PromptManager — get_prompt()使用string.Template渲染，模板变量语法必须为$variable"
+      },
+      {
+        "path": "Veritas/ai-service/app/models/schemas.py",
+        "purpose": "UserProfile Pydantic模型 — 4维度字段定义（education_level/research_field/knowledge_level/preferred_style），含camelCase alias"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/base.py",
+        "purpose": "BaseAgent — execute()/build_prompt()接口定义，PersonalizationService需与此集成"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "prompts/generator.txt",
+        "description": "生成Agent Prompt模板（初稿），使用$variable语法，仅有基本综述结构，缺少CoT/个性化/JSON Schema"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/personalization_service.py",
+        "description": "个性化服务（待创建）— 4维度用户画像→Prompt个性化片段注入，供Analyzer/Generator等Agent调用"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/analyzer.py",
+        "description": "AnalyzerAgent — 已预留personalization_service参数和_get_extra_instruction()集成接口"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/prompt_manager.py",
+        "description": "PromptManager — get_prompt(agent_name, **kwargs)使用string.Template渲染"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/models/schemas.py",
+        "description": "UserProfile模型 — education_level/research_field/knowledge_level/preferred_style，含camelCase alias"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/prompts/generator.txt",
+        "description": "当前初稿版本 — 基本综述结构（引言/研究现状/方法对比/研究趋势/参考文献），$personalization/$analysis_data/$comparison_data变量，简单引用格式要求",
+        "reuse_type": "modify"
+      },
+      {
+        "file_path": "Veritas/ai-service/prompts/analyzer.txt",
+        "description": "已升级的Analyzer Prompt模板 — 参考8区块结构（Role/Task/Input/Personalization/CoT/Output/Constraint/Fallback）",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/analyzer.py",
+        "description": "AnalyzerAgent._get_extra_instruction() — 已预留personalization_service.get_extra_instruction(user_profile, agent_name='analyzer')调用接口",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "description": "PromptManager — get_prompt()使用string.Template.safe_substitute()，模板变量语法$variable",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/models/schemas.py",
+        "description": "UserProfile Pydantic模型 — 4维度字段定义，populate_by_name=True支持camelCase alias",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "prompts/generator.txt（待升级）",
+      "path": "Veritas/ai-service/prompts/generator.txt",
+      "responsibility": "GeneratorAgent的LLM推理Prompt模板。定义角色身份、综述结构、CoT推理链、4维度个性化注入变量、严格JSON输出Schema。由PromptManager通过get_prompt('generator', **kwargs)渲染。",
+      "key_interfaces": [
+        {
+          "name": "模板变量：$personalization",
+          "signature": "string",
+          "description": "个性化适配指令块，由PersonalizationService.get_personalization_block()生成，注入4维度画像适配要求"
+        },
+        {
+          "name": "模板变量：$analysis_data",
+          "signature": "string (JSON)",
+          "description": "论文分析结果JSON字符串，由AnalyzerAgent产出，包含5维度分析数据"
+        },
+        {
+          "name": "模板变量：$comparison_data",
+          "signature": "string (JSON)",
+          "description": "对比分析结果JSON字符串，由ComparerAgent产出，可为空字符串"
+        },
+        {
+          "name": "模板变量：$user_profile_summary",
+          "signature": "string",
+          "description": "用户画像简要描述，由PersonalizationService生成，如'硕士研究生/NLP方向/中级知识水平/标准学术风格'"
+        }
+      ]
+    },
+    {
+      "name": "app/services/personalization_service.py（待创建）",
+      "path": "Veritas/ai-service/app/services/personalization_service.py",
+      "responsibility": "4维度用户画像→Prompt个性化片段注入服务。提供get_personalization_block()、get_extra_instruction()、build_generation_prompt()等接口，供Generator/Analyzer等Agent调用。管理DIFFICULTY_MAP/STYLE_MAP/EDUCATION_ADAPTATION/FIELD_EMPHASIS等映射表。",
+      "key_interfaces": [
+        {
+          "name": "get_personalization_block(user_profile: dict) -> str",
+          "signature": "def get_personalization_block(self, user_profile: dict) -> str",
+          "description": "根据用户画像生成完整的个性化Prompt片段，注入generator.txt的$personalization变量"
+        },
+        {
+          "name": "get_extra_instruction(user_profile: dict, agent_name: str) -> str",
+          "signature": "def get_extra_instruction(self, user_profile: dict, agent_name: str = '') -> str",
+          "description": "为Analyzer/Generator等Agent生成额外个性化指令，与AnalyzerAgent._get_extra_instruction()集成"
+        },
+        {
+          "name": "build_generation_prompt(analysis_results, comparison_result, user_profile) -> str",
+          "signature": "def build_generation_prompt(self, analysis_results: list, comparison_result: dict, user_profile: dict) -> str",
+          "description": "完整Prompt组装：加载generator模板→注入个性化→注入数据→返回完整Prompt"
+        },
+        {
+          "name": "get_education_adaptation(education_level: str) -> str",
+          "signature": "def get_education_adaptation(self, education_level: str) -> str",
+          "description": "根据学历层次返回适配指令片段"
+        },
+        {
+          "name": "get_term_density_target(knowledge_level: str) -> float",
+          "signature": "def get_term_density_target(self, knowledge_level: str) -> float",
+          "description": "根据知识水平返回术语密度目标值"
+        },
+        {
+          "name": "get_style_guide(preferred_style: str) -> str",
+          "signature": "def get_style_guide(self, preferred_style: str) -> str",
+          "description": "根据偏好风格返回写作风格指南"
+        },
+        {
+          "name": "get_field_emphasis(research_field: str) -> str",
+          "signature": "def get_field_emphasis(self, research_field: str) -> str",
+          "description": "根据研究方向返回领域侧重指令"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/prompts/generator.txt",
+      "description": "升级Generator Prompt模板：添加CoT推理链（outline→draft→personalize→self-check）、4维度个性化注入变量（$personalization/$user_profile_summary）、严格JSON输出Schema（report/citation_list/term_density_actual/personalization_applied）、AI声明、引用格式规范",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/services/personalization_service.py",
+      "description": "创建PersonalizationService：实现4维度用户画像→Prompt个性化片段注入。包含DIFFICULTY_MAP/STYLE_MAP/EDUCATION_ADAPTATION/FIELD_EMPHASIS/TERM_DENSITY_TARGET映射表，提供get_personalization_block()/get_extra_instruction()/build_generation_prompt()等接口",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "升级prompts/generator.txt为8区块结构：(1)Role Block — 科研综述写作专家身份定义；(2)Task Block — 综述生成任务说明；(3)Input Block — 分析数据/对比数据/用户画像摘要（$analysis_data/$comparison_data/$user_profile_summary）；(4)Personalization Block — 4维度个性化适配指令注入（$personalization）；(5)CoT Block — 4步推理链（Outline→Draft→Personalize→Self-Check）；(6)Output Schema Block — 严格JSON Schema定义；(7)Constraint Block — 行为边界（引用格式/术语密度/风格/客观性/AI声明）；(8)Fallback Block — 降级兼容说明。",
+        "priority": "P0",
+        "acceptance_condition": "Prompt模板包含全部8个区块；4个模板变量与PromptManager调用参数一致"
+      },
+      {
+        "id": "FR-002",
+        "description": "CoT推理链包含4步：(1)Outline — 根据分析数据生成综述大纲（引言/方法综述/方法对比/矛盾分析/结论与展望）；(2)Draft — 按大纲逐节撰写，每个观点标注引用[N] Author et al., Year；(3)Personalize — 检查术语密度、写作风格、解释深度是否匹配用户画像；(4)Self-Check — 验证所有论文是否覆盖、引用是否完整、术语密度是否达标、风格是否匹配、AI声明是否包含。",
+        "priority": "P0",
+        "acceptance_condition": "Prompt包含4步CoT推理链，每步有明确指令和检查项"
+      },
+      {
+        "id": "FR-003",
+        "description": "Output Schema Block定义严格JSON输出格式：{\"report\": \"Markdown格式综述全文\", \"citation_list\": [{\"id\": 1, \"authors\": \"Author et al.\", \"year\": 2024, \"title\": \"...\", \"venue\": \"...\"}], \"term_density_actual\": 0.22, \"personalization_applied\": {\"education_level\": \"master\", \"knowledge_level\": \"intermediate\", \"preferred_style\": \"balanced\", \"research_field\": \"NLP\"}}。report字段为Markdown格式综述正文，citation_list为引用列表，term_density_actual为实际术语密度，personalization_applied记录应用的个性化配置。",
+        "priority": "P0",
+        "acceptance_condition": "JSON Schema包含report/citation_list/term_density_actual/personalization_applied四个字段"
+      },
+      {
+        "id": "FR-004",
+        "description": "引用格式规范：正文中引用格式为[N]（数字编号），对应citation_list中的id。citation_list每条包含id/authors/year/title/venue。多作者使用'Author et al.'格式。综述正文中每个观点必须标注引用来源。",
+        "priority": "P0",
+        "acceptance_condition": "引用格式为[N]数字编号；citation_list结构完整"
+      },
+      {
+        "id": "FR-005",
+        "description": "Personalization Block通过$personalization变量注入个性化指令。$personalization由PersonalizationService.get_personalization_block()生成，包含4维度适配要求：学历层次适配（undergraduate→通俗解释+类比/phd→前沿分析+创新建议等）、术语密度目标（beginner<5%/intermediate~20%/advanced~40%/expert>50%）、写作风格（simple→日常用语+比喻/balanced→标准学术/technical→正式学术+引用）、领域侧重（NLP/CV/RL等方向权重）。$personalization为空字符串时不产生额外内容。",
+        "priority": "P0",
+        "acceptance_condition": "$personalization变量正确注入；空字符串时不产生多余内容"
+      },
+      {
+        "id": "FR-006",
+        "description": "Constraint Block包含：(1)每个观点必须引用具体论文[N]；(2)内容基于提供数据不可编造；(3)矛盾观点客观呈现不偏袒；(4)术语密度匹配用户画像目标；(5)写作风格匹配preferred_style；(6)字数2000-3000字；(7)综述末尾标注'AI生成，仅供参考'；(8)report为Markdown格式。",
+        "priority": "P0",
+        "acceptance_condition": "约束覆盖引用/信息源/矛盾呈现/术语密度/风格/字数/AI声明/格式"
+      },
+      {
+        "id": "FR-007",
+        "description": "创建PersonalizationService类，包含以下映射表：DIFFICULTY_MAP（4级：beginner/intermediate/advanced/expert，每级含term_density/strategy/example_type/avoid）、STYLE_MAP（3级：simple/balanced/technical，每级含tone/paragraph/structure）、EDUCATION_ADAPTATION（4级：undergraduate/master/phd/faculty，每级为Prompt片段字符串）、FIELD_EMPHASIS（研究方向→侧重文本映射）、TERM_DENSITY_TARGET（knowledge_level→float目标值）。",
+        "priority": "P0",
+        "acceptance_condition": "5个映射表定义完整；枚举值覆盖AGENTS.md Section 4定义的全部值"
+      },
+      {
+        "id": "FR-008",
+        "description": "PersonalizationService.get_personalization_block(user_profile)方法：根据user_profile的4个维度（education_level/knowledge_level/preferred_style/research_field）生成结构化个性化Prompt片段。片段格式为清晰的分区结构，包含学历适配、术语密度目标、写作风格指南、领域侧重4个子区块。未知枚举值使用默认值（education_level→master, knowledge_level→intermediate, preferred_style→balanced, research_field→空）。",
+        "priority": "P0",
+        "acceptance_condition": "输出为结构化Prompt片段；未知枚举值有合理默认"
+      },
+      {
+        "id": "FR-009",
+        "description": "PersonalizationService.get_extra_instruction(user_profile, agent_name)方法：为Analyzer/Generator等Agent生成额外个性化指令。根据agent_name区分生成内容：analyzer侧重分析深度和术语使用；generator侧重写作风格和解释方式。返回简洁的指令字符串。与AnalyzerAgent._get_extra_instruction()的调用接口对齐：personalization_service.get_extra_instruction(user_profile, agent_name='analyzer')。",
+        "priority": "P0",
+        "acceptance_condition": "get_extra_instruction()接口与AnalyzerAgent._get_extra_instruction()调用方式对齐"
+      },
+      {
+        "id": "FR-010",
+        "description": "PersonalizationService.build_generation_prompt(analysis_results, comparison_result, user_profile)方法：完整Prompt组装流程。(1)通过prompt_manager.get_prompt('generator', ...)加载模板；(2)调用get_personalization_block()生成个性化片段；(3)将analysis_results序列化为JSON字符串注入$analysis_data；(4)将comparison_result序列化为JSON字符串注入$comparison_data；(5)生成用户画像摘要注入$user_profile_summary；(6)返回完整Prompt字符串。如果prompt_manager为None，降级为直接读取prompts/generator.txt文件。",
+        "priority": "P0",
+        "acceptance_condition": "build_generation_prompt()正确组装完整Prompt；prompt_manager为None时降级读取文件"
+      },
+      {
+        "id": "FR-011",
+        "description": "PersonalizationService辅助方法：get_education_adaptation(education_level)返回学历适配Prompt片段；get_term_density_target(knowledge_level)返回术语密度目标float；get_style_guide(preferred_style)返回写作风格指南字符串；get_field_emphasis(research_field)返回领域侧重字符串。所有方法对未知枚举值返回合理默认值。",
+        "priority": "P1",
+        "acceptance_condition": "4个辅助方法返回正确类型；未知枚举值有默认值"
+      },
+      {
+        "id": "FR-012",
+        "description": "PersonalizationService内部标签方法：_education_label(level)返回中文标签（undergraduate→本科/master→硕士/phd→博士/faculty→教师）；_knowledge_label(level)返回中文标签（beginner→入门/intermediate→中级/advanced→进阶/expert→专家）；_style_label(style)返回中文标签（simple→通俗/balanced→均衡/technical→专业）。未知值返回'未知'。",
+        "priority": "P2",
+        "acceptance_condition": "3个标签方法返回正确中文标签"
+      },
+      {
+        "id": "FR-013",
+        "description": "PersonalizationService构造函数接受可选的prompt_manager参数。如果提供prompt_manager，build_generation_prompt()使用它加载模板；如果为None，build_generation_prompt()降级为直接读取prompts/generator.txt文件。构造函数不抛出异常。",
+        "priority": "P1",
+        "acceptance_condition": "prompt_manager=None时build_generation_prompt()仍能正常工作"
+      },
+      {
+        "id": "FR-014",
+        "description": "user_profile参数支持snake_case和camelCase两种键名。PersonalizationService内部统一使用snake_case（education_level/knowledge_level/preferred_style/research_field），但需兼容camelCase输入（educationLevel/knowledgeLevel/preferredStyle/researchField）。通过内部_normalize_profile()方法处理。",
+        "priority": "P1",
+        "acceptance_condition": "传入camelCase键名的user_profile时方法仍正常工作"
+      },
+      {
+        "id": "FR-015",
+        "description": "模板变量语法必须与PromptManager兼容。当前PromptManager使用string.Template（$variable或${variable}语法）。generator.txt的4个变量名为：personalization、analysis_data、comparison_data、user_profile_summary。变量名不含前缀$，由PromptManager.safe_substitute()自动处理。",
+        "priority": "P0",
+        "acceptance_condition": "prompt_manager.get_prompt('generator', personalization=..., analysis_data=..., comparison_data=..., user_profile_summary=...)正确渲染"
+      },
+      {
+        "id": "FR-016",
+        "description": "AI内容声明。generator.txt的Constraint Block要求综述末尾标注'AI生成，仅供参考'。Output Schema的report字段末尾必须包含此声明。PersonalizationService不负责AI声明，声明由Prompt模板约束。",
+        "priority": "P1",
+        "acceptance_condition": "Prompt含AI声明指令；输出Schema要求report末尾含AI声明"
+      }
+    ],
+    "degradation_requirements": {
+      "personalization_service_failure": {
+        "trigger": "PersonalizationService.get_personalization_block()抛出异常",
+        "behavior": "GeneratorAgent应捕获异常，$personalization注入空字符串，使用默认（balanced/intermediate/master）配置继续生成",
+        "fallback_level": "agent"
+      },
+      "prompt_manager_unavailable": {
+        "trigger": "PersonalizationService构造时prompt_manager=None",
+        "behavior": "build_generation_prompt()降级为直接读取prompts/generator.txt文件并使用string.Template渲染",
+        "fallback_level": "service"
+      },
+      "unknown_profile_values": {
+        "trigger": "user_profile包含未定义的枚举值（如education_level='postdoc'）",
+        "behavior": "使用默认值（education_level→master, knowledge_level→intermediate, preferred_style→balanced, research_field→空字符串），不抛出异常",
+        "fallback_level": "method"
+      }
+    },
+    "security_requirements": [
+      {
+        "id": "SR-001",
+        "description": "PersonalizationService不记录或存储用户画像数据到日志中。logger仅记录方法调用和异常，不记录user_profile内容。",
+        "priority": "P1"
+      },
+      {
+        "id": "SR-002",
+        "description": "Prompt模板中不硬编码任何API Key、密码或敏感配置。",
+        "priority": "P0"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "config_key": "UPPER_SNAKE_CASE"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "PersonalizationService位于services层，不直接调用Agent层。Agent层通过构造函数注入PersonalizationService。Prompt模板独立于代码，不依赖Python模块。"
+      }
+    },
+    "template_syntax": {
+      "rule": "generator.txt必须使用string.Template语法（$variable），禁止使用Jinja2语法（{{variable}}）。变量名必须与PromptManager.get_prompt()调用时的kwargs键名完全匹配。",
+      "variable_names": ["personalization", "analysis_data", "comparison_data", "user_profile_summary"]
+    },
+    "field_naming": {
+      "rule": "Python/JSON统一使用snake_case。user_profile参数兼容camelCase（通过内部_normalize_profile()转换）。Prompt模板中JSON Schema字段名使用snake_case。",
+      "mappings": [
+        {"python": "education_level", "json_alias": "educationLevel"},
+        {"python": "research_field", "json_alias": "researchField"},
+        {"python": "knowledge_level", "json_alias": "knowledgeLevel"},
+        {"python": "preferred_style", "json_alias": "preferredStyle"}
+      ]
+    },
+    "error_handling": {
+      "python": {
+        "approach": "PersonalizationService所有公共方法不抛出异常，未知枚举值使用默认值。build_generation_prompt()在prompt_manager不可用时降级为文件读取。Agent层负责捕获PersonalizationService异常并降级。",
+        "logging": "使用loguru.logger记录warning级别异常信息，不记录user_profile内容"
+      }
+    },
+    "no_comments": {
+      "rule": "代码中不添加任何注释，除非明确要求。Prompt模板中的区块标题注释（# ===）除外，因为它们是模板结构的一部分。"
+    }
+  },
+  "forbidden_actions": [
+    {
+      "id": "FA-001",
+      "action": "在generator.txt中使用Jinja2语法（{{variable}}）替代string.Template语法（$variable）",
+      "reason": "PromptManager当前使用string.Template，必须保持语法一致",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-002",
+      "action": "修改prompt_manager.py的模板渲染逻辑",
+      "reason": "本任务不修改PromptManager，仅修改generator.txt和创建personalization_service.py",
+      "severity": "high"
+    },
+    {
+      "id": "FA-003",
+      "action": "修改analyzer.py或其他Agent文件",
+      "reason": "本任务仅创建PersonalizationService和升级generator.txt，Agent集成在后续任务完成",
+      "severity": "high"
+    },
+    {
+      "id": "FA-004",
+      "action": "在Prompt模板或PersonalizationService中硬编码API Key或密码",
+      "reason": "安全约束，不可含密钥",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-005",
+      "action": "PersonalizationService公共方法抛出异常（如KeyError/ValueError）",
+      "reason": "所有公共方法必须对未知输入优雅降级，不抛出异常",
+      "severity": "high"
+    },
+    {
+      "id": "FA-006",
+      "action": "在日志中记录user_profile的完整内容",
+      "reason": "用户画像包含个人信息，不应完整记录到日志",
+      "severity": "high"
+    },
+    {
+      "id": "FA-007",
+      "action": "generator.txt的模板变量名与PromptManager.get_prompt()调用时的kwargs键名不一致",
+      "reason": "变量名必须严格匹配，否则运行时渲染失败",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-008",
+      "action": "PersonalizationService直接导入或调用Agent层代码",
+      "reason": "分层约束：services层不依赖agents层",
+      "severity": "high"
+    }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_generator_prompt_structure",
+        "description": "测试generator.txt包含全部8个必要区块（Role/Task/Input/Personalization/CoT/Output/Constraint/Fallback）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_generator_prompt_variable_rendering",
+        "description": "测试使用string.Template渲染generator.txt：personalization/analysis_data/comparison_data/user_profile_summary正确替换",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_generator_prompt_empty_personalization",
+        "description": "测试$personalization为空字符串时模板正确渲染（不产生多余空白行）",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_generator_prompt_json_schema",
+        "description": "测试generator.txt中JSON Schema包含report/citation_list/term_density_actual/personalization_applied四个字段",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_generator_prompt_cot_steps",
+        "description": "测试generator.txt包含4步CoT推理链（Outline/Draft/Personalize/Self-Check）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_personalization_service_get_personalization_block",
+        "description": "测试PersonalizationService.get_personalization_block()根据不同user_profile生成正确的个性化片段",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_personalization_service_get_extra_instruction",
+        "description": "测试PersonalizationService.get_extra_instruction()为analyzer/generator生成不同的额外指令",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_personalization_service_build_generation_prompt",
+        "description": "测试PersonalizationService.build_generation_prompt()正确组装完整Prompt",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_personalization_service_unknown_enum_defaults",
+        "description": "测试PersonalizationService对未知枚举值（如education_level='postdoc'）使用默认值不抛出异常",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_personalization_service_camelcase_input",
+        "description": "测试PersonalizationService接受camelCase键名的user_profile（educationLevel等）并正确处理",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_personalization_service_no_prompt_manager",
+        "description": "测试PersonalizationService在prompt_manager=None时build_generation_prompt()降级为文件读取",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "test_personalization_service_helper_methods",
+        "description": "测试get_education_adaptation/get_term_density_target/get_style_guide/get_field_emphasis返回正确值",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_personalization_service_label_methods",
+        "description": "测试_education_label/_knowledge_label/_style_label返回正确中文标签",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_generator_prompt_manager_integration",
+        "description": "集成测试：通过PromptManager.get_prompt('generator', personalization=..., analysis_data=..., comparison_data=..., user_profile_summary=...)验证模板正确渲染",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_personalization_service.py -v",
+        "expected_result": "所有PersonalizationService测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"import string; t=open('prompts/generator.txt').read(); s=string.Template(t).substitute(personalization='test',analysis_data='[]',comparison_data='',user_profile_summary='test'); print('Render OK, length:', len(s))\"",
+        "expected_result": "输出 Render OK, length: NNNN"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_prompt_manager.py -v -k \"generator\"",
+        "expected_result": "generator相关测试全部通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "generator.txt包含8个完整区块：Role/Task/Input/Personalization/CoT/Output/Constraint/Fallback",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "generator.txt包含4步CoT推理链（Outline→Draft→Personalize→Self-Check）",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "generator.txt的JSON Schema包含report/citation_list/term_density_actual/personalization_applied四个字段",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "4个模板变量（$personalization/$analysis_data/$comparison_data/$user_profile_summary）与PromptManager调用参数对齐",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "使用string.Template语法（$variable），兼容已有PromptManager",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "$personalization为空时模板正确渲染不产生多余内容",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "PersonalizationService包含5个映射表（DIFFICULTY_MAP/STYLE_MAP/EDUCATION_ADAPTATION/FIELD_EMPHASIS/TERM_DENSITY_TARGET）且枚举值完整",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "PersonalizationService.get_personalization_block()根据4维度画像生成结构化个性化Prompt片段",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "PersonalizationService.get_extra_instruction()接口与AnalyzerAgent._get_extra_instruction()调用方式对齐",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-010",
+      "criterion": "PersonalizationService.build_generation_prompt()正确组装完整Prompt，prompt_manager=None时降级为文件读取",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-011",
+      "criterion": "PersonalizationService所有公共方法对未知枚举值使用默认值，不抛出异常",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-012",
+      "criterion": "PersonalizationService兼容camelCase键名的user_profile输入",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-013",
+      "criterion": "Prompt和代码中不含硬编码密钥/密码",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-014",
+      "criterion": "所有相关pytest测试通过",
+      "verified_by": "automated_test"
+    }
+  ]
+}

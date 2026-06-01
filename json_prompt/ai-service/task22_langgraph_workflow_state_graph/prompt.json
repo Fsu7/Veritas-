@@ -1,0 +1,443 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "实现LangGraph工作流编排核心：定义WorkflowState TypedDict + 构建基础StateGraph图，将已有的RetrieverAgent、AnalyzerAgent、GeneratorAgent三个Agent编排为'检索→分析→生成'的线性工作流。graph.py是6-Agent协同引擎的核心骨架，当前M2阶段先实现3-Agent线性流程，M4阶段再扩展为6-Agent含条件分支的完整工作流。",
+    "requirement_ids": ["F3.1.7"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "5.5节LangGraph工作流定义，WorkflowState字段定义，条件分支设计，降级策略"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "4.3节AM2 Week4 Day6-7任务分解：WorkflowState定义 + LangGraph基础图"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-002多智能体协同编排，ADR-003 LLM三级降级"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "3.2节LangGraph工作流，3.3节降级策略，AgentState TypedDict定义"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents",
+        "description": "Agent模块，包含BaseAgent基类和3个已实现的Agent"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/base.py",
+        "description": "Agent基类：AgentStatus枚举、AgentState数据类、BaseAgent抽象基类(execute/_run/build_prompt)"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/retriever.py",
+        "description": "检索Agent：LLM生成搜索策略→hybrid_search→可选rerank→返回TopK论文"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/analyzer.py",
+        "description": "分析Agent：逐篇论文LLM 5维度提取，含规则降级、个性化指令注入"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/generator.py",
+        "description": "生成Agent：个性化综述生成，含术语密度计算、引用提取、报告结构验证"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/llm_service.py",
+        "description": "LLM三级降级服务：Builtin→API→Local，含自动降级和恢复"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/search_service.py",
+        "description": "搜索服务：语义搜索、关键词搜索、RRF融合混合搜索"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/prompt_manager.py",
+        "description": "Prompt模板管理：从prompts/目录加载.txt模板，string.Template变量替换"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/models/schemas.py",
+        "description": "Pydantic请求/响应模型，AnalyzeRequest、AnalyzeResponse等"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/models/enums.py",
+        "description": "枚举定义：AgentName、AgentStatus、AnalysisType等"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/core/events.py",
+        "description": "AppState全局状态管理，on_startup/on_shutdown生命周期"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent基类：AgentStatus(WAITING/RUNNING/COMPLETED/FAILED)、AgentState(name/status/started_at/completed_at/duration_ms/progress/intermediate_result/error)、execute()含30s超时控制、_fallback_result()降级返回",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/retriever.py",
+        "description": "RetrieverAgent：execute()接收input_data和context，调用hybrid_search返回papers列表",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/analyzer.py",
+        "description": "AnalyzerAgent：execute()接收papers列表，逐篇LLM 5维度提取，返回analysis_results",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/generator.py",
+        "description": "GeneratorAgent：execute()接收analysis_results和user_profile，生成个性化综述",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/tools.py",
+        "description": "Agent工具注册表：vector_search_tool/keyword_search_tool/hybrid_search_tool/rerank_tool",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/events.py",
+        "description": "AppState全局状态：embedding_service/vector_store_service/llm_service/prompt_manager/search_service/reranker",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/models/schemas.py",
+        "description": "AnalyzeRequest(topic/paper_ids/user_profile/analysis_type/analysis_id)、AnalyzeResponse、AgentStateResponse",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/models/enums.py",
+        "description": "AgentName枚举(COORDINATOR/RETRIEVER/ANALYZER/COMPARER/GENERATOR/REVIEWER)",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "agents/graph.py（待创建）",
+      "path": "Veritas/ai-service/app/agents/graph.py",
+      "responsibility": "LangGraph工作流编排核心：WorkflowState定义、节点函数、条件边、图构建与编译",
+      "key_interfaces": [
+        {
+          "name": "WorkflowState",
+          "signature": "class WorkflowState(TypedDict)",
+          "description": "LangGraph工作流状态定义，包含输入/中间状态/最终输出/错误处理字段"
+        },
+        {
+          "name": "retrieve_node",
+          "signature": "async def retrieve_node(state: WorkflowState) -> dict",
+          "description": "检索节点：调用RetrieverAgent，更新search_results和agent_states"
+        },
+        {
+          "name": "analyze_node",
+          "signature": "async def analyze_node(state: WorkflowState) -> dict",
+          "description": "分析节点：调用AnalyzerAgent，更新analysis_results和agent_states"
+        },
+        {
+          "name": "generate_node",
+          "signature": "async def generate_node(state: WorkflowState) -> dict",
+          "description": "生成节点：调用GeneratorAgent，更新report/citations和agent_states"
+        },
+        {
+          "name": "build_agent_graph",
+          "signature": "def build_agent_graph(agent_instances: dict) -> CompiledGraph",
+          "description": "构建并编译LangGraph StateGraph，返回可执行的CompiledGraph"
+        },
+        {
+          "name": "run_workflow",
+          "signature": "async def run_workflow(request: AnalyzeRequest, agent_instances: dict) -> dict",
+          "description": "运行完整工作流的入口函数，接收请求返回结果"
+        }
+      ]
+    },
+    {
+      "name": "agents/base.py",
+      "path": "Veritas/ai-service/app/agents/base.py",
+      "responsibility": "Agent基类：状态管理、超时控制、降级返回",
+      "key_interfaces": [
+        {
+          "name": "BaseAgent.execute",
+          "signature": "async def execute(self, input_data: dict, context: dict) -> dict",
+          "description": "Agent执行入口，含30s超时控制，异常时调用_fallback_result()"
+        },
+        {
+          "name": "AgentState",
+          "signature": "@dataclass class AgentState",
+          "description": "Agent运行状态数据类：name/status/started_at/completed_at/duration_ms/progress/intermediate_result/error"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/agents/graph.py",
+      "description": "LangGraph工作流核心文件：WorkflowState TypedDict定义 + 3个节点函数(retrieve_node/analyze_node/generate_node) + build_agent_graph()图构建 + run_workflow()入口函数 + 降级逻辑",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/__init__.py",
+      "description": "新增导出：WorkflowState、build_agent_graph、run_workflow",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "定义WorkflowState TypedDict，包含以下字段：\n- 输入字段：query(str)、user_profile(Dict[str,Any])、analysis_type(str)、analysis_id(str)\n- 中间状态：sub_tasks(List[str])、search_results(List[Dict])、analysis_results(List[Dict])、compare_result(Optional[Dict])、report(Optional[str])、review_result(Optional[Dict])、citations(List[Dict])\n- 最终输出：final_output(Optional[str])\n- Agent状态追踪：agent_states(Dict[str,Dict])，key为Agent名称，value为AgentState字典\n- 错误处理：errors(List[Dict])、degraded(bool)、regenerate_count(int，默认0)\n- 元数据：started_at(Optional[str])、completed_at(Optional[str])",
+        "priority": "P0",
+        "acceptance_condition": "WorkflowState所有字段定义完整，类型注解正确，与AGENTS.md 3.2节AgentState TypedDict一致"
+      },
+      {
+        "id": "FR-002",
+        "description": "实现retrieve_node异步函数：\n1. 从state中提取query和user_profile\n2. 调用retriever_agent.execute(input_data={'query':query,'top_k':10}, context={'user_profile':user_profile})\n3. 将返回的papers列表更新到state['search_results']\n4. 更新state['agent_states']['retriever']为retriever_agent.state的字典形式\n5. 异常时：state['errors'].append({'agent':'retriever','error':str(e)})，search_results设为空列表，degraded设为True",
+        "priority": "P0",
+        "acceptance_condition": "retrieve_node正确调用RetrieverAgent，更新search_results和agent_states，异常不阻塞"
+      },
+      {
+        "id": "FR-003",
+        "description": "实现analyze_node异步函数：\n1. 从state中提取search_results和user_profile\n2. 调用analyzer_agent.execute(input_data={'papers':search_results}, context={'user_profile':user_profile})\n3. 将返回的analysis_results更新到state['analysis_results']\n4. 更新state['agent_states']['analyzer']为analyzer_agent.state的字典形式\n5. 异常时：state['errors'].append({'agent':'analyzer','error':str(e)})，analysis_results设为空列表，degraded设为True",
+        "priority": "P0",
+        "acceptance_condition": "analyze_node正确调用AnalyzerAgent，更新analysis_results和agent_states，异常不阻塞"
+      },
+      {
+        "id": "FR-004",
+        "description": "实现generate_node异步函数：\n1. 从state中提取analysis_results、compare_result和user_profile\n2. 调用generator_agent.execute(input_data={'analysis_results':analysis_results,'compare_result':compare_result}, context={'user_profile':user_profile})\n3. 将返回的report更新到state['report']，citations更新到state['citations']\n4. 更新state['agent_states']['generator']为generator_agent.state的字典形式\n5. 异常时：state['errors'].append({'agent':'generator','error':str(e)})，report设为降级报告字符串，degraded设为True",
+        "priority": "P0",
+        "acceptance_condition": "generate_node正确调用GeneratorAgent，更新report/citations和agent_states，异常时生成降级报告"
+      },
+      {
+        "id": "FR-005",
+        "description": "实现build_agent_graph函数：\n1. 创建StateGraph(WorkflowState)\n2. 添加3个节点：retrieve、analyze、generate\n3. 设置入口点为retrieve\n4. 添加线性边：retrieve→analyze→generate→END\n5. 编译图并返回CompiledGraph\n注意：M2阶段为3-Agent线性流程，M4阶段再添加coordinator/compare/review节点和条件边",
+        "priority": "P0",
+        "acceptance_condition": "build_agent_graph返回可执行的CompiledGraph，3个节点线性连接，入口点正确"
+      },
+      {
+        "id": "FR-006",
+        "description": "实现run_workflow入口函数：\n1. 接收AnalyzeRequest和agent_instances字典\n2. 构建初始WorkflowState（从request提取query/user_profile/analysis_type/analysis_id，其余字段设为默认值）\n3. 调用build_agent_graph构建图\n4. 使用asyncio.wait_for执行图，超时120秒（AGENT_FULL_TIMEOUT）\n5. 返回结果字典，包含：analysis_id、status(completed/failed/degraded)、report、citations、agent_states、errors、degraded、started_at、completed_at\n6. 超时时返回降级结果\n7. 异常时返回错误结果",
+        "priority": "P0",
+        "acceptance_condition": "run_workflow端到端执行成功，超时和异常有降级处理，返回格式符合AnalyzeResponse"
+      },
+      {
+        "id": "FR-007",
+        "description": "实现Agent级降级逻辑：\n1. 每个节点函数内部用try-except包裹Agent调用\n2. 单Agent失败时：记录错误到state['errors']，跳过该Agent继续后续流程\n3. 检索Agent失败：search_results=[]，后续分析/生成基于空数据\n4. 分析Agent失败：analysis_results=[]，生成Agent基于空分析结果生成降级报告\n5. 生成Agent失败：report设为降级提示文本\n6. 降级时state['degraded']=True",
+        "priority": "P0",
+        "acceptance_condition": "单Agent失败不阻塞后续Agent执行，降级结果包含错误信息"
+      },
+      {
+        "id": "FR-008",
+        "description": "实现工作流级降级逻辑（在run_workflow中）：\n1. 统计errors列表中失败的Agent数量\n2. 如果3个Agent中2个以上失败，标记为严重降级\n3. 在返回结果中标注degraded=True和degraded_reason\n4. 全流程超时120秒时返回部分结果",
+        "priority": "P1",
+        "acceptance_condition": "多Agent失败时返回降级结果而非异常，degraded_reason描述清楚"
+      },
+      {
+        "id": "FR-009",
+        "description": "节点函数中更新agent_states时，将AgentState dataclass转换为字典格式：\n{'status':agent.state.status.value, 'started_at':agent.state.started_at.isoformat() if agent.state.started_at else None, 'completed_at':..., 'duration_ms':agent.state.duration_ms, 'progress':agent.state.progress, 'intermediate_result':agent.state.intermediate_result, 'error':agent.state.error}",
+        "priority": "P0",
+        "acceptance_condition": "agent_states字典格式正确，所有字段可JSON序列化"
+      }
+    ],
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          {"priority": 1, "name": "BuiltinLLMProvider", "description": "软件方云端模型，最高优先级"},
+          {"priority": 2, "name": "APILLMProvider", "description": "外接API（阿里云百炼等），中等优先级"},
+          {"priority": 3, "name": "LocalLLMProvider", "description": "本地Qwen2模型，最低优先级兜底"}
+        ],
+        "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "单Agent超时30s跳过，记录错误到state['errors']，继续后续流程，state['degraded']=True",
+        "multi_agent_failure": "2个以上Agent失败时标记严重降级，返回部分结果+降级说明",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "WorkflowState中不存储API Key等敏感信息，user_profile仅保留画像维度字段"
+      },
+      {
+        "category": "other",
+        "requirement": "生成内容末尾标注'AI生成，仅供参考'（GeneratorAgent已内置AI_DISCLAIMER）"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        {"java": "educationLevel", "python": "education_level", "json": "education_level"},
+        {"java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level"},
+        {"java": "preferredStyle", "python": "preferred_style", "json": "preferred_style"},
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"}
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中。graph.py属于Agent层，被API层调用"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent。节点函数内catch异常后更新state['errors']并return部分state",
+        "agent_error_handling": "state['errors'].append({'agent': agent_name, 'error': str(e)})，return更新后的state"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min"}
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息（密码、Token、API Key）"]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci"
+    },
+    "security": {
+      "ai_content_label": "AI生成，仅供参考"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（如修改retriever.py/analyzer.py/generator.py的内部逻辑）", "reason": "避免引入无关变更，仅创建graph.py和修改__init__.py", "severity": "high"},
+    {"id": "FA-003", "action": "在graph.py中实现Coordinator/Comparer/Reviewer Agent逻辑", "reason": "M2阶段仅实现3-Agent线性流程，M4阶段再添加", "severity": "high"},
+    {"id": "FA-004", "action": "硬编码Agent实例或服务依赖", "reason": "Agent实例通过build_agent_graph参数注入，不硬编码", "severity": "high"},
+    {"id": "FA-005", "action": "忽略降级场景（Agent失败/超时时的处理）", "reason": "可用性约束ADR-003，每个节点必须有try-except降级", "severity": "critical"},
+    {"id": "FA-006", "action": "违反跨系统字段命名约定（混用camelCase和snake_case）", "reason": "Python内部统一snake_case", "severity": "high"},
+    {"id": "FA-007", "action": "在WorkflowState中存储敏感信息（API Key/密码等）", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-008", "action": "节点函数中直接raise异常中断工作流", "reason": "Agent异常不阻塞后续Agent，应记录错误并继续", "severity": "critical"},
+    {"id": "FA-009", "action": "使用同步调用阻塞事件循环", "reason": "所有Agent调用必须使用async/await", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_workflow_state_fields",
+        "description": "验证WorkflowState TypedDict所有字段定义完整，类型注解正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_retrieve_node_success",
+        "description": "测试retrieve_node正常流程：mock RetrieverAgent返回papers列表，验证state更新正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_retrieve_node_failure",
+        "description": "测试retrieve_node异常流程：mock RetrieverAgent抛异常，验证errors记录、degraded标记、search_results为空",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_analyze_node_success",
+        "description": "测试analyze_node正常流程：mock AnalyzerAgent返回5维度分析结果",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_analyze_node_failure",
+        "description": "测试analyze_node异常流程：验证降级处理",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_generate_node_success",
+        "description": "测试generate_node正常流程：mock GeneratorAgent返回综述和引用",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_generate_node_failure",
+        "description": "测试generate_node异常流程：验证降级报告生成",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_build_agent_graph",
+        "description": "测试build_agent_graph返回CompiledGraph，节点和边正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_run_workflow_end_to_end",
+        "description": "测试run_workflow端到端：mock 3个Agent，验证完整流程返回正确结果",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_run_workflow_timeout",
+        "description": "测试run_workflow超时：mock慢速Agent，验证120s超时后返回降级结果",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation", "boundary_condition"]
+      },
+      {
+        "test_name": "test_run_workflow_multi_agent_failure",
+        "description": "测试多Agent失败降级：mock 2个Agent失败，验证严重降级标记",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_agent_state_serialization",
+        "description": "测试AgentState dataclass转字典格式正确，所有字段可JSON序列化",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python3 -m pytest tests/test_graph.py -v",
+        "expected_result": "所有测试通过，无失败"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python3 -c \"from app.agents.graph import WorkflowState, build_agent_graph, run_workflow; print('Import OK')\"",
+        "expected_result": "输出Import OK，无导入错误"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "WorkflowState TypedDict定义完整，包含输入/中间状态/输出/错误处理/元数据5类字段", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "3个节点函数(retrieve_node/analyze_node/generate_node)正确调用对应Agent并更新state", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "build_agent_graph构建3-Agent线性流程图，入口点为retrieve，终点为END", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "run_workflow端到端执行成功，返回包含report/agent_states/errors的结果字典", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "单Agent失败时错误记录到errors列表，不阻塞后续Agent，degraded=True", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "全流程超时120秒时返回降级结果而非异常", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "agent_states字典格式正确，所有字段可JSON序列化", "verified_by": "automated_test"},
+    {"id": "AC-008", "criterion": "代码符合Python编码规范（snake_case命名、4空格缩进、完整imports）", "verified_by": "code_review"},
+    {"id": "AC-009", "criterion": "未修改retriever.py/analyzer.py/generator.py的内部逻辑", "verified_by": "code_review"},
+    {"id": "AC-010", "criterion": "__init__.py正确导出WorkflowState、build_agent_graph、run_workflow", "verified_by": "automated_test"}
+  ]
+}

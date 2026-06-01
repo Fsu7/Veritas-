@@ -1,0 +1,373 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "编写 AnalyzerAgent 的完整单元测试，验证5维度提取质量、JSON解析鲁棒性、LLM降级路径、confidence计算正确性。产出 tests/test_analyzer_agent.py，使用 pytest + pytest-asyncio + unittest.mock。测试必须覆盖正常流程、异常流程（LLM失败/超时/JSON格式异常）、边界条件（空papers/缺失维度/confidence越界）、降级场景（单篇失败继续/全部失败降级）。同时优化 validate_dimensions 和 parse_analysis_result 的质量逻辑确保所有测试通过。",
+    "requirement_ids": ["F3.1.3"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "Section 5.4.3 AnalyzerAgent — 类设计、5维度定义、_run/_parse_analysis/_validate接口"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/analyzer.py",
+        "purpose": "task17产出的AnalyzerAgent — 需测试的核心代码，包含所有方法的完整实现"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/base.py",
+        "purpose": "BaseAgent基类 — AgentStatus枚举、AgentState数据类、降级返回格式"
+      },
+      {
+        "path": "Veritas/ai-service/tests/test_retriever_agent.py",
+        "purpose": "已有RetrieverAgent测试 — 参考测试风格、mock模式、fixture设计、测试类组织方式"
+      },
+      {
+        "path": "Veritas/ai-service/tests/conftest.py",
+        "purpose": "已有测试fixtures — 参考pytest_asyncio.fixture用法"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/analyzer.py",
+        "description": "AnalyzerAgent（task17产出）— 包含build_prompt/_run/_parse_analysis_result/_validate_dimensions/_rule_based_extraction/build_analysis_prompt/_get_extra_instruction"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/base.py",
+        "description": "BaseAgent — 提供AgentStatus枚举（WAITING/RUNNING/COMPLETED/FAILED）、AgentState、降级返回格式{degraded:True}"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "tests/test_retriever_agent.py",
+        "description": "RetrieverAgent测试 — 参考测试风格、mock模式、_make_mock_services()辅助函数"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/tests/test_retriever_agent.py",
+        "description": "135行RetrieverAgent测试 — 参考测试组织方式：按功能分TestClass、_make_mock_services()构造mock、使用AsyncMock模拟LLM/Service、覆盖正常/异常/降级/边界",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/tests/conftest.py",
+        "description": "已有pytest fixtures — embedding_service/vector_store_service",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "tests/test_analyzer_agent.py（待创建）",
+      "path": "Veritas/ai-service/tests/test_analyzer_agent.py",
+      "responsibility": "AnalyzerAgent的完整单元测试套件。覆盖正常分析流程、JSON解析鲁棒性、降级路径、维度验证、confidence计算。",
+      "key_interfaces": [
+        {
+          "name": "_make_mock_services",
+          "signature": "def _make_mock_services() -> tuple",
+          "description": "构造mock服务的辅助函数。返回(llm_service, prompt_manager)，llm_service为AsyncMock，prompt_manager为MagicMock"
+        },
+        {
+          "name": "SAMPLE_PAPERS",
+          "signature": "list[dict]",
+          "description": "测试用论文数据常量，至少3篇包含title/abstract/paper_id字段"
+        },
+        {
+          "name": "VALID_ANALYSIS_JSON",
+          "signature": "str",
+          "description": "标准LLM输出的完整5维度JSON字符串（含snake_case字段、嵌套{summary/confidence/references}结构）"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_analyzer_agent.py",
+      "description": "AnalyzerAgent完整单元测试文件，覆盖15+个测试用例：正常流程、JSON解析、降级、维度验证、confidence计算",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "创建测试辅助函数_make_mock_services()。返回(llm_service, prompt_manager)。llm_service = AsyncMock()，默认generate返回VALID_ANALYSIS_JSON。prompt_manager = MagicMock()，get_prompt返回'analyzer prompt template'。遵循test_retriever_agent.py的相同模式。",
+        "priority": "P0",
+        "acceptance_condition": "mock服务可正常构造和使用；AsyncMock用于异步方法"
+      },
+      {
+        "id": "FR-002",
+        "description": "定义测试常量：(1)SAMPLE_PAPERS — 3篇论文数据，每篇含paper_id/title/abstract；(2)VALID_ANALYSIS_JSON — 标准5维度JSON字符串（snake_case字段名，含summary/confidence/references默认值）；(3)PARTIAL_ANALYSIS_JSON — 缺失limitations维度的JSON（用于测试_validate_dimensions补全）；(4)MALFORMED_OUTPUT — 完全无效的LLM输出（自然语言文本）用于测试降级路径。",
+        "priority": "P0",
+        "acceptance_condition": "常量定义完整；VALID_ANALYSIS_JSON可被json.loads解析"
+      },
+      {
+        "id": "FR-003",
+        "description": "TestAnalyzerAgentInit — 测试类：(1)test_inherits_base_agent: 验证isinstance(agent, BaseAgent)；(2)test_name_is_analyzer: 验证agent.name=='analyzer'；(3)test_default_timeout: 验证agent.timeout >= 0。",
+        "priority": "P0",
+        "acceptance_condition": "3个测试通过"
+      },
+      {
+        "id": "FR-004",
+        "description": "TestBuildPrompt — 测试类：(1)test_build_prompt_calls_prompt_manager: 验证build_prompt({}, {})调用prompt_manager.get_prompt；(2)test_build_prompt_with_user_profile: 验证传入user_profile时extra_instruction非空。",
+        "priority": "P0",
+        "acceptance_condition": "prompt_manager.get_prompt被正确调用"
+      },
+      {
+        "id": "FR-005",
+        "description": "TestGetExtraInstruction — 测试类：(1)test_beginner: knowledge_level='beginner'返回含'通俗解释'的指令；(2)test_intermediate: knowledge_level='intermediate'返回含'方法对比'的指令；(3)test_advanced: knowledge_level='advanced'返回含'研究空白'的指令；(4)test_expert: knowledge_level='expert'返回含'前沿洞察'的指令；(5)test_none_profile: user_profile=None返回空字符串；(6)test_no_knowledge_level: user_profile无knowledge_level键返回空字符串。",
+        "priority": "P1",
+        "acceptance_condition": "6个测试通过，不同knowledge_level返回不同指令"
+      },
+      {
+        "id": "FR-006",
+        "description": "TestRunSuccessFlow — 测试类：(1)test_run_with_3_papers: 3篇论文输入→3条分析结果，extraction_quality正确计算；(2)test_run_progress_updates: 验证分析过程中state.progress从>0变化到1.0；(3)test_run_result_structure: 验证每条分析结果含5维度+analysis_id+paper_id+ai_disclaimer。",
+        "priority": "P0",
+        "acceptance_condition": "正常流程测试通过；analysis_results长度匹配输入"
+      },
+      {
+        "id": "FR-007",
+        "description": "TestRunDegradation — 测试类：(1)test_single_paper_llm_failure_continues: 第2篇LLM抛异常→该篇降级（extraction_quality=0.1），第1/3篇正常。验证第2篇走_rule_based_extraction；(2)test_all_papers_llm_failure: 全部LLM失败→所有分析结果含降级标记，extraction_quality=0.1；(3)test_run_with_empty_papers: papers=[]输入→返回空analysis_results，analyzed_count=0。",
+        "priority": "P0",
+        "acceptance_condition": "降级场景测试通过，不抛异常"
+      },
+      {
+        "id": "FR-008",
+        "description": "TestParseAnalysisResult — 测试类：(1)test_parse_valid_json: 标准JSON正确解析为5维度dict；(2)test_parse_json_with_code_block: ```json```包裹的JSON正确解析；(3)test_parse_json_with_plain_code_block: ```代码块```包裹的JSON正确解析；(4)test_parse_malformed_output: 无效输出走rule_based_extraction降级路径；(5)test_parse_empty_string: 空字符串走降级路径。每个测试验证解析结果含5个维度key。",
+        "priority": "P0",
+        "acceptance_condition": "5个JSON解析测试通过；无效JSON不抛异常而是降级"
+      },
+      {
+        "id": "FR-009",
+        "description": "TestValidateDimensions — 测试类：(1)test_missing_dimension_filled: 输入缺limitations的分析→验证补全后含5维度；(2)test_confidence_clamped_high: confidence=1.5→clamp到1.0；(3)test_confidence_clamped_low: confidence=-0.5→clamp到0.0；(4)test_confidence_none: confidence=None→设为0.3；(5)test_adds_disclaimer: 验证输出含ai_disclaimer字段。",
+        "priority": "P0",
+        "acceptance_condition": "5个验证测试通过；clamp逻辑正确"
+      },
+      {
+        "id": "FR-010",
+        "description": "TestRuleBasedExtraction — 测试类：(1)test_returns_all_5_dimensions: 验证返回完整5维度结构；(2)test_all_confidence_03: 验证所有维度confidence=0.3；(3)test_extraction_quality_low: 验证extraction_quality=0.1。",
+        "priority": "P1",
+        "acceptance_condition": "3个规则提取测试通过"
+      },
+      {
+        "id": "FR-011",
+        "description": "TestExecuteIntegration — 测试类：(1)test_execute_normal_flow: 通过BaseAgent.execute()方法调用完整流程（含超时控制/状态管理），验证state.status==COMPLETED，返回结果含analysis_results；(2)test_execute_error_flow: simulate LLM失败，验证state.status==COMPLETED（Agent内部处理异常不抛到execute层），返回结果含degraded标记。",
+        "priority": "P1",
+        "acceptance_condition": "execute流程测试通过；Agent状态正确转换"
+      },
+      {
+        "id": "FR-012",
+        "description": "测试文件顶层使用pytest.mark.asyncio标记异步测试。测试类命名遵循TestXxx格式。测试方法命名遵循test_xxx_your_description格式。每个测试函数结尾包含明确的assert断言。",
+        "priority": "P0",
+        "acceptance_condition": "测试代码风格与test_retriever_agent.py一致"
+      }
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "测试验证单篇LLM失败时AnalyzerAgent不中断整体分析，该论文走_rule_based_extraction降级",
+        "multi_agent_failure": "测试验证全部LLM失败时所有分析结果走降级路径，仍返回完整结构"
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "file_name": "snake_case.py",
+        "test_class": "TestXxx",
+        "test_method": "test_xxx_your_description"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "测试中使用AsyncMock(side_effect=Exception(...))模拟LLM异常，验证AnalyzerAgent的降级路径。不模拟BaseAgent.execute()，而是直接测试AnalyzerAgent的_run和独立方法。"
+      }
+    }
+  },
+  "forbidden_actions": [
+    {
+      "id": "FA-001",
+      "action": "修改analyzer.py/base.py/retriever.py等源代码文件",
+      "reason": "本任务仅新增测试文件，发现源码bug应报告而非直接修改",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-002",
+      "action": "在测试中硬编码具体的时间等待（time.sleep）",
+      "reason": "使用AsyncMock模拟异步行为，不依赖实际耗时",
+      "severity": "high"
+    },
+    {
+      "id": "FA-003",
+      "action": "测试中包含不相关的模块导入（如实际LLM模型、ChromaDB连接）",
+      "reason": "单元测试必须独立，只依赖mock，不触发真实I/O",
+      "severity": "high"
+    },
+    {
+      "id": "FA-004",
+      "action": "跳过降级场景或异常流程的测试覆盖",
+      "reason": "降级和异常处理是核心功能，必须有测试覆盖",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-005",
+      "action": "测试中JSON字段使用camelCase（researchProblem等）",
+      "reason": "跨系统一致性约束，JSON必须snake_case",
+      "severity": "high"
+    }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_inherits_base_agent",
+        "description": "AnalyzerAgent继承BaseAgent，name='analyzer'",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_build_prompt_calls_prompt_manager",
+        "description": "build_prompt正确调用prompt_manager.get_prompt",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_get_extra_instruction_all_levels",
+        "description": "4种knowledge_level + None + 缺失返回不同指令",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_run_with_3_papers_success",
+        "description": "3篇论文→3条分析结果，extraction_quality计算正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_single_paper_llm_failure_continues",
+        "description": "第2篇LLM失败→降级处理，第1/3篇正常",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_all_papers_llm_failure",
+        "description": "全部LLM失败→所有结果走降级路径",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_run_with_empty_papers",
+        "description": "空papers输入→空analysis_results",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_parse_valid_json_and_code_blocks",
+        "description": "纯JSON/```json```/```三种格式正确解析",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_parse_malformed_output_fallback",
+        "description": "无效输出→走rule_based_extraction降级路径",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_validate_missing_dimensions_filled",
+        "description": "缺失维度自动补全confidence=0.3",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_validate_confidence_clamped",
+        "description": "confidence越界→clamp到0-1范围",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_validate_adds_disclaimer",
+        "description": "验证输出含ai_disclaimer",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_rule_based_extraction_format",
+        "description": "规则提取返回完整5维度，confidence=0.3",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_execute_normal_flow_via_base_agent",
+        "description": "通过BaseAgent.execute()验证完整流程+状态管理",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_execute_error_flow_still_returns_result",
+        "description": "execute()中LLM异常→不抛异常，返回含degraded结果",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_analyzer_agent.py -v",
+        "expected_result": "15+个测试全部通过，无skip"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_analyzer_agent.py --tb=short -q",
+        "expected_result": "快速模式全部通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "测试文件包含15+个测试用例，覆盖正常/异常/边界/降级4类场景",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "JSON解析测试覆盖纯JSON/```json```/```/无效输出4种格式",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "降级测试覆盖单篇失败继续+全部失败降级+空输入3种场景",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "维度验证测试覆盖缺失补全+confidence clamp(None/>1/<0)+disclaimer添加",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "_get_extra_instruction测试覆盖全部4种knowledge_level + None + 缺失key",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "测试风格与test_retriever_agent.py一致（类组织、mock模式、命名规范）",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "所有测试不使用实际I/O（无真实LLM调用/ChromaDB连接）",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "所有15+个pytest测试通过（python -m pytest tests/test_analyzer_agent.py -v）",
+      "verified_by": "automated_test"
+    }
+  ]
+}

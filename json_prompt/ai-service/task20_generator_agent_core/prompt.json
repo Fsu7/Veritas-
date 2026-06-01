@@ -1,0 +1,612 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "实现 GeneratorAgent 生成员Agent核心逻辑，产出 agents/generator.py。GeneratorAgent 继承 BaseAgent，是3-Agent基础工作流的第3个Agent（Retriever → Analyzer → Generator）。它接收 AnalyzerAgent 的分析结果（analysis_results）和可选的对比结果（compare_result），通过 PersonalizationService 构建个性化Prompt，调用LLM生成结构化文献综述报告，提取引用列表，计算术语密度，验证报告必含章节。LLM失败时降级为基于模板拼接的简化报告。输出包含 report（Markdown综述）、citation_list（引用列表）、term_density_actual（实际术语密度）、personalization_applied（个性化配置快照）。",
+    "requirement_ids": ["F3.1.5"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "Section 5.4.5 生成员Agent（Generator）— 类设计、_run/build_generation_prompt/extract_citations接口规范、输出Schema定义"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "Section 4 AM2交付物 #7 GeneratorAgent — 验收标准和检查点"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-002 多智能体协同编排 — Agent超时30s、降级机制；ADR-006 个性化引擎 — 用户画像→Prompt个性化片段注入"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "Section 3.1 Agent角色定义 — Generator输入(analysis_results+compare_result)、输出(report个性化综述)；Section 4 个性化引擎4维度映射"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/base.py",
+        "purpose": "已有BaseAgent基类 — execute()/build_prompt()/_run()/_fallback_result()接口，GeneratorAgent需继承"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/analyzer.py",
+        "purpose": "已有AnalyzerAgent实现 — 参考Agent实现模式（构造器注入服务、build_prompt调用prompt_manager、_run核心逻辑、降级处理）"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/retriever.py",
+        "purpose": "已有RetrieverAgent实现 — 参考Agent构造器模式和_run流程"
+      },
+      {
+        "path": "Veritas/ai-service/prompts/generator.txt",
+        "purpose": "已有 generator Prompt模板 — 使用$variable语法（$personalization/$analysis_data/$comparison_data），5章节综述结构"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/llm_service.py",
+        "purpose": "已有LLMService — generate(prompt) -> str接口，GeneratorAgent通过此服务调用LLM生成综述"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "purpose": "已有PromptManager — get_prompt(agent_name, **kwargs) -> str接口，GeneratorAgent通过此服务渲染生成Prompt"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/",
+        "description": "Agent模块目录，已有base.py/retriever.py/analyzer.py/tools.py/__init__.py，需新增generator.py"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/base.py",
+        "description": "BaseAgent抽象基类，提供execute()（超时控制+降级）、_run()（抽象）、build_prompt()（抽象）、_fallback_result()"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/analyzer.py",
+        "description": "AnalyzerAgent（task17产出）— 上游Agent，输出analysis_results供GeneratorAgent消费"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/llm_service.py",
+        "description": "LLM推理服务，GeneratorAgent通过generate(prompt)调用LLM生成综述报告"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/prompt_manager.py",
+        "description": "Prompt模板管理，GeneratorAgent通过get_prompt('generator', **kwargs)渲染生成Prompt"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "prompts/generator.txt",
+        "description": "生成Agent Prompt模板，使用$variable语法，定义5章节综述结构（引言/研究现状/方法对比/研究趋势/参考文献）"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent抽象基类 — execute()含超时控制+降级返回，_run()和build_prompt()为@abstractmethod",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/analyzer.py",
+        "description": "AnalyzerAgent实现 — 参考Agent构造器模式（注入llm_service/prompt_manager/personalization_service），build_prompt调用prompt_manager.get_prompt()，_run含LLM调用+降级+个性化指令",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/retriever.py",
+        "description": "RetrieverAgent实现 — 参考Agent构造器模式和_run流程（progress更新、降级处理）",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/prompts/generator.txt",
+        "description": "生成Prompt模板 — 定义5章节综述结构，$personalization/$analysis_data/$comparison_data变量",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/llm_service.py",
+        "description": "LLMService.generate() — 统一LLM推理接口，含三路降级",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "description": "PromptManager.get_prompt(agent_name, **kwargs) — Prompt模板渲染，使用string.Template.safe_substitute",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/models/schemas.py",
+        "description": "UserProfile Pydantic模型 — education_level/research_field/knowledge_level/preferred_style字段定义",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "agents/generator.py（待创建）",
+      "path": "Veritas/ai-service/app/agents/generator.py",
+      "responsibility": "GeneratorAgent生成员Agent，接收分析结果和可选对比结果，通过PersonalizationService构建个性化Prompt，调用LLM生成结构化文献综述报告，提取引用，计算术语密度，验证章节完整性。",
+      "key_interfaces": [
+        {
+          "name": "GeneratorAgent.__init__",
+          "signature": "def __init__(self, llm_service, prompt_manager, personalization_service=None, timeout: int = 30, llm_temperature: float = 0.7, llm_max_tokens: int = 4096) -> None",
+          "description": "构造器，调用super().__init__(name='generator', llm_service=llm_service, prompt_manager=prompt_manager, timeout=timeout)。personalization_service可选注入（task21实现），llm_temperature=0.7（生成任务需要更高创造性），llm_max_tokens=4096（综述较长）。"
+        },
+        {
+          "name": "GeneratorAgent.build_prompt",
+          "signature": "def build_prompt(self, input_data: dict, context: dict) -> str",
+          "description": "构建生成Prompt。从input_data获取analysis_data和comparison_data，从context获取user_profile构建personalization块。调用prompt_manager.get_prompt('generator', personalization=, analysis_data=, comparison_data=)。"
+        },
+        {
+          "name": "GeneratorAgent._run",
+          "signature": "async def _run(self, prompt: str, input_data: dict, context: dict) -> dict",
+          "description": "核心执行逻辑：(1)从input_data获取analysis_results和可选compare_result；(2)调用_build_personalization_block构建个性化片段；(3)调用prompt_manager.get_prompt渲染完整Prompt；(4)调用llm_service.generate()获取LLM综述输出；(5)调用_validate_report验证章节完整性；(6)调用_extract_citations提取引用列表；(7)调用_calculate_term_density计算术语密度；(8)返回{report, citation_list, term_density_actual, personalization_applied}。"
+        },
+        {
+          "name": "GeneratorAgent._build_personalization_block",
+          "signature": "def _build_personalization_block(self, user_profile: dict) -> str",
+          "description": "构建个性化指令块。优先使用personalization_service.get_personalization_block(user_profile)，失败时使用内置映射（DIFFICULTY_MAP/STYLE_MAP/EDUCATION_ADAPTATION/FIELD_EMPHASIS）生成降级个性化指令。无user_profile时返回默认中等难度+标准风格指令。"
+        },
+        {
+          "name": "GeneratorAgent._extract_citations",
+          "signature": "def _extract_citations(self, report: str, analysis_results: list) -> list",
+          "description": "从综述报告中提取引用。正则模式：(1)[Author et al., Year] 或 [Author, Year]；(2)[N]数字引用。将提取的引用映射回analysis_results中的paper_id。返回citation_list: [{index, paper_id, citation}]。"
+        },
+        {
+          "name": "GeneratorAgent._validate_report",
+          "signature": "def _validate_report(self, report: str) -> dict",
+          "description": "验证综述报告包含5个必含章节：引言/研究现状/方法对比/研究趋势/参考文献。缺失章节时追加模板段落。返回{is_valid: bool, missing_sections: list, report: str}。"
+        },
+        {
+          "name": "GeneratorAgent._calculate_term_density",
+          "signature": "def _calculate_term_density(self, report: str, knowledge_level: str) -> float",
+          "description": "计算综述报告的实际术语密度。根据knowledge_level确定目标密度（beginner<5%/intermediate~20%/advanced~40%/expert>50%），统计专业术语占比。返回0.0-1.0之间的浮点数。"
+        },
+        {
+          "name": "GeneratorAgent._generate_fallback_report",
+          "signature": "def _generate_fallback_report(self, analysis_results: list, compare_result: dict = None) -> str",
+          "description": "LLM完全不可用时的降级方法。基于analysis_results模板拼接生成简化综述报告。每篇论文提取title+core_method.summary+core_conclusions.summary，按章节组织。报告末尾添加AI免责声明。"
+        },
+        {
+          "name": "GeneratorAgent._fallback_result",
+          "signature": "def _fallback_result(self, input_data: dict) -> dict",
+          "description": "覆盖BaseAgent._fallback_result。使用_generate_fallback_report生成降级报告，返回{degraded: True, agent: 'generator', report: 降级报告, citation_list: [], term_density_actual: 0.0, personalization_applied: {...}, error: ...}"
+        },
+        {
+          "name": "GeneratorAgent._summarize_result",
+          "signature": "def _summarize_result(self, result: dict) -> str",
+          "description": "覆盖BaseAgent._summarize_result。返回领域特定摘要：'Generated report: X chars, Y citations, density=Z%'"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/agents/generator.py",
+      "description": "GeneratorAgent生成员Agent核心逻辑，包含个性化Prompt构建、LLM综述生成、引用提取、术语密度计算、章节验证、降级处理",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "实现GeneratorAgent类，继承BaseAgent。__init__中调用super().__init__(name='generator', llm_service=llm_service, prompt_manager=prompt_manager, timeout=timeout)。额外属性：personalization_service（可选，默认None）、llm_temperature=0.7、llm_max_tokens=4096。",
+        "priority": "P0",
+        "acceptance_condition": "isinstance(generator, BaseAgent) 为True；generator.name == 'generator'"
+      },
+      {
+        "id": "FR-002",
+        "description": "实现build_prompt(input_data, context)方法。从input_data提取analysis_data（JSON字符串化analysis_results）和comparison_data（JSON字符串化compare_result或'无'），从context获取user_profile调用_build_personalization_block生成个性化块。调用prompt_manager.get_prompt('generator', personalization=, analysis_data=, comparison_data=)。返回渲染后的prompt字符串。",
+        "priority": "P0",
+        "acceptance_condition": "prompt_manager.get_prompt被正确调用且传入personalization/analysis_data/comparison_data"
+      },
+      {
+        "id": "FR-003",
+        "description": "实现_run(prompt, input_data, context)异步方法。核心流程：(1)从input_data获取analysis_results和可选compare_result；(2)更新progress=0.2, intermediate_result='Building personalized prompt'；(3)调用build_prompt构建完整prompt（或直接使用传入的prompt参数）；(4)更新progress=0.4, intermediate_result='Generating literature review'；(5)调用llm_service.generate(prompt, max_tokens=llm_max_tokens, temperature=llm_temperature)获取LLM输出；(6)更新progress=0.7, intermediate_result='Extracting citations and validating'；(7)调用_validate_report验证章节；(8)调用_extract_citations提取引用；(9)调用_calculate_term_density计算术语密度；(10)构建personalization_applied快照；(11)追加AI免责声明到报告末尾；(12)更新progress=1.0；(13)返回{report, citation_list, term_density_actual, personalization_applied}。",
+        "priority": "P0",
+        "acceptance_condition": "正常流程返回包含report/citation_list/term_density_actual/personalization_applied的dict；progress从0到1.0渐变"
+      },
+      {
+        "id": "FR-004",
+        "description": "实现_build_personalization_block(user_profile)方法。优先尝试personalization_service.get_personalization_block(user_profile)。若personalization_service为None或调用失败，使用内置映射生成：DIFFICULTY_MAP={beginner:1,intermediate:2,advanced:3,expert:4}，STYLE_MAP={simple:casual,balanced:standard,technical:formal}，EDUCATION_ADAPTATION映射，FIELD_EMPHASIS映射。生成格式为多行指令文本，包含：难度适配指令、风格适配指令、领域侧重指令。无user_profile时返回默认中等难度+标准风格的指令字符串。",
+        "priority": "P0",
+        "acceptance_condition": "不同user_profile返回不同个性化指令；personalization_service失败时降级到内置映射；无profile时返回默认指令"
+      },
+      {
+        "id": "FR-005",
+        "description": "实现_extract_citations(report, analysis_results)方法。正则提取引用：(1)模式1 r'\\[([A-Z][a-z]+(?:\\s+et\\s+al\\.)?,\\s*\\d{4})\\]' 匹配 [Author et al., Year] 或 [Author, Year]；(2)模式2 r'\\[(\\d+)\\]' 匹配 [N] 数字引用。将提取的引用与analysis_results中的paper_id映射（通过title/author/year匹配）。返回citation_list: [{index: int, paper_id: str, citation: str}]。无法映射的引用paper_id设为None。提取失败时返回空列表[]。",
+        "priority": "P0",
+        "acceptance_condition": "报告含[Smith et al., 2024]时正确提取；含[1]时正确提取；无法映射时paper_id=None；完全无引用时返回[]"
+      },
+      {
+        "id": "FR-006",
+        "description": "实现_validate_report(report)方法。检查5个必含章节关键词：REQUIRED_SECTIONS = ['引言', '研究现状', '方法对比', '研究趋势', '参考文献']。对每个章节检查Markdown标题（## N 章节名 或 ## 章节名 格式）。缺失章节追加模板段落到报告末尾（在参考文献之前插入）。返回{is_valid: bool, missing_sections: list, report: str（可能已修补）}。",
+        "priority": "P0",
+        "acceptance_condition": "完整5章节报告→is_valid=True；缺'研究趋势'→missing_sections含'研究趋势'，报告被修补"
+      },
+      {
+        "id": "FR-007",
+        "description": "实现_calculate_term_density(report, knowledge_level)方法。目标密度映射：TERM_DENSITY_TARGET={beginner:0.05, intermediate:0.20, advanced:0.40, expert:0.50}。简化实现：统计报告中已知学术术语（ACADEMIC_TERMS常量列表，约50个常见术语如'attention mechanism'/'gradient descent'/'fine-tuning'等）出现次数 / 总词数。返回0.0-1.0之间的浮点数。knowledge_level无效时默认intermediate(0.20)。",
+        "priority": "P1",
+        "acceptance_condition": "含大量术语的报告density>0.3；纯日常语言density<0.1；返回值在0-1之间"
+      },
+      {
+        "id": "FR-008",
+        "description": "实现_generate_fallback_report(analysis_results, compare_result=None)方法。LLM完全不可用时的降级综述生成。(1)从analysis_results提取每篇论文的title/core_method.summary/core_conclusions.summary；(2)按章节模板拼接：引言（列出论文数量和主题）、研究现状（逐篇概述）、方法对比（如有compare_result则使用，否则逐篇列出方法）、研究趋势（基于结论简单推断）、参考文献（逐篇列出title+year）；(3)末尾添加'⚠️ 本内容由 AI 生成，仅供参考'。返回Markdown格式字符串。",
+        "priority": "P0",
+        "acceptance_condition": "3篇论文输入→生成包含5章节的降级报告；报告含AI免责声明；无analysis_results时返回最小化报告"
+      },
+      {
+        "id": "FR-009",
+        "description": "覆盖_fallback_result(input_data)方法。调用_generate_fallback_report生成降级报告。返回{degraded: True, agent: 'generator', report: 降级报告, citation_list: [], term_density_actual: 0.0, personalization_applied: {education_adaptation: 'default', term_density_target: 0.20, style_guide: 'standard'}, error: self.state.error}。",
+        "priority": "P0",
+        "acceptance_condition": "LLM失败时返回含降级报告的完整结构；citation_list为空；degraded=True"
+      },
+      {
+        "id": "FR-010",
+        "description": "覆盖_summarize_result(result)方法。返回格式：'Generated report: {len} chars, {n} citations, density={pct}%'。从result提取report长度、citation_list长度、term_density_actual百分比。",
+        "priority": "P1",
+        "acceptance_condition": "返回字符串包含字符数、引用数、密度百分比"
+      },
+      {
+        "id": "FR-011",
+        "description": "AI免责声明处理。LLM生成的报告末尾必须包含'⚠️ 本内容由 AI 生成，仅供参考'。若LLM输出已包含则不重复添加；若不包含则追加。_generate_fallback_report也必须包含此声明。",
+        "priority": "P0",
+        "acceptance_condition": "所有输出报告均含AI免责声明；不重复添加"
+      },
+      {
+        "id": "FR-012",
+        "description": "使用Loguru记录关键日志：生成开始/完成（INFO级别）、个性化块构建（DEBUG级别）、引用提取结果含数量（DEBUG级别）、章节验证缺失（WARNING级别）、LLM调用失败（WARNING级别）、降级触发（WARNING级别）。不在日志中输出完整报告内容或敏感信息。",
+        "priority": "P1",
+        "acceptance_condition": "日志包含agent名称、引用数量、报告长度；不包含LLM API Key"
+      },
+      {
+        "id": "FR-013",
+        "description": "定义类常量：REQUIRED_SECTIONS = ['引言', '研究现状', '方法对比', '研究趋势', '参考文献']；TERM_DENSITY_TARGET = {beginner:0.05, intermediate:0.20, advanced:0.40, expert:0.50}；DIFFICULTY_MAP = {beginner:1, intermediate:2, advanced:3, expert:4}；STYLE_MAP = {simple:'casual', balanced:'standard', technical:'formal'}；EDUCATION_ADAPTATION = {undergraduate:'适当补充背景知识，使用类比说明', master:'侧重方法论对比和实验设计分析', phd:'关注创新点和前沿贡献，分析可扩展方向', faculty:'关注教学适用性和知识体系构建'}；FIELD_EMPHASIS = {NLP:'侧重自然语言处理相关方法和应用', CV:'侧重计算机视觉相关方法和应用', RL:'侧重强化学习相关方法和应用', '多模态':'侧重多模态融合相关方法和应用'}；ACADEMIC_TERMS = [约50个常见学术术语]；AI_DISCLAIMER = '⚠️ 本内容由 AI 生成，仅供参考'。",
+        "priority": "P1",
+        "acceptance_condition": "所有常量定义完整；无魔法字符串"
+      },
+      {
+        "id": "FR-014",
+        "description": "personalization_applied快照构建。在_run成功路径中，构建personalization_applied字典：{education_adaptation: str（来自EDUCATION_ADAPTATION映射值）, term_density_target: float（来自TERM_DENSITY_TARGET映射值）, style_guide: str（来自STYLE_MAP映射值）}。无user_profile时使用默认值：education_adaptation='侧重方法论对比和实验设计分析'，term_density_target=0.20，style_guide='standard'。",
+        "priority": "P1",
+        "acceptance_condition": "返回的personalization_applied包含3个字段；值与user_profile对应"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Python/JSON统一使用 snake_case",
+        "mappings": [
+          {"python": "report", "json": "report"},
+          {"python": "citation_list", "json": "citation_list"},
+          {"python": "term_density_actual", "json": "term_density_actual"},
+          {"python": "personalization_applied", "json": "personalization_applied"},
+          {"python": "education_adaptation", "json": "education_adaptation"},
+          {"python": "term_density_target", "json": "term_density_target"},
+          {"python": "style_guide", "json": "style_guide"},
+          {"python": "paper_id", "json": "paper_id"},
+          {"python": "analysis_results", "json": "analysis_results"},
+          {"python": "compare_result", "json": "compare_result"},
+          {"python": "is_valid", "json": "is_valid"},
+          {"python": "missing_sections", "json": "missing_sections"}
+        ]
+      },
+      "data_flow": "GeneratorAgent从input_data['analysis_results']获取分析结果，从input_data.get('compare_result')获取可选对比结果。输出{report, citation_list, term_density_actual, personalization_applied}供下游ReviewerAgent审核。"
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "GeneratorAgent整体LLM调用失败→调用_generate_fallback_report生成降级报告，返回{degraded:True, report:降级报告, citation_list:[], term_density_actual:0.0}",
+        "personalization_service_failure": "personalization_service调用失败→使用内置DIFFICULTY_MAP/STYLE_MAP/EDUCATION_ADAPTATION/FIELD_EMPHASIS映射生成降级个性化指令",
+        "citation_extraction_failure": "引用提取失败→返回空citation_list=[]，不阻塞报告输出",
+        "section_validation_failure": "章节验证发现缺失→自动修补报告（追加模板段落），不阻塞输出"
+      },
+      "llm_degradation": {
+        "llm_call_failure": "llm_service.generate()抛异常→_run捕获异常，调用_generate_fallback_report降级",
+        "llm_empty_output": "LLM返回空字符串→调用_generate_fallback_report降级"
+      }
+    },
+    "security_requirements": [
+      {
+        "id": "SR-001",
+        "description": "AI免责声明：所有生成的综述报告末尾必须包含'⚠️ 本内容由 AI 生成，仅供参考'，符合AGENTS.md安全规范",
+        "priority": "P0"
+      },
+      {
+        "id": "SR-002",
+        "description": "日志安全：不在日志中输出LLM API Key、用户敏感信息或完整报告内容（仅输出摘要）",
+        "priority": "P0"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中。GeneratorAgent属于Agent层，可调用Service层（LLMService/PromptManager/PersonalizationService），不可直接调用API层或操作数据库"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent。_run内部捕获LLM异常走降级路径。BaseAgent.execute()提供的超时控制覆盖整体",
+        "agent_error_handling": "LLM调用失败：logger.warning + _generate_fallback_report降级；PersonalizationService失败：logger.warning + 内置映射降级；引用提取失败：logger.warning + 空列表降级"
+      }
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在日志中输出完整报告内容（使用摘要）",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "token_budget": {
+      "description": "LLM调用Token预算分配",
+      "system_prompt": 800,
+      "task_prompt": 2000,
+      "memory_context": 500,
+      "tool_output": 4000,
+      "total": 7300
+    },
+    "timeout": {
+      "agent_timeout": 30,
+      "unit": "seconds"
+    }
+  },
+  "forbidden_actions": [
+    {
+      "id": "FA-001",
+      "action": "输出伪代码或TODO注释",
+      "reason": "必须输出完整可执行代码",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-002",
+      "action": "修改base.py/analyzer.py/retriever.py/prompt_manager.py/llm_service.py/generator.txt等已有文件",
+      "reason": "本任务仅新增agents/generator.py，不修改任何已有代码",
+      "severity": "high"
+    },
+    {
+      "id": "FA-003",
+      "action": "输出字段使用camelCase命名（如termDensityActual）",
+      "reason": "Python/JSON统一使用snake_case（term_density_actual），与跨系统一致性约束一致",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-004",
+      "action": "LLM失败时抛出异常而非降级处理",
+      "reason": "Agent异常不阻塞后续Agent，LLM失败应走_generate_fallback_report降级路径",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-005",
+      "action": "硬编码必含章节名或术语密度目标（必须使用常量定义REQUIRED_SECTIONS/TERM_DENSITY_TARGET）",
+      "reason": "避免魔法字符串，便于后续维护和测试",
+      "severity": "medium"
+    },
+    {
+      "id": "FA-006",
+      "action": "在generator.py中修改prompts/generator.txt的内容",
+      "reason": "Prompt模板修改属于独立任务，本任务仅读取已有模板",
+      "severity": "high"
+    },
+    {
+      "id": "FA-007",
+      "action": "忽略降级场景（LLM失败时不走_generate_fallback_report）",
+      "reason": "可用性约束ADR-003，必须支持LLM失败降级",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-008",
+      "action": "省略AI免责声明（⚠️ 本内容由 AI 生成，仅供参考）",
+      "reason": "安全规范要求，所有AI生成内容必须标注免责声明",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-009",
+      "action": "实现PersonalizationService的具体逻辑",
+      "reason": "PersonalizationService属于task21，本任务仅通过接口调用（personalization_service.get_personalization_block），不实现其内部逻辑",
+      "severity": "high"
+    }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_generator_inherits_base_agent",
+        "description": "测试GeneratorAgent继承BaseAgent，name='generator'，isinstance验证",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_build_prompt_renders_template",
+        "description": "测试build_prompt正确调用prompt_manager.get_prompt('generator', personalization=, analysis_data=, comparison_data=)",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_build_personalization_block_with_profile",
+        "description": "测试_build_personalization_block根据user_profile返回不同个性化指令。beginner+simple→含通俗解释+日常用语；expert+technical→含前沿分析+正式学术",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_build_personalization_block_without_profile",
+        "description": "测试无user_profile时返回默认中等难度+标准风格指令",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_build_personalization_block_service_failure",
+        "description": "测试personalization_service抛异常时降级到内置映射",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_run_success_flow",
+        "description": "测试_run正常流程：3篇论文分析结果输入 → 返回report/citation_list/term_density_actual/personalization_applied。验证report非空、citation_list为列表、term_density_actual在0-1之间",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_run_progress_updates",
+        "description": "测试_run过程中state.progress从0变化到1.0",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_run_llm_failure_fallback",
+        "description": "测试LLM调用失败时走_generate_fallback_report降级路径。返回degraded=True，report非空（模板拼接），citation_list=[]",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_run_empty_analysis_results",
+        "description": "测试analysis_results为空列表时返回最小化报告",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_extract_citations_author_year",
+        "description": "测试_extract_citations正确提取[Author et al., Year]格式引用",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_extract_citations_numeric",
+        "description": "测试_extract_citations正确提取[N]数字引用",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_extract_citations_no_match",
+        "description": "测试报告中无引用时返回空列表",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_validate_report_all_sections",
+        "description": "测试_validate_report对包含5章节的报告返回is_valid=True",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_validate_report_missing_sections",
+        "description": "测试_validate_report对缺失章节的报告返回is_valid=False，missing_sections非空，报告被修补",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_calculate_term_density",
+        "description": "测试_calculate_term_density返回0-1之间的浮点数。含大量术语→density较高；纯日常语言→density较低",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_generate_fallback_report",
+        "description": "测试_generate_fallback_report基于analysis_results模板拼接生成降级报告。验证报告含5章节+AI免责声明",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "degradation"]
+      },
+      {
+        "test_name": "test_fallback_result_structure",
+        "description": "测试_fallback_result返回完整结构：degraded=True, agent='generator', report非空, citation_list=[], term_density_actual=0.0, personalization_applied含3字段",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_ai_disclaimer_present",
+        "description": "测试所有输出报告均包含AI免责声明'⚠️ 本内容由 AI 生成，仅供参考'，且不重复添加",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_summarize_result_format",
+        "description": "测试_summarize_result返回格式包含字符数、引用数、密度百分比",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_generator_agent.py -v",
+        "expected_result": "所有19个测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.agents.generator import GeneratorAgent; print('Import OK')\"",
+        "expected_result": "输出 Import OK"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "GeneratorAgent继承BaseAgent，name='generator'，isinstance验证通过",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "build_prompt正确调用prompt_manager.get_prompt('generator', ...)并传入personalization/analysis_data/comparison_data",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "_run正常流程：分析结果输入 → 返回{report, citation_list, term_density_actual, personalization_applied}完整结构",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "_build_personalization_block根据user_profile返回不同个性化指令，personalization_service失败时降级到内置映射",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "_extract_citations支持[Author, Year]和[N]两种格式提取，无法映射时paper_id=None",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "_validate_report检查5个必含章节，缺失章节自动修补",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "_calculate_term_density返回0-1之间浮点数，与knowledge_level对应",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "LLM失败时走_generate_fallback_report降级路径，返回含降级报告的完整结构",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "所有输出报告均包含AI免责声明'⚠️ 本内容由 AI 生成，仅供参考'，不重复添加",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-010",
+      "criterion": "输出字段全部使用snake_case（term_density_actual而非termDensityActual）",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-011",
+      "criterion": "代码符合Python命名规范（类名PascalCase/函数snake_case/常量UPPER_SNAKE_CASE），日志使用Loguru且不输出敏感信息",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-012",
+      "criterion": "所有pytest单元测试通过（19+个测试用例）",
+      "verified_by": "automated_test"
+    }
+  ]
+}

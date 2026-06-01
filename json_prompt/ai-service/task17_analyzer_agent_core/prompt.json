@@ -1,0 +1,470 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M2 / AM2：RAG检索与3-Agent基础可用",
+    "requirement": "实现 AnalyzerAgent 分析员Agent核心逻辑，产出 agents/analyzer.py。AnalyzerAgent 继承 BaseAgent，负责对检索得到的论文进行5维度结构化深度分析。5维度包括：research_problem（研究问题）、core_method（核心方法）、main_experiments（主要实验）、core_conclusions（核心结论）、limitations（局限性）。每个维度输出包含 summary（摘要）、confidence（置信度0-1）、references（原文引用出处）。AnalyzerAgent 的核心能力：逐论文调用LLM提取5维度信息、解析LLM输出的JSON并验证完整性、计算 extraction_quality（各维度 confidence 均值）、LLM失败时降级为基于规则的关键词提取。必须在 prompt_manager 中注册 analyzer 模板变量映射。",
+    "requirement_ids": ["F3.1.3"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "Section 5.4.3 分析Agent（Analyzer）— 类设计、_run/_parse_analysis/build_analysis_prompt 接口规范、5维度定义"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "Section 4 AM2交付物 #6 AnalyzerAgent — 验收标准和检查点"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-002 多智能体协同编排 — Agent超时30s、降级机制"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "Section 3.1 Agent角色定义 — Analyzer输入(search_results)、输出(analysis_results含5维度JSON)"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/base.py",
+        "purpose": "已有BaseAgent基类 — execute()/build_prompt()/_run()/_fallback_result() 接口，AnalyzerAgent需继承"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/retriever.py",
+        "purpose": "已有RetrieverAgent实现 — 参考 Agent 实现模式（构造器注入服务、build_prompt调用prompt_manager、_run核心逻辑）"
+      },
+      {
+        "path": "Veritas/ai-service/prompts/analyzer.txt",
+        "purpose": "已有 analyzer Prompt 模板 — 使用 $variable 语法，5维度JSON输出格式，analyzer agent的LLM调用模板"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/llm_service.py",
+        "purpose": "已有LLMService — generate(prompt) -> str 接口，AnalyzerAgent通过此服务调用LLM提取结构化信息"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "purpose": "已有PromptManager — get_prompt(agent_name, **kwargs) -> str 接口，AnalyzerAgent通过此服务渲染分析Prompt"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/",
+        "description": "Agent模块目录，已有base.py/retriever.py/tools.py/__init__.py，需新增analyzer.py"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/base.py",
+        "description": "BaseAgent抽象基类，提供execute()（超时控制+降级）、_run()（抽象）、build_prompt()（抽象）、_fallback_result()"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/llm_service.py",
+        "description": "LLM推理服务，AnalyzerAgent通过 generate(prompt) 调用LLM提取5维度结构化信息"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/prompt_manager.py",
+        "description": "Prompt模板管理，AnalyzerAgent通过 get_prompt('analyzer', **kwargs) 渲染分析Prompt"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "prompts/analyzer.txt",
+        "description": "分析Agent Prompt模板，使用 $variable 语法，定义5维度JSON输出格式"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent抽象基类 — execute()含超时控制 + 降级返回，_run()和build_prompt()为@abstractmethod",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/retriever.py",
+        "description": "RetrieverAgent实现 — 参考Agent构造器模式（注入llm_service/prompt_manager/业务服务），build_prompt调用prompt_manager.get_prompt()，_run含LLM调用+降级",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/prompts/analyzer.txt",
+        "description": "分析Prompt模板 — 定义5维度JSON Schema输出格式，$paper_title/$paper_abstract/$extra_instruction变量",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/llm_service.py",
+        "description": "LLMService.generate() — 统一LLM推理接口，含三路降级",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "description": "PromptManager.get_prompt(agent_name, **kwargs) — Prompt模板渲染",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "agents/analyzer.py（待创建）",
+      "path": "Veritas/ai-service/app/agents/analyzer.py",
+      "responsibility": "AnalyzerAgent分析员Agent，对论文进行5维度结构化深度分析。继承BaseAgent，调用LLM提取结构化信息，解析JSON输出，计算分析质量评分。",
+      "key_interfaces": [
+        {
+          "name": "AnalyzerAgent.__init__",
+          "signature": "def __init__(self, llm_service, prompt_manager, timeout: int = 30) -> None",
+          "description": "构造器，调用super().__init__(name='analyzer', llm_service=llm_service, prompt_manager=prompt_manager, timeout=timeout)"
+        },
+        {
+          "name": "AnalyzerAgent.build_prompt",
+          "signature": "def build_prompt(self, input_data: dict, context: dict) -> str",
+          "description": "构建分析Prompt。从input_data获取paper，调用prompt_manager.get_prompt('analyzer', paper_title=, paper_abstract=, extra_instruction=)。extra_instruction根据user_profile的knowledge_level决定是否添加通俗解释要求。"
+        },
+        {
+          "name": "AnalyzerAgent._run",
+          "signature": "async def _run(self, prompt: str, input_data: dict, context: dict) -> dict",
+          "description": "核心执行逻辑：(1)获取papers列表；(2)遍历每篇论文，调用build_analysis_prompt构建prompt，调用llm_service.generate()获取LLM输出；(3)调用_parse_analysis_result解析JSON提取5维度；(4)调用_validate_dimensions验证完整性；(5)计算extraction_quality = mean(各维度confidence)；(6)更新progress；(7)返回{analysis_results: [...], analyzed_count: N}"
+        },
+        {
+          "name": "AnalyzerAgent._parse_analysis_result",
+          "signature": "def _parse_analysis_result(self, llm_output: str, paper: dict) -> dict",
+          "description": "解析LLM输出的JSON。支持纯JSON、```json```代码块、```代码块三种格式。解析失败时返回降级分析结果（从title/abstract做规则提取）"
+        },
+        {
+          "name": "AnalyzerAgent._validate_dimensions",
+          "signature": "def _validate_dimensions(self, analysis: dict) -> dict",
+          "description": "验证5维度完整性。缺失维度补默认值（summary='论文未明确提及', confidence=0.3, references=[]）。confidence强制保证0-1范围。确保analysis_id和paper_id存在。添加ai_disclaimer。返回验证后的analysis。"
+        },
+        {
+          "name": "AnalyzerAgent.build_analysis_prompt",
+          "signature": "def build_analysis_prompt(self, paper: dict, user_profile: dict = None) -> str",
+          "description": "为单篇论文构建分析Prompt。调用prompt_manager.get_prompt('analyzer', paper_title=, paper_abstract=, extra_instruction=)。extra_instruction由_get_extra_instruction生成。"
+        },
+        {
+          "name": "AnalyzerAgent._get_extra_instruction",
+          "signature": "def _get_extra_instruction(self, user_profile: dict) -> str",
+          "description": "根据用户知识水平生成额外指令。beginner/intermediate添加通俗解释和类比要求，advanced/expert添加技术细节要求。"
+        },
+        {
+          "name": "AnalyzerAgent._rule_based_extraction",
+          "signature": "def _rule_based_extraction(self, paper: dict) -> dict",
+          "description": "LLM完全不可用时的降级方法。基于规则从title/abstract提取关键信息。所有维度confidence=0.3，标记method为'rule_based_fallback'"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/agents/analyzer.py",
+      "description": "AnalyzerAgent分析员Agent核心逻辑，包含5维度结构化提取、JSON解析、质量验证、降级处理",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "实现AnalyzerAgent类，继承BaseAgent。__init__中调用super().__init__(name='analyzer', llm_service=llm_service, prompt_manager=prompt_manager, timeout=timeout)。属性仅继承基类，不额外添加属性。",
+        "priority": "P0",
+        "acceptance_condition": "isinstance(analyzer, BaseAgent) 为True；analyzer.name == 'analyzer'"
+      },
+      {
+        "id": "FR-002",
+        "description": "实现build_prompt(input_data, context)方法。从input_data提取papers列表第一项，调用prompt_manager.get_prompt('analyzer', paper_title=, paper_abstract=, extra_instruction=)。extra_instruction由_get_extra_instruction(context.get('user_profile'))生成。返回渲染后的prompt字符串。",
+        "priority": "P0",
+        "acceptance_condition": "prompt_manager.get_prompt被正确调用且传入paper_title/paper_abstract/extra_instruction"
+      },
+      {
+        "id": "FR-003",
+        "description": "实现_run(prompt, input_data, context)异步方法。核心流程：(1)从input_data获取papers列表；(2)遍历每篇论文，调用build_analysis_prompt构建单个prompt → 调用llm_service.generate() → _parse_analysis_result解析 → _validate_dimensions验证；(3)每篇论文处理后更新self.state.progress = (i+1)/total, intermediate_result=已分析X/Y篇；(4)计算全局extraction_quality = mean(各论文的各维度confidence)；(5)返回{analysis_results: [...], analyzed_count: N, extraction_quality: 0.X}。",
+        "priority": "P0",
+        "acceptance_condition": "10篇论文输入 → 10条分析结果输出；progress从0到1.0渐变；extraction_quality值在0-1之间"
+      },
+      {
+        "id": "FR-004",
+        "description": "实现build_analysis_prompt(paper, user_profile=None)方法。为单篇论文构建分析Prompt。调用prompt_manager.get_prompt('analyzer', paper_title=paper['title'], paper_abstract=paper.get('abstract',''), extra_instruction=_get_extra_instruction(user_profile))。返回完整prompt字符串。",
+        "priority": "P0",
+        "acceptance_condition": "prompt_manager.get_prompt被调用且传入正确的paper_title/paper_abstract"
+      },
+      {
+        "id": "FR-005",
+        "description": "实现_get_extra_instruction(user_profile)方法。根据knowledge_level返回个性化指令：beginner→'额外要求：请为每个维度同时提供通俗解释，使用类比和日常例子说明。'；intermediate→'额外要求：请提供方法对比和代码实现参考。'；advanced→'额外要求：请分析研究空白和改进方向。'；expert→'额外要求：请提供前沿洞察和创新建议。'。无user_profile或knowledge_level时默认为空字符串。",
+        "priority": "P1",
+        "acceptance_condition": "不同knowledge_level返回不同指令；无profile时返回空字符串"
+      },
+      {
+        "id": "FR-006",
+        "description": "实现_parse_analysis_result(llm_output, paper)方法。解析LLM输出的JSON为结构化分析结果。解析策略：(1)尝试直接json.loads；(2)查找```json...```代码块，提取内部JSON；(3)查找```...```代码块，提取内部JSON；(4)均失败时调用_rule_based_extraction降级。解析成功后提取5维度字段：research_problem/core_method/main_experiments/core_conclusions/limitations。每个维度应为dict含summary/confidence/references字段，如缺失则填充默认值。",
+        "priority": "P0",
+        "acceptance_condition": "纯JSON可解析；```json代码块可解析；```代码块可解析；无效JSON走降级路径"
+      },
+      {
+        "id": "FR-007",
+        "description": "实现_validate_dimensions(analysis)方法。验证5维度完整性：(1)遍历必须的5个key（research_problem/core_method/main_experiments/core_conclusions/limitations）；(2)缺失维度补默认值{summary:'论文未明确提及', confidence:0.3, references:[]}；(3)每个维度的confidence保证0-1范围（clamp）；(4)确保analysis_id和paper_id存在；(5)添加ai_disclaimer='⚠️ 本分析由 AI 生成，仅供参考'。返回验证后的dict。",
+        "priority": "P0",
+        "acceptance_condition": "缺失维度自动补默认值；confidence>1被clamp到1.0；包含ai_disclaimer"
+      },
+      {
+        "id": "FR-008",
+        "description": "实现_rule_based_extraction(paper)方法。LLM完全不可用时的降级提取方法。(1)从abstract/title中提取核心名词短语作为core_method；(2)research_problem设为paper['title']截断前100字；(3)其他维度设为默认值confidence=0.3；(4)所有维度references设为[]；(5)标记extraction_quality=0.1。返回完整的5维度分析dict。",
+        "priority": "P1",
+        "acceptance_condition": "LLM完全失败时仍返回完整5维度结构；extraction_quality=0.1"
+      },
+      {
+        "id": "FR-009",
+        "description": "_run中每篇论文的LLM调用失败时（单篇超时或异常），不中断整个分析流程。该论文使用_rule_based_extraction降级处理，记录日志WARNING级别，继续处理下一篇。state.error仅在全部论文均失败时设置。",
+        "priority": "P0",
+        "acceptance_condition": "第3篇论文LLM失败时，前2篇保持完整分析，第3篇降级，继续分析第4篇"
+      },
+      {
+        "id": "FR-010",
+        "description": "使用Loguru记录关键日志：分析开始/完成（INFO级别）、单篇论文分析完成含耗时（DEBUG级别）、JSON解析失败（WARNING级别）、降级触发（WARNING级别）。不在日志中输出完整论文内容或敏感信息。",
+        "priority": "P1",
+        "acceptance_condition": "日志包含agent名称、论文计数、extraction_quality；不包含LLM API Key"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Python/JSON统一使用 snake_case",
+        "mappings": [
+          {"python": "research_problem", "json": "research_problem"},
+          {"python": "core_method", "json": "core_method"},
+          {"python": "main_experiments", "json": "main_experiments"},
+          {"python": "core_conclusions", "json": "core_conclusions"},
+          {"python": "limitations", "json": "limitations"},
+          {"python": "analysis_id", "json": "analysis_id"},
+          {"python": "paper_id", "json": "paper_id"},
+          {"python": "extraction_quality", "json": "extraction_quality"},
+          {"python": "analysis_results", "json": "analysis_results"},
+          {"python": "ai_disclaimer", "json": "ai_disclaimer"}
+        ]
+      },
+      "data_flow": "AnalyzerAgent从input_data['papers']获取论文列表，逐篇调用LLM分析，返回{analysis_results: [...], analyzed_count: N}。下游Comparer/Generator从analysis_results读取分析结果。"
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "单篇论文LLM调用失败→该论文降级为_rule_based_extraction，继续处理后续论文。全部论文失败→返回{degraded: True, analysis_results: [降级结果], analyzed_count: N}",
+        "multi_agent_failure": "AnalyzerAgent层面的多Agent失败由LangGraph工作流层处理（graph.py），AnalyzerAgent本身只负责自身逻辑",
+        "review_retry_limit": 1
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中。AnalyzerAgent属于Agent层，可调用Service层（LLMService/PromptManager），不可直接调用API层或操作数据库"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent。_run内部捕获单篇论文异常，继续处理后续论文。BaseAgent.execute()提供的超时控制覆盖整体",
+        "agent_error_handling": "单篇失败：logger.warning + 降级_rule_based_extraction；全部失败：state.error记录 + 返回降级结果"
+      }
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志（论文循环内使用DEBUG）",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    {
+      "id": "FA-001",
+      "action": "输出伪代码或TODO注释",
+      "reason": "必须输出完整可执行代码",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-002",
+      "action": "修改base.py/retriever.py/prompt_manager.py/llm_service.py等已有文件",
+      "reason": "本任务仅新增agents/analyzer.py，不修改任何已有代码",
+      "severity": "high"
+    },
+    {
+      "id": "FA-003",
+      "action": "5维度JSON字段使用camelCase命名",
+      "reason": "Python/JSON统一使用snake_case（research_problem而非researchProblem），与跨系统一致性约束一致",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-004",
+      "action": "单篇论文LLM失败时中断整个分析流程",
+      "reason": "Agent异常不阻塞后续Agent，单篇失败应降级继续而非整体中断",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-005",
+      "action": "硬编码5维度字段名（必须使用常量定义FIVE_DIMENSIONS）",
+      "reason": "避免魔法字符串，便于后续维护和测试",
+      "severity": "medium"
+    },
+    {
+      "id": "FA-006",
+      "action": "在analyzer.py中修改prompts/analyzer.txt的内容",
+      "reason": "Prompt模板修改属于独立任务（task18），本任务仅读取已有模板",
+      "severity": "high"
+    },
+    {
+      "id": "FA-007",
+      "action": "忽略降级场景（LLM失败时不走_rule_based_extraction）",
+      "reason": "可用性约束ADR-003，必须支持LLM失败降级",
+      "severity": "critical"
+    }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_analyzer_inherits_base_agent",
+        "description": "测试AnalyzerAgent继承BaseAgent，name='analyzer'，isinstance验证",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_build_prompt_renders_template",
+        "description": "测试build_prompt正确调用prompt_manager.get_prompt('analyzer', paper_title=, paper_abstract=, extra_instruction=)",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_get_extra_instruction_by_knowledge_level",
+        "description": "测试_get_extra_instruction根据knowledge_level返回不同指令。beginner/intermediate/advanced/expert各返回不同内容；None返回空字符串",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_run_success_flow",
+        "description": "测试_run正常流程：3篇论文输入 → 3条分析结果。验证analysis_results长度、analyzed_count、extraction_quality范围、每篇含5维度和ai_disclaimer",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_run_single_paper_llm_failure_continues",
+        "description": "测试单篇LLM失败时继续处理后续论文。第2篇LLM抛异常→第2篇走降级extraction_quality=0.1，第1/3篇正常",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_run_all_papers_llm_failure",
+        "description": "测试全部论文LLM失败：所有分析结果走rule_based降级，extraction_quality=0.1，结果仍包含分析结构",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_parse_analysis_result_valid_json",
+        "description": "测试_parse_analysis_result正确解析LLM输出的5维度JSON",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_parse_analysis_result_json_with_code_block",
+        "description": "测试_parse_analysis_result解析```json```包裹的JSON输出",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_parse_analysis_result_invalid_json_fallback",
+        "description": "测试_parse_analysis_result对无效JSON走降级路径_rule_based_extraction",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_validate_dimensions_missing_fields",
+        "description": "测试_validate_dimensions补全缺失维度：缺少limitations→自动补默认值confidence=0.3",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_validate_dimensions_clamp_confidence",
+        "description": "测试_validate_dimensions的confidence clamp：confidence=1.5→clamp到1.0；confidence=-0.5→clamp到0.0",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_validate_dimensions_adds_disclaimer",
+        "description": "测试_validate_dimensions为每条分析结果添加ai_disclaimer='⚠️ 本分析由 AI 生成，仅供参考'",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_rule_based_extraction_format",
+        "description": "测试_rule_based_extraction返回完整的5维度结构，extraction_quality=0.1，所有confidence=0.3",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_analyzer_agent.py -v",
+        "expected_result": "所有13个测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.agents.analyzer import AnalyzerAgent; print('Import OK')\"",
+        "expected_result": "输出 Import OK"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "AnalyzerAgent继承BaseAgent，name='analyzer'，isinstance验证通过",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "build_prompt正确调用prompt_manager.get_prompt('analyzer', ...)并传入paper_title/paper_abstract/extra_instruction",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "_run正常流程：N篇论文输入 → N条分析结果，每篇含5维度(summary/confidence/references)+analysis_id+paper_id+ai_disclaimer",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "_parse_analysis_result支持纯JSON/```json代码块/```代码块三种格式解析，无效JSON走降级路径",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "_validate_dimensions补全缺失维度(confidence=0.3)，clamp confidence到0-1，添加ai_disclaimer",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "单篇论文LLM失败→该论文降级为_rule_based_extraction(extraction_quality=0.1)，不中断后续论文分析",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "全部论文LLM失败→所有分析结果走降级路径，仍返回完整5维度结构",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "5维度JSON字段全部使用snake_case（research_problem而非researchProblem）",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "代码符合Python命名规范（类名PascalCase/函数snake_case），日志使用Loguru且不输出敏感信息",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-010",
+      "criterion": "所有pytest单元测试通过（15+个测试用例）",
+      "verified_by": "automated_test"
+    }
+  ]
+}
