@@ -1,0 +1,505 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M3：前后端联调 / JM2：Java后端M2",
+    "requirement": "实现论文搜索功能（F2.2.3）：扩展现有PaperRepositoryCustomImpl.searchByKeyword做MySQL全文索引检索（MATCH...AGAINST IN NATURAL LANGUAGE MODE），利用已有的SORT_MAPPING白名单做排序校验（relevance/year/citations），支持条件过滤（年份范围yearFrom/yearTo、会议/期刊venue），结果分页（page/size），在PaperService中新增searchPapers方法调用paperRepository.searchByKeyword + PaperMapper批量转换，在PaperController中新增GET /api/papers/search端点（6个@RequestParam：q必填+yearFrom/yearTo/venue/sort/page/size可选），添加@Cacheable(value=\"paperSearch\")缓存（TTL=10min，已在RedisConfig配置），所有API需JWT鉴权。产出为PaperService.searchPapers方法 + PaperController.searchPapers端点，利用已有的PaperRepositoryCustomImpl做底层自定义查询。",
+    "requirement_ids": ["F2.2.3"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§5.2.1 PaperController.searchPapers端点签名（GET /api/papers/search + 6个@RequestParam）、§5.2.2 PaperService.searchPapers方法签名（@Cacheable(value=\"paperSearch\")）、§5.2.3 PaperRepositoryCustomImpl排序白名单设计（SORT_MAPPING仅允许relevance/year/citations）、§8 API端点表（F2.2.3 GET /api/papers/search P0优先级）"
+      },
+      {
+        "path": "docs/database/数据库设计文档.md",
+        "purpose": "§3.5.4 papers表索引（ft_title_abstract全文索引ngram + idx_year + idx_venue + idx_citation）、§3.5.5 全文检索查询方式（三种查询模式SQL示例）、§4.3 缓存空间（paperSearch TTL=10min）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7.2 Redis缓存Key（search:result:{queryHash} TTL=10min）、§8.1 API契约（GET /api/papers/search）、§9.2 Java后端规范（Entity与DTO分离+MapStruct+@Cacheable）、§11 混合检索架构（MySQL FULLTEXT全流程说明）"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.4 JM2任务分解（Week 5 Day 3 论文管理模块 - PaperController+PaperService搜索功能）、§4.4 JM2验收检查点（论文搜索API）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.controller",
+        "description": "控制器包，扩展PaperController新增searchPapers端点"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "服务包，扩展PaperService新增searchPapers方法"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.repository",
+        "description": "数据访问包，已有PaperRepositoryCustomImpl.searchByKeyword做底层SQL查询"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.response",
+        "description": "响应DTO包，复用task15新建的PaperResponse做搜索结果项"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.mapper",
+        "description": "映射器包，复用task15新建的PaperMapper做Entity→DTO批量转换"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepositoryCustomImpl.java",
+        "description": "论文自定义查询实现：searchByKeyword(String keyword, Integer yearFrom, Integer yearTo, String venue, String sort, Pageable pageable)→Page<Paper>。使用EntityManager.createNativeQuery执行参数化SQL（DATA_SQL_TEMPLATE：MATCH(title, abstract) AGAINST(?1 IN NATURAL LANGUAGE MODE) + year/venue过滤，COUNT_SQL配合分页）。SORT_MAPPING白名单仅允许relevance/year/citations三种排序，非法值降级为year DESC。已使用@Transactional(readOnly=true)。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepositoryCustom.java",
+        "description": "自定义查询接口：searchByKeyword六参数方法声明",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepository.java",
+        "description": "论文Repository：extends JpaRepository<Paper,Long> + JpaSpecificationExecutor<Paper> + PaperRepositoryCustom，已有findByPaperId/findByPaperIdIn/findAll(Pageable)",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/entity/Paper.java",
+        "description": "Paper实体：12字段（含title/abstract用于FULLTEXT、year/venue用于过滤、citationCount用于排序），已使用@PrePersist/@PreUpdate维护时间戳",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/PaperResponse.java",
+        "description": "论文列表项DTO（task15新建）：7字段（paperId/title/authors/year/venue/keywords/citationCount），@JsonProperty输出snake_case，authors/keywords为List<String>",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/PaperMapper.java",
+        "description": "MapStruct映射器（task15新建）：toResponse(Paper)→PaperResponse，含jsonToList自定义方法处理JSON字符串→List<String>转换",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java",
+        "description": "论文Service（task15新建）：已有listPapers(page,size)和getPaperDetail(paperId)，本次扩展新增searchPapers方法",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/PaperController.java",
+        "description": "论文Controller（task15新建）：已有GET /api/papers（列表）和GET /api/papers/{paperId}（详情），本次扩展新增GET /api/papers/search（搜索）端点",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/PageResponse.java",
+        "description": "分页响应封装：PageResponse<T>含items/total/page/size/total_pages(@JsonProperty映射)，提供fromPage(Page<T>, List<R>)静态工厂方法",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/ApiResponse.java",
+        "description": "统一响应封装：ApiResponse<T>，含success(data)/error(code,msg)静态工厂方法",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java",
+        "description": "Redis配置：CacheManager含paperSearch缓存空间（TTL=10min，已含±10%随机偏移防雪崩），paperDetail=30min",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+        "description": "Redis Key工具类：已含searchResultKey(queryHash)方法",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/BusinessException.java",
+        "description": "业务异常基类：code/message/errorKey三字段",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/GlobalExceptionHandler.java",
+        "description": "全局异常处理器：@RestControllerAdvice统一处理BusinessException/ResourceNotFoundException/MethodArgumentNotValidException等",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PaperController",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/PaperController.java",
+      "responsibility": "论文API入口，扩展新增searchPapers搜索端点",
+      "key_interfaces": [
+        {
+          "name": "searchPapers",
+          "signature": "@GetMapping(\"/search\") public ApiResponse<PageResponse<PaperResponse>> searchPapers(@RequestParam String q, @RequestParam(required = false) Integer yearFrom, @RequestParam(required = false) Integer yearTo, @RequestParam(required = false) String venue, @RequestParam(defaultValue = \"relevance\") String sort, @RequestParam(defaultValue = \"1\") int page, @RequestParam(defaultValue = \"10\") int size)",
+          "description": "GET /api/papers/search?q=keyword&yearFrom=2020&yearTo=2024&venue=AAAI&sort=relevance&page=1&size=10 → 全文检索+条件过滤+排序+分页。Controller仅做参数接收+调用Service+返回Response，不含业务逻辑。"
+        }
+      ]
+    },
+    {
+      "name": "PaperService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java",
+      "responsibility": "论文业务逻辑，扩展新增searchPapers搜索方法",
+      "key_interfaces": [
+        {
+          "name": "searchPapers",
+          "signature": "@Cacheable(value=\"paperSearch\", key=\"T(java.lang.String).format('%s_%s_%s_%s_%s_%d_%d', #q, #yearFrom, #yearTo, #venue, #sort, #page, #size)\") public PageResponse<PaperResponse> searchPapers(String q, Integer yearFrom, Integer yearTo, String venue, String sort, int page, int size)",
+          "description": "论文搜索：(1) 参数校验：q不能为空或全空白（否则抛IllegalArgumentException），yearFrom≤yearTo（否则抛BusinessException），sort必须为relevance/year/citations之一（否则降级为relevance），page≥1,size在1-100之间边界修正；(2) PageRequest.of(page-1, size)构造分页（不传入Sort参数，排序由SQL层ORDER BY控制）；(3) 调用paperRepository.searchByKeyword(q, yearFrom, yearTo, venue, sort, pageable)获取Page<Paper>；(4) 通过paperMapper.toResponse批量转换为List<PaperResponse>；(5) PageResponse.fromPage(page, mappedList)构造响应。注意：排序由PaperRepositoryCustomImpl的SORT_MAPPING白名单在SQL层控制，Service层不再重复校验。缓存Key使用所有查询参数拼接（含sort/page/size确保不同查询条件缓存正确隔离），TTL=10min。"
+        }
+      ]
+    },
+    {
+      "name": "PaperRepositoryCustomImpl",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepositoryCustomImpl.java",
+      "responsibility": "论文自定义查询实现（已有），执行MySQL FULLTEXT参数化SQL+排序白名单+条件过滤+分页",
+      "key_interfaces": [
+        {
+          "name": "searchByKeyword",
+          "signature": "Page<Paper> searchByKeyword(String keyword, Integer yearFrom, Integer yearTo, String venue, String sort, Pageable pageable)",
+          "description": "底层全文检索：(1) SORT_MAPPING白名单校验sort参数（relevance→relSort SQL，year→year DESC，citations→citation_count DESC，非法值→year DESC）；(2) DATA_SQL_TEMPLATE执行MATCH(title, abstract) AGAINST(?1 IN NATURAL LANGUAGE MODE)全文检索；(3) yearFrom/yearTo/venue三个过滤条件使用IS NULL OR参数化动态SQL；(4) COUNT_SQL配合分页计算total。使用@PersistenceContext注入EntityManager，@Transactional(readOnly=true)。"
+        }
+      ]
+    },
+    {
+      "name": "PaperMapper",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/PaperMapper.java",
+      "responsibility": "MapStruct映射器（task15新建），已有toResponse(Paper)→PaperResponse方法处理JSON字符串→List<String>转换",
+      "key_interfaces": [
+        {
+          "name": "toResponse",
+          "signature": "PaperResponse toResponse(Paper paper)",
+          "description": "Paper Entity→PaperResponse DTO转换，含authors/keywords JSON字符串→List<String>反序列化"
+        }
+      ]
+    },
+    {
+      "name": "RedisConfig",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java",
+      "responsibility": "Redis缓存配置（已有），paperSearch缓存空间TTL=10min已配置",
+      "key_interfaces": [
+        {
+          "name": "paperSearchCacheConfiguration",
+          "signature": "paperSearch TTL=10min",
+          "description": "检索结果缓存空间，10分钟过期，含±10%随机偏移"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java",
+      "description": "新增searchPapers方法：参数校验（q非空、sort白名单、yearFrom≤yearTo、page/size边界修正）+调用paperRepository.searchByKeyword + PaperMapper批量转换 + @Cacheable(value=\"paperSearch\")缓存10min",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/PaperController.java",
+      "description": "新增searchPapers端点：@GetMapping(\"/search\")接收6个@RequestParam（q必填+yearFrom/yearTo/venue/sort/page/size可选），调用paperService.searchPapers，返回ApiResponse<PageResponse<PaperResponse>>",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "PaperController.searchPapers端点：@GetMapping(\"/search\") + 6个@RequestParam：(1) @RequestParam String q（必填，搜索关键词）；(2) @RequestParam(required=false) Integer yearFrom（可选，年份范围起始）；(3) @RequestParam(required=false) Integer yearTo（可选，年份范围结束）；(4) @RequestParam(required=false) String venue（可选，会议/期刊精确匹配）；(5) @RequestParam(defaultValue=\"relevance\") String sort（排序方式，默认相关度）；(6) @RequestParam(defaultValue=\"1\") int page（页码，从1开始）；(7) @RequestParam(defaultValue=\"10\") int size（每页条数，默认10）。Controller仅做参数接收+调用paperService.searchPapers+返回ApiResponse.success()，不含任何业务逻辑。",
+        "priority": "P0",
+        "acceptance_condition": "GET /api/papers/search?q=agent 返回全文检索结果，无参数时返回400（q必填）"
+      },
+      {
+        "id": "FR-002",
+        "description": "PaperService.searchPapers参数校验：(1) q不能为null且trim后不能为空字符串，否则抛IllegalArgumentException(\"搜索关键词不能为空\")——此异常由Spring默认400处理或GlobalExceptionHandler统一捕获；(2) yearFrom和yearTo如果都不为null，yearFrom必须≤yearTo，否则抛BusinessException(ErrorCode.INVALID_PARAMETER, \"yearFrom不能大于yearTo\")；(3) sort参数白名单校验：必须为\"relevance\"/\"year\"/\"citations\"之一，非法值降级为\"relevance\"并log.warn记录降级日志；(4) page<1修正为1，size<1修正为10，size>100修正为100（与listPapers一致）。",
+        "priority": "P0",
+        "acceptance_condition": "q为空抛400、yearFrom>yearTo抛400、非法sort降级为relevance、page/size边界修正"
+      },
+      {
+        "id": "FR-003",
+        "description": "PaperService.searchPapers核心逻辑：(1) PageRequest pageable = PageRequest.of(page-1, size)构造分页——注意不传入Sort参数，排序由底层SQL的ORDER BY控制（PaperRepositoryCustomImpl内部根据sort参数拼接ORDER BY子句）；(2) Page<Paper> paperPage = paperRepository.searchByKeyword(q, yearFrom, yearTo, venue, sort, pageable)调用已有自定义查询；(3) List<PaperResponse> mappedList = paperPage.getContent().stream().map(paperMapper::toResponse).toList()批量转换（利用PaperMapper已有toResponse方法处理JSON反序列化）；(4) return PageResponse.fromPage(paperPage, mappedList)构造响应。",
+        "priority": "P0",
+        "acceptance_condition": "搜索结果正确分页，authors/keywords为List<String>格式，PageResponse字段完整"
+      },
+      {
+        "id": "FR-004",
+        "description": "searchPapers缓存注解：@Cacheable(value=\"paperSearch\", key=\"T(java.lang.String).format('%s_%s_%s_%s_%s_%d_%d', #q, #yearFrom, #yearTo, #venue, #sort, #page, #size)\")。使用所有查询参数拼接缓存Key（q+yearFrom+yearTo+venue+sort+page+size），确保不同查询条件缓存正确隔离。TTL=10min（已在RedisConfig的paperSearch缓存空间配置，含±10%随机偏移）。注意：(1) unless条件不设置——即使搜索结果为0条也应缓存空值，防止缓存穿透；(2) 使用String.format拼接而非#root.args[0]等，增强可读性和跨Spring版本兼容性。",
+        "priority": "P0",
+        "acceptance_condition": "缓存命中时Repository.searchByKeyword不被调用，缓存Key格式正确隔离不同查询条件"
+      },
+      {
+        "id": "FR-005",
+        "description": "排序方式说明：(1) relevance（默认）— 按MySQL FULLTEXT相关度降序：MATCH(title, abstract) AGAINST(keyword IN NATURAL LANGUAGE MODE) DESC，最相关论文排前；(2) year — 按发表年份降序：year DESC，最新论文排前；(3) citations — 按引用数降序：citation_count DESC，高引论文排前。排序白名单由PaperRepositoryCustomImpl的SORT_MAPPING控制，Service层做二次白名单校验并降级。",
+        "priority": "P0",
+        "acceptance_condition": "三种排序方式均返回正确排序结果，非法sort值降级为relevance"
+      },
+      {
+        "id": "FR-006",
+        "description": "全文检索说明：使用MySQL FULLTEXT索引ft_title_abstract（ngram parser支持中文分词），执行MATCH(title, abstract) AGAINST(? IN NATURAL LANGUAGE MODE)。自然语言模式自动处理停用词和词干提取，无需布尔模式。全文索引在papers表DDL中已定义：FULLTEXT INDEX ft_title_abstract (title, abstract) WITH PARSER ngram。",
+        "priority": "P0",
+        "acceptance_condition": "中文关键词搜索能正确召回相关论文（如搜索\"多智能体\"能返回中文论文）"
+      },
+      {
+        "id": "FR-007",
+        "description": "条件过滤说明：(1) yearFrom/yearTo — 年份范围过滤，NULL表示不限制该边界，两个都为NULL时不过滤年份，仅yearFrom时搜≥yearFrom，仅yearTo时搜≤yearTo；(2) venue — 会议/期刊名称精确匹配（SQL: AND (?4 IS NULL OR venue = ?4)），NULL时不过滤会议。所有过滤条件通过IS NULL OR参数化动态SQL实现，防止SQL注入。",
+        "priority": "P0",
+        "acceptance_condition": "年份范围过滤和会议过滤正确工作，不传参数时返回全部结果"
+      },
+      {
+        "id": "FR-008",
+        "description": "JWT鉴权：GET /api/papers/search端点需JWT认证（不在白名单路径中：/api/users/register, /api/users/login, /health, /actuator/**, /error）。JwtAuthFilter自动从Authorization Header解析Bearer Token，注入SecurityContext。未携带Token或Token无效由CustomAuthenticationEntryPoint返回401 ApiResponse。",
+        "priority": "P0",
+        "acceptance_condition": "未携带Token返回401，携带有效Token正常访问搜索接口"
+      },
+      {
+        "id": "FR-009",
+        "description": "空结果处理：搜索关键词无匹配结果时，返回PageResponse(total=0, items=[])而非null，确保前端正确显示\"无结果\"而非报错。缓存层缓存空结果（@Cacheable不设置unless条件，空PageResponse也会被缓存），TTL=10min，避免缓存穿透。",
+        "priority": "P1",
+        "acceptance_condition": "无匹配结果返回PageResponse(total=0, items=[])，不返回null或报错"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+          { "java": "createdAt", "python": "created_at", "json": "created_at" },
+          { "java": "updatedAt", "python": "updated_at", "json": "updated_at" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/papers/search",
+          "method": "GET",
+          "request_format": {
+            "query": {
+              "q": "multi-agent",
+              "yearFrom": 2020,
+              "yearTo": 2024,
+              "venue": "AAAI",
+              "sort": "relevance",
+              "page": 1,
+              "size": 10
+            }
+          },
+          "response_format": {
+            "code": 200,
+            "message": "success",
+            "data": {
+              "items": [
+                {
+                  "paper_id": "arxiv_2024_001",
+                  "title": "Multi-Agent Systems: A Survey",
+                  "authors": ["Wang, L.", "Chen, X."],
+                  "year": 2024,
+                  "venue": "AAAI",
+                  "keywords": ["multi-agent", "survey"],
+                  "citation_count": 1200
+                }
+              ],
+              "total": 15,
+              "page": 1,
+              "size": 10,
+              "total_pages": 2
+            }
+          }
+        }
+      ],
+      "data_flow": "前端请求(GET /api/papers/search?q=agent&sort=relevance&page=1) → PaperController.searchPapers接收@RequestParam → PaperService.searchPapers参数校验(sort白名单+边界修正) → Redis缓存未命中 → paperRepository.searchByKeyword(q, yearFrom, yearTo, venue, sort, pageable) → PaperRepositoryCustomImpl执行参数化Native SQL（MATCH...AGAINST全文检索+year/venue过滤+ORDER BY排序+分页）→ 返回Page<Paper> → paperMapper.toResponse批量转换(List<PaperResponse>) → PageResponse.fromPage包装 → 回填Redis缓存(TTL=10min) → ApiResponse.success返回JSON(snake_case)。"
+    },
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          { "priority": 1, "name": "BuiltinLLMProvider", "description": "软件方模型（优先级最高）" },
+          { "priority": 2, "name": "APILLMProvider", "description": "外接API（阿里云百炼等）" },
+          { "priority": 3, "name": "LocalLLMProvider", "description": "本地Qwen2（兜底）" }
+        ],
+        "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "单Agent超时30s跳过，继续后续流程",
+        "multi_agent_failure": "多Agent失败时降级为单Agent模式（仅Retriever+Generator）",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "jwt_auth",
+        "requirement": "GET /api/papers/search 需JWT认证（非白名单路径），未携带Token返回401"
+      },
+      {
+        "category": "data_isolation",
+        "requirement": "论文搜索不涉及用户级数据隔离（论文为公共资源，所有认证用户可访问）"
+      },
+      {
+        "category": "sql_injection",
+        "requirement": "底层PaperRepositoryCustomImpl使用EntityManager.createNativeQuery + setParameter参数化查询，禁止SQL拼接"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "API响应不包含敏感信息（无password等），仅返回论文公开元数据"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE",
+        "config_key": "kebab-case"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "database": {
+        "table_name": "snake_case, 复数形式",
+        "column_name": "snake_case",
+        "index_name": "idx_/uk_/ft_ + 字段名"
+      },
+      "cross_system_mapping": [
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+        { "java": "createdAt", "python": "created_at", "json": "created_at" },
+        { "java": "updatedAt", "python": "updated_at", "json": "updated_at" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "primary_key": "id BIGINT AUTO_INCREMENT",
+      "business_id": "xxx_id VARCHAR(100) UNIQUE NOT NULL",
+      "timestamp_fields": {
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+      },
+      "comment_required": true,
+      "json_fields_only_for_dynamic": true,
+      "fulltext_parser": "ngram",
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"],
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块（如UserService/SessionService/AnalysisService/PaperRepositoryCustomImpl等）", "reason": "PaperRepositoryCustomImpl已完整实现底层全文检索，无需修改；仅修改PaperService和PaperController", "severity": "high" },
+    { "id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical" },
+    { "id": "FA-004", "action": "破坏分层调用规范（PaperController直接操作PaperRepositoryCustomImpl等）", "reason": "分层架构约束：Controller→Service→Repository→CustomImpl", "severity": "critical" },
+    { "id": "FA-005", "action": "Paper Entity直接返回给前端（必须通过PaperResponse/PaperDetailResponse转换）", "reason": "数据隔离与接口稳定性", "severity": "high" },
+    { "id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-007", "action": "违反跨系统字段命名约定（输出Java驼峰而非snake_case）", "reason": "跨系统一致性约束，Python AI服务和前端依赖snake_case", "severity": "high" },
+    { "id": "FA-008", "action": "在循环中打印INFO及以上级别日志（如Stream.map中log.info每篇论文）", "reason": "性能约束", "severity": "medium" },
+    { "id": "FA-009", "action": "使用SQL拼接（必须参数化查询）——注意：SearchService层不应构建SQL，所有SQL由PaperRepositoryCustomImpl统一管理", "reason": "SQL注入防护", "severity": "critical" },
+    { "id": "FA-010", "action": "Controller中编写业务逻辑（如参数校验、sort白名单校验、Entity→DTO转换、Repository调用等）", "reason": "Controller仅做参数接收+调用Service+返回Response", "severity": "high" },
+    { "id": "FA-011", "action": "修改PaperRepositoryCustomImpl——该文件已完整实现全文检索+条件过滤+排序+分页，本次任务仅通过Service调用其searchByKeyword方法，不需要修改底层实现", "reason": "避免引入无关变更，自定义Repository实现已在task09中完成", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "PaperServiceSearchTest",
+        "description": "测试PaperService.searchPapers方法（使用Mockito Mock PaperRepository和PaperMapper）：(1) searchPapers正常返回PageResponse<PaperResponse>——验证paperRepository.searchByKeyword被调用且参数正确传递；(2) searchPapers q为null→抛IllegalArgumentException；(3) searchPapers q为空白字符串(\"   \")→抛IllegalArgumentException；(4) searchPapers yearFrom>yearTo→抛BusinessException；(5) searchPapers sort为非法值（如\"invalid\"）→降级为\"relevance\"且log.warn被调用，验证paperRepository.searchByKeyword被以sort=\"relevance\"调用；(6) searchPapers page=0→修正为1，size=0→修正为10，size=200→修正为100；(7) searchPapers缓存命中——第二次调用相同参数时paperRepository.searchByKeyword不被调用（验证@Cacheable生效）；(8) searchPapers返回空结果→PageResponse(total=0, items=[])而非null；(9) searchPapers 正确调用paperMapper.toResponse批量转换Page<Paper>中每篇Paper",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "PaperRepositoryCustomImplTest",
+        "description": "测试已有PaperRepositoryCustomImpl.searchByKeyword（集成测试，需真实MySQL连接）：(1) 全文检索中文关键词返回相关论文；(2) 全文检索英文关键词返回相关论文；(3) yearFrom/yearTo年份过滤正确；(4) venue会议过滤正确；(5) sort=relevance按相关度排序；(6) sort=year按年份降序；(7) sort=citations按引用数降序；(8) sort=非法值降级为year DESC；(9) 所有过滤条件都为NULL时返回全部匹配论文；(10) 无匹配论文返回空Page",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "PaperControllerSearchTest",
+        "description": "验证PaperController搜索端点完整HTTP链路：GET /api/papers/search?q=agent&sort=relevance&page=1返回分页JSON、GET /api/papers/search?q=agent&yearFrom=2020&yearTo=2024&venue=AAAI返回过滤结果、GET /api/papers/search?q=nonexistent返回空分页、GET /api/papers/search缺少q参数返回400、GET /api/papers/search未携带Token返回401。验证JSON字段名使用snake_case。",
+        "layers_involved": ["java_backend"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，PaperService新增searchPapers方法+PaperController新增searchPapers端点无错误"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=PaperServiceSearchTest",
+        "expected_result": "PaperServiceSearchTest全部通过（含缓存命中验证）"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test",
+        "expected_result": "所有测试通过（含task15已有测试+本次新增搜索测试）"
+      },
+      {
+        "layer": "java",
+        "command": "curl -H 'Authorization: Bearer <valid_token>' 'http://localhost:8080/api/papers/search?q=agent&sort=relevance&page=1&size=5'",
+        "expected_result": "返回HTTP 200+JSON中包含分页论文搜索结果（需先完成task15部署PaperController+PaperService）"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "GET /api/papers/search?q=agent 返回ApiResponse<PageResponse<PaperResponse>>，items为匹配论文列表", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "GET /api/papers/search?q=agent&sort=year&yearFrom=2020&yearTo=2024&venue=AAAI 正确过滤年份范围和会议", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "GET /api/papers/search?q=nonexistent_keyword_xyz 返回PageResponse(total=0, items=[])，不返回null", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "GET /api/papers/search 缺少q参数返回400", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "GET /api/papers/search?q=test&sort=invalid → sort非法值降级为relevance + log.warn", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "searchPapers使用@Cacheable(value=\"paperSearch\", key=...)缓存10分钟，第二次相同请求不查询数据库", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "三种排序方式均正确：sort=relevance按相关度、sort=year按年份降序、sort=citations按引用数降序", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "page从1开始，size默认10，page/size边界值修正（<1修正为默认值，>100修正为100）", "verified_by": "automated_test" },
+    { "id": "AC-009", "criterion": "GET /api/papers/search 未携带Token返回401", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "Controller不含业务逻辑（无参数校验、无sort白名单、无Repository调用、无JSON转换）", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "底层PaperRepositoryCustomImpl的SQL使用setParameter参数化查询，无SQL拼接风险", "verified_by": "code_review" },
+    { "id": "AC-012", "criterion": "mvn compile 和 mvn test 均成功", "verified_by": "automated_test" }
+  ]
+}

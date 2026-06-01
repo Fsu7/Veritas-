@@ -178,6 +178,8 @@ json_prompt/
 | 12 | task12_user_service | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.1.1, F2.1.2, F2.1.3, F2.1.4 |
 | 13 | task13_jwt_filter_util | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.1.2, F2.1.3 |
 | 14 | task14_profile_crud_dto | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.1.5 |
+| 15 | task15_paper_controller_service_list_detail | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.2.1, F2.2.2 |
+| 16 | task16_paper_search_fulltext_filter_sort | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.2.3 |
 
 ### ai-service/
 

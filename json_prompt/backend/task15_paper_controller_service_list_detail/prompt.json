@@ -1,0 +1,596 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M3：前后端联调 / JM2：Java后端M2",
+    "requirement": "实现论文管理模块的列表/详情功能（F2.2.1 + F2.2.2）：新增PaperResponse/PaperDetailResponse两个DTO，PaperMapper(MapStruct)做Entity↔DTO转换（含authors/keywords JSON字符串解析与re-encoding），PaperService.listPapers(page,size)分页查询+PageResponse包装，PaperService.getPaperDetail(paperId)按paperId查询+@Cacheable(paperDetail)30min缓存，PaperController新增2个端点（GET /api/papers、GET /api/papers/{paperId}）。所有API需JWT鉴权，Controller只做参数接收与Service调用，禁止直接返回Paper Entity。Response字段使用@JsonProperty输出snake_case，与Python AI服务契约一致。",
+    "requirement_ids": ["F2.2.1", "F2.2.2"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§5 论文管理模块（PaperController/PaperService方法签名+缓存注解+@Transactional策略）、§6 DTO设计（PaperResponse/PaperDetailResponse字段定义）、§8 API端点（GET /api/papers、GET /api/papers/{paperId}）"
+      },
+      {
+        "path": "docs/database/数据库设计文档.md",
+        "purpose": "§3.5 papers表结构（paper_id/title/authors JSON/abstract/year/venue/keywords JSON/citation_count/pdf_url）、§3.5.3 JSON字段格式（authors=['Wang, L.']、keywords=['multi-agent']）、§4.3 缓存空间（paperDetail:30min TTL）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§7.2 Redis缓存Key（paper:detail:{paperId} TTL=30min）、§8.1 API契约（GET /api/papers、GET /api/papers/{paperId}）、§9.2 Java后端规范（Entity与DTO分离+MapStruct+@Cacheable）"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "§3.4 JM2任务分解（Week 5 Day 3 论文管理模块 - PaperController+PaperService列表/详情）、§4.4 JM2验收检查点（论文列表+论文详情API）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.response",
+        "description": "响应DTO包，新增PaperResponse/PaperDetailResponse"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.mapper",
+        "description": "MapStruct映射器包，新增PaperMapper"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.controller",
+        "description": "控制器包，新增PaperController"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "服务包，新增PaperService"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/entity/Paper.java",
+        "description": "Paper实体：id, paperId(UQ), title, authors(JSON String), abstractText, year, venue, keywords(JSON String), citationCount, pdfUrl, createdAt, updatedAt。已使用@PrePersist/@PreUpdate维护时间戳。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepository.java",
+        "description": "PaperRepository：extends JpaRepository<Paper,Long> + JpaSpecificationExecutor<Paper> + PaperRepositoryCustom。已含findByPaperId(String)→Optional<Paper>和findByPaperIdIn(List<String>)→List<Paper>。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/ApiResponse.java",
+        "description": "统一响应封装：ApiResponse<T>，含success(data)/error(code,msg)/error(ErrorCode)静态工厂方法。timestamp字段已@JsonProperty映射。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/PageResponse.java",
+        "description": "分页响应封装：PageResponse<T>含items/total/page/size/total_pages(@JsonProperty映射)。提供fromPage(Page<T>)和fromPage(Page<T>, List<R>)两个静态工厂方法。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/ResourceNotFoundException.java",
+        "description": "资源不存在异常：ResourceNotFoundException(resource, id)，HTTP 404，errorKey='RESOURCE_NOT_FOUND'",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/BusinessException.java",
+        "description": "业务异常基类：code/message/errorKey三字段，支持多种构造器",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/GlobalExceptionHandler.java",
+        "description": "全局异常处理器：@RestControllerAdvice统一处理BusinessException/ResourceNotFoundException/MethodArgumentNotValidException等，code映射HTTP状态码。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+        "description": "Redis Key工具类：已含paperDetailKey(paperId)→\"paper:detail:\"+paperId、paperListKey(queryHash)、searchResultKey(queryHash)等方法。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java",
+        "description": "Redis配置：CacheManager(6个缓存空间TTL分层，已含paperDetail=30min+paperSearch=10min)，RedisTemplate<String,String>。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/UserMapper.java",
+        "description": "UserMapper(MapStruct)参考示例：@Mapper(componentModel=\"spring\")、@Mapping+expression处理枚举dbValue转换",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java",
+        "description": "UserService参考：分层结构（@Service+@RequiredArgsConstructor+@Slf4j）、@Cacheable/@CacheEvict使用方式、validateDataIsolation私有方法",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/UserController.java",
+        "description": "UserController参考：@RestController+@RequestMapping+@RequiredArgsConstructor、@Valid+@RequestBody、ApiResponse.success()返回",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PaperResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/PaperResponse.java",
+      "responsibility": "论文列表项响应DTO，使用@JsonProperty输出snake_case字段，将authors/keywords的JSON字符串转换为List<String>",
+      "key_interfaces": [
+        {
+          "name": "paperId",
+          "signature": "@JsonProperty(\"paper_id\") String paperId",
+          "description": "论文业务ID"
+        },
+        {
+          "name": "title",
+          "signature": "String title",
+          "description": "论文标题"
+        },
+        {
+          "name": "authors",
+          "signature": "List<String> authors",
+          "description": "作者列表（从JSON字符串反序列化）"
+        },
+        {
+          "name": "year",
+          "signature": "Integer year",
+          "description": "发表年份"
+        },
+        {
+          "name": "venue",
+          "signature": "String venue",
+          "description": "发表会议/期刊"
+        },
+        {
+          "name": "keywords",
+          "signature": "List<String> keywords",
+          "description": "关键词列表（从JSON字符串反序列化）"
+        },
+        {
+          "name": "citationCount",
+          "signature": "@JsonProperty(\"citation_count\") Integer citationCount",
+          "description": "引用数"
+        }
+      ]
+    },
+    {
+      "name": "PaperDetailResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/PaperDetailResponse.java",
+      "responsibility": "论文详情响应DTO，继承PaperResponse全部字段，额外包含abstract/pdfUrl/createdAt/updatedAt",
+      "key_interfaces": [
+        {
+          "name": "abstractText",
+          "signature": "@JsonProperty(\"abstract\") String abstractText",
+          "description": "论文摘要（注意：Entity字段名为abstractText，输出JSON时使用abstract）"
+        },
+        {
+          "name": "pdfUrl",
+          "signature": "@JsonProperty(\"pdf_url\") String pdfUrl",
+          "description": "PDF链接"
+        },
+        {
+          "name": "createdAt",
+          "signature": "@JsonProperty(\"created_at\") LocalDateTime createdAt",
+          "description": "创建时间"
+        },
+        {
+          "name": "updatedAt",
+          "signature": "@JsonProperty(\"updated_at\") LocalDateTime updatedAt",
+          "description": "更新时间"
+        }
+      ]
+    },
+    {
+      "name": "PaperMapper",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/PaperMapper.java",
+      "responsibility": "MapStruct映射器，Paper Entity↔PaperResponse/PaperDetailResponse转换，处理authors/keywords JSON字符串↔List<String>的转换",
+      "key_interfaces": [
+        {
+          "name": "toResponse",
+          "signature": "PaperResponse toResponse(Paper paper)",
+          "description": "Paper → PaperResponse（含authors/keywords JSON解析为List<String>）"
+        },
+        {
+          "name": "toDetailResponse",
+          "signature": "PaperDetailResponse toDetailResponse(Paper paper)",
+          "description": "Paper → PaperDetailResponse（含摘要+PDF+时间戳）"
+        }
+      ]
+    },
+    {
+      "name": "PaperService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java",
+      "responsibility": "论文业务逻辑，listPapers分页查询+getPaperDetail按ID查询+缓存管理",
+      "key_interfaces": [
+        {
+          "name": "listPapers",
+          "signature": "public PageResponse<PaperResponse> listPapers(int page, int size)",
+          "description": "分页查询论文列表，使用PaperRepository.findAll(Pageable)，Page→PageResponse via MapStruct映射"
+        },
+        {
+          "name": "getPaperDetail",
+          "signature": "@Cacheable(value=\"paperDetail\", key=\"#paperId\", unless=\"#result == null\") public PaperDetailResponse getPaperDetail(String paperId)",
+          "description": "按paperId查询论文详情，缓存30分钟；论文不存在抛ResourceNotFoundException"
+        }
+      ]
+    },
+    {
+      "name": "PaperController",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/PaperController.java",
+      "responsibility": "论文API入口，新增多/全部论文管理端点",
+      "key_interfaces": [
+        {
+          "name": "listPapers",
+          "signature": "@GetMapping public ApiResponse<PageResponse<PaperResponse>> listPapers(@RequestParam(defaultValue=\"1\") int page, @RequestParam(defaultValue=\"10\") int size)",
+          "description": "GET /api/papers → 分页查询论文列表，page从1开始，size默认10"
+        },
+        {
+          "name": "getPaperDetail",
+          "signature": "@GetMapping(\"/{paperId}\") public ApiResponse<PaperDetailResponse> getPaperDetail(@PathVariable String paperId)",
+          "description": "GET /api/papers/{paperId} → 获取论文详情"
+        }
+      ]
+    },
+    {
+      "name": "PaperRepository",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepository.java",
+      "responsibility": "论文数据访问，已含findByPaperId/findByPaperIdIn/JpaRepository.findAll(Pageable)",
+      "key_interfaces": [
+        {
+          "name": "findByPaperId",
+          "signature": "Optional<Paper> findByPaperId(String paperId)",
+          "description": "按paperId查询单篇论文"
+        },
+        {
+          "name": "findAll",
+          "signature": "Page<Paper> findAll(Pageable pageable)",
+          "description": "JpaRepository内置分页查询"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/PaperResponse.java",
+      "description": "论文列表项DTO：7个字段（paperId/title/authors/year/venue/keywords/citationCount），@JsonProperty输出snake_case，authors/keywords使用List<String>类型（与Entity的JSON String转换）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/PaperDetailResponse.java",
+      "description": "论文详情DTO：包含PaperResponse全部字段+abstract/pdfUrl/createdAt/updatedAt，使用@EqualsAndHashCode(callSuper=true)+@Data",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/PaperMapper.java",
+      "description": "MapStruct映射器：toResponse(Paper)→PaperResponse + toDetailResponse(Paper)→PaperDetailResponse，处理authors/keywords JSON字符串与List<String>的相互转换（使用ObjectMapper或qualifiedByName自定义方法）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java",
+      "description": "论文Service：listPapers分页+getPaperDetail按ID查询（含@Cacheable缓存），调用PaperMapper做Entity→DTO转换",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/PaperController.java",
+      "description": "论文Controller：@RestController+@RequestMapping(\"/api/papers\")，listPapers+getPaperDetail两个端点，参数校验+调用Service+返回ApiResponse",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "PaperResponse DTO：@Data @NoArgsConstructor @AllArgsConstructor @Builder。7个字段：(1) @JsonProperty(\"paper_id\") private String paperId；(2) private String title；(3) private List<String> authors（注意：Entity的authors是JSON字符串，DTO是List<String>，转换在PaperMapper中处理）；(4) private Integer year；(5) private String venue；(6) private List<String> keywords（同authors）；(7) @JsonProperty(\"citation_count\") private Integer citationCount。关键：authors/keywords使用List<String>类型而非JSON字符串，方便前端使用。",
+        "priority": "P0",
+        "acceptance_condition": "PaperResponse的7个字段正确映射，@JsonProperty输出snake_case，authors/keywords为List<String>类型"
+      },
+      {
+        "id": "FR-002",
+        "description": "PaperDetailResponse DTO：使用@EqualsAndHashCode(callSuper=true) @ToString(callSuper=true) @Data @NoArgsConstructor @AllArgsConstructor @Builder。继承PaperResponse全部7个字段，额外4个字段：(1) @JsonProperty(\"abstract\") private String abstractText（注意：Entity字段为abstractText，输出JSON时使用abstract避免与Java关键字冲突）；(2) @JsonProperty(\"pdf_url\") private String pdfUrl；(3) @JsonProperty(\"created_at\") private LocalDateTime createdAt；(4) @JsonProperty(\"updated_at\") private LocalDateTime updatedAt。",
+        "priority": "P0",
+        "acceptance_condition": "PaperDetailResponse继承PaperResponse，输出JSON时abstract字段名而非abstractText"
+      },
+      {
+        "id": "FR-003",
+        "description": "PaperMapper (MapStruct)：@Mapper(componentModel=\"spring\") + 注入ObjectMapper用于JSON转换。提供2个方法：(1) PaperResponse toResponse(Paper paper) - 转换authors/keywords JSON字符串为List<String>（使用@Mapping(qualifiedByName=\"jsonToList\")）；(2) PaperDetailResponse toDetailResponse(Paper paper) - 复用toResponse+补充abstract/pdfUrl/createdAt/updatedAt。自定义@Named方法：default List<String> jsonToList(String json) { if (json==null||json.isBlank()) return List.of(); return objectMapper.readValue(json, new TypeReference<List<String>>(){}); }。关键：使用qualifiedByName避免MapStruct默认方法映射冲突。",
+        "priority": "P0",
+        "acceptance_condition": "PaperMapper成功将Paper Entity转换为PaperResponse和PaperDetailResponse，authors/keywords正确从JSON字符串反序列化为List<String>"
+      },
+      {
+        "id": "FR-004",
+        "description": "PaperService.listPapers(int page, int size)→PageResponse<PaperResponse>：(1) 参数校验：page>=1, size在1-100之间（size<1修正为10，size>100修正为100）；(2) 使用PageRequest.of(page-1, size, Sort.by(Sort.Direction.DESC, \"createdAt\"))按创建时间倒序；(3) 调用paperRepository.findAll(pageable)获取Page<Paper>；(4) 通过paperMapper将Page<Paper>中的content转为List<PaperResponse>；(5) 使用PageResponse.fromPage(page, mappedList)构造响应。注意：page从1开始（前端友好），PageRequest.from从0开始，需要page-1。",
+        "priority": "P0",
+        "acceptance_condition": "listPapers返回PageResponse<PaperResponse>，按创建时间倒序，page/size边界值正确处理"
+      },
+      {
+        "id": "FR-005",
+        "description": "PaperService.getPaperDetail(String paperId)→PaperDetailResponse：(1) 调用paperRepository.findByPaperId(paperId)获取Optional<Paper>；(2) 不存在抛ResourceNotFoundException(\"Paper\", paperId)；(3) 通过paperMapper.toDetailResponse(paper)转换为PaperDetailResponse；(4) 添加@Cacheable(value=\"paperDetail\", key=\"#paperId\", unless=\"#result == null\")缓存注解，TTL=30min（已在RedisConfig配置）。",
+        "priority": "P0",
+        "acceptance_condition": "getPaperDetail返回PaperDetailResponse，论文不存在抛404，缓存命中直接返回"
+      },
+      {
+        "id": "FR-006",
+        "description": "PaperController新增2个论文管理端点：(1) @GetMapping public ApiResponse<PageResponse<PaperResponse>> listPapers(@RequestParam(defaultValue=\"1\") int page, @RequestParam(defaultValue=\"10\") int size) - 调用paperService.listPapers(page, size)，返回ApiResponse<PageResponse<PaperResponse>>；(2) @GetMapping(\"/{paperId}\") public ApiResponse<PaperDetailResponse> getPaperDetail(@PathVariable String paperId) - 调用paperService.getPaperDetail(paperId)，返回ApiResponse<PaperDetailResponse>。Controller仅做参数接收+调用Service+返回Response，不含业务逻辑（如JSON转换、缓存操作、Repository调用等）。",
+        "priority": "P0",
+        "acceptance_condition": "GET /api/papers 返回分页论文列表；GET /api/papers/{paperId} 返回论文详情；Controller不含业务逻辑"
+      },
+      {
+        "id": "FR-007",
+        "description": "JWT鉴权：2个端点均需JWT认证（不在白名单中：/api/users/register, /api/users/login, /health, /actuator/**, /error）。JwtAuthFilter自动从Authorization Header解析Bearer Token，注入SecurityContext。未携带Token或Token无效由CustomAuthenticationEntryPoint返回401 ApiResponse。SecurityConfig无需修改（anyRequest().authenticated()已覆盖）。",
+        "priority": "P0",
+        "acceptance_condition": "未携带Token返回401，携带有效Token正常访问"
+      },
+      {
+        "id": "FR-008",
+        "description": "作者/关键词JSON转换健壮性：PaperMapper的jsonToList方法需处理3种情况：(1) null/空字符串 → 返回List.of()（空列表）；(2) 合法JSON数组字符串如'[\"Wang, L.\", \"Chen, X.\"]' → 返回对应List；(3) 非法JSON字符串 → 捕获JsonProcessingException，返回List.of()并log.warn(\"Failed to parse JSON field: {}\", json)，避免抛出异常中断接口。",
+        "priority": "P1",
+        "acceptance_condition": "authors/keywords为null/空/非法JSON时返回空列表，不抛出异常中断接口"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+          { "java": "pdfUrl", "python": "pdf_url", "json": "pdf_url" },
+          { "java": "abstractText", "python": "abstract", "json": "abstract" },
+          { "java": "createdAt", "python": "created_at", "json": "created_at" },
+          { "java": "updatedAt", "python": "updated_at", "json": "updated_at" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/papers",
+          "method": "GET",
+          "request_format": {
+            "query": {
+              "page": 1,
+              "size": 10
+            }
+          },
+          "response_format": {
+            "code": 200,
+            "message": "success",
+            "data": {
+              "items": [
+                {
+                  "paper_id": "arxiv_2024_001",
+                  "title": "Multi-Agent Systems: A Survey",
+                  "authors": ["Wang, L.", "Chen, X."],
+                  "year": 2024,
+                  "venue": "AAAI",
+                  "keywords": ["multi-agent", "survey"],
+                  "citation_count": 1200
+                }
+              ],
+              "total": 200,
+              "page": 1,
+              "size": 10,
+              "total_pages": 20
+            }
+          }
+        },
+        {
+          "endpoint": "/api/papers/{paperId}",
+          "method": "GET",
+          "request_format": {},
+          "response_format": {
+            "code": 200,
+            "message": "success",
+            "data": {
+              "paper_id": "arxiv_2024_001",
+              "title": "Multi-Agent Systems: A Survey",
+              "authors": ["Wang, L.", "Chen, X."],
+              "year": 2024,
+              "venue": "AAAI",
+              "keywords": ["multi-agent", "survey"],
+              "citation_count": 1200,
+              "abstract": "This paper provides a comprehensive survey...",
+              "pdf_url": "https://arxiv.org/pdf/2401.001",
+              "created_at": "2026-05-23T10:00:00",
+              "updated_at": "2026-05-23T10:00:00"
+            }
+          }
+        }
+      ],
+      "data_flow": "前端请求(GET /api/papers?page=1&size=10) → PaperController.listPapers接收page/size → PaperService.listPapers校验边界+构造PageRequest → PaperRepository.findAll(Pageable)查MySQL → 返回Page<Paper> → PaperMapper.toResponse()批量转换（authors/keywords JSON→List<String>） → PageResponse.fromPage(page, mappedList)包装 → ApiResponse.success(pageResponse) → JSON响应(snake_case)。论文详情类似流程，但PaperService.getPaperDetail有@Cacheable缓存层：先查Redis(TTL=30min) → 命中直接返回PaperDetailResponse JSON → 未命中查MySQL → 回填Redis → 返回。"
+    },
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          { "priority": 1, "name": "BuiltinLLMProvider", "description": "软件方模型（优先级最高）" },
+          { "priority": 2, "name": "APILLMProvider", "description": "外接API（阿里云百炼等）" },
+          { "priority": 3, "name": "LocalLLMProvider", "description": "本地Qwen2（兜底）" }
+        ],
+        "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "单Agent超时30s跳过，继续后续流程",
+        "multi_agent_failure": "多Agent失败时降级为单Agent模式（仅Retriever+Generator）",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "jwt_auth",
+        "requirement": "GET /api/papers 和 GET /api/papers/{paperId} 均需JWT认证（非白名单路径），未携带Token返回401"
+      },
+      {
+        "category": "data_isolation",
+        "requirement": "论文管理不涉及用户级数据隔离（论文为公共资源，所有认证用户可访问）"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "API响应不包含敏感信息（无password等），仅返回论文公开元数据"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE",
+        "config_key": "kebab-case"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "database": {
+        "table_name": "snake_case, 复数形式",
+        "column_name": "snake_case",
+        "index_name": "idx_/uk_/ft_ + 字段名"
+      },
+      "cross_system_mapping": [
+        { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+        { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+        { "java": "pdfUrl", "python": "pdf_url", "json": "pdf_url" },
+        { "java": "abstractText", "python": "abstract", "json": "abstract" },
+        { "java": "createdAt", "python": "created_at", "json": "created_at" },
+        { "java": "updatedAt", "python": "updated_at", "json": "updated_at" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" },
+        { "cache_name": "用户信息", "key_pattern": "user:info:{userId}", "ttl": "1h" },
+        { "cache_name": "论文详情", "key_pattern": "paper:detail:{paperId}", "ttl": "30min" },
+        { "cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min" },
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "JWT黑名单", "key_pattern": "auth:blacklist:{tokenHash}", "ttl": "Token剩余有效期" }
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "primary_key": "id BIGINT AUTO_INCREMENT",
+      "business_id": "xxx_id VARCHAR(100) UNIQUE NOT NULL",
+      "timestamp_fields": {
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+      },
+      "comment_required": true,
+      "json_fields_only_for_dynamic": true,
+      "fulltext_parser": "ngram",
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"],
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块（如UserService/SessionService/AnalysisService等）", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical" },
+    { "id": "FA-004", "action": "破坏分层调用规范（PaperController直接操作PaperRepository等）", "reason": "分层架构约束", "severity": "critical" },
+    { "id": "FA-005", "action": "Paper Entity直接返回给前端（必须通过PaperResponse/PaperDetailResponse转换）", "reason": "数据隔离与接口稳定性", "severity": "high" },
+    { "id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-007", "action": "违反跨系统字段命名约定（输出Java驼峰而非snake_case）", "reason": "跨系统一致性约束，Python AI服务和前端依赖snake_case", "severity": "high" },
+    { "id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium" },
+    { "id": "FA-009", "action": "使用SQL拼接（必须参数化查询）", "reason": "SQL注入防护", "severity": "critical" },
+    { "id": "FA-010", "action": "Controller中编写业务逻辑（如Entity→DTO转换、JSON解析、Repository调用等）", "reason": "Controller仅做参数校验+调用Service+返回Response", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "PaperResponseTest",
+        "description": "测试PaperResponse/PaperDetailResponse的@JsonProperty映射：使用ObjectMapper将DTO序列化为JSON，验证字段名为snake_case（paper_id, citation_count, pdf_url, abstract, created_at, updated_at）；反序列化测试：snake_case JSON → DTO正确映射",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "PaperMapperTest",
+        "description": "测试PaperMapper的Entity↔DTO转换：(1) Paper.authors/keywords为JSON字符串 → PaperResponse.authors/keywords为List<String>；(2) Paper.authors/keywords为null → List.of()；(3) Paper.authors/keywords为空字符串 → List.of()；(4) Paper.authors/keywords为非法JSON → List.of()且不抛异常；(5) Paper → PaperDetailResponse正确映射abstract/pdfUrl/createdAt/updatedAt",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "PaperServiceTest",
+        "description": "测试PaperService核心方法（使用Mockito Mock PaperRepository和PaperMapper）：(1) listPapers正常返回PageResponse<PaperResponse>，page/size正确转换为PageRequest（page-1）；(2) listPapers page<1或size<1使用默认值；(3) listPapers size>100限制为100；(4) getPaperDetail正常返回PaperDetailResponse；(5) getPaperDetail论文不存在抛ResourceNotFoundException(404)；(6) getPaperDetail使用@Cacheable缓存（验证第二次调用Repository.findByPaperId未被调用）",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "PaperControllerTest",
+        "description": "验证PaperController端点完整链路：GET /api/papers返回分页JSON、GET /api/papers/{paperId}返回详情JSON、GET不存在的paperId返回404、未携带Token返回401。验证JSON字段名使用snake_case（paper_id/citation_count等）",
+        "layers_involved": ["java_backend"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，PaperResponse/PaperDetailResponse/PaperMapper/PaperService/PaperController无错误"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=PaperResponseTest,PaperMapperTest,PaperServiceTest",
+        "expected_result": "所有新增单元测试通过"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test",
+        "expected_result": "所有测试通过（含已有测试+新增测试）"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "GET /api/papers?page=1&size=10 返回ApiResponse<PageResponse<PaperResponse>>，items为论文列表", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "GET /api/papers/{paperId} 返回ApiResponse<PaperDetailResponse>，包含abstract/pdfUrl/createdAt/updatedAt", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "GET /api/papers/{不存在的paperId} 返回404 + 错误信息", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "PaperResponse/PaperDetailResponse使用@JsonProperty输出snake_case字段（paper_id, citation_count, pdf_url, abstract, created_at, updated_at）", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "PaperMapper将Paper.authors/keywords的JSON字符串反序列化为List<String>，null/空字符串返回List.of()", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "getPaperDetail使用@Cacheable(value=\"paperDetail\", key=\"#paperId\", unless=\"#result == null\")，缓存30分钟", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "listPapers的page从1开始（PageRequest.from从0开始，service内page-1），size默认10", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "listPapers按createdAt DESC排序（最新论文优先）", "verified_by": "automated_test" },
+    { "id": "AC-009", "criterion": "GET /api/papers 未携带Token返回401", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "Controller不含业务逻辑（无Entity→DTO转换、无Repository调用、无JSON解析）", "verified_by": "code_review" },
+    { "id": "AC-011", "criterion": "所有单元测试通过（PaperResponseTest/PaperMapperTest/PaperServiceTest）", "verified_by": "automated_test" },
+    { "id": "AC-012", "criterion": "mvn compile 和 mvn test 均成功", "verified_by": "automated_test" }
+  ]
+}
