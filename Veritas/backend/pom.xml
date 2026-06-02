@@ -13,7 +13,7 @@
 
     <groupId>com.literatureassistant</groupId>
     <artifactId>backend-java</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>literature-assistant-backend</name>
     <description>XH-202630 科研文献智能助手 - Java后端</description>
 
