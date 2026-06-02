@@ -21,7 +21,9 @@ MAX_RETRIES = 3
 RETRY_INTERVAL = 5
 
 
-async def fetch_papers_from_arxiv(category: str, count: int) -> list:
+async def fetch_papers_from_arxiv(
+    category: str, count: int, year_start: int | None = None
+) -> list:
     papers = []
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -33,6 +35,9 @@ async def fetch_papers_from_arxiv(category: str, count: int) -> list:
             )
 
             for result in client.results(search):
+                if year_start is not None and result.published.year < year_start:
+                    continue
+
                 entry_id = result.entry_id.split("/")[-1]
                 entry_id = entry_id.split("v")[0]
 
@@ -264,15 +269,24 @@ async def main() -> None:
         default=50,
         help="Batch size for vector DB import (default: 50)",
     )
+    parser.add_argument(
+        "--year-start",
+        type=int,
+        default=None,
+        help="Only include papers published on/after this year (e.g. 2025)",
+    )
     args = parser.parse_args()
 
     settings = Settings()
 
     if args.source == "arxiv":
         logger.info(
-            f"Fetching {args.count} papers from arXiv (category={args.category})"
+            f"Fetching {args.count} papers from arXiv (category={args.category}, "
+            f"year_start={args.year_start})"
         )
-        papers = await fetch_papers_from_arxiv(args.category, args.count)
+        papers = await fetch_papers_from_arxiv(
+            args.category, args.count, args.year_start
+        )
     else:
         data_dir = os.environ.get("PAPERS_DATA_DIR", "./data/papers/")
         logger.info(f"Loading papers from JSON (dir={data_dir})")

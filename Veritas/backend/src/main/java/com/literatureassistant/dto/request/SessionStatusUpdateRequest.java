@@ -1,5 +1,6 @@
 package com.literatureassistant.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.literatureassistant.enums.SessionStatus;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
@@ -14,5 +15,6 @@ import lombok.NoArgsConstructor;
 public class SessionStatusUpdateRequest {
 
     @NotNull(message = "状态不能为空")
+    @JsonProperty("status")
     private SessionStatus status;
 }

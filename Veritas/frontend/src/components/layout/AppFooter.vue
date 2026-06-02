@@ -2,17 +2,18 @@
 </script>
 
 <template>
-  <el-footer class="app-footer" height="auto">
+  <footer class="app-footer">
     <div class="app-footer__content">
       <p class="app-footer__info">XH-202630 科研文献智能助手</p>
       <p class="app-footer__info">v0.1</p>
       <p class="app-footer__ai-label ai-generated-label">AI生成内容仅供参考</p>
     </div>
-  </el-footer>
+  </footer>
 </template>
 
 <style scoped lang="scss">
 .app-footer {
+  flex-shrink: 0;
   background-color: #f5f7fa;
   border-top: 1px solid #e4e7ed;
   padding: var(--spacing-md) 0;

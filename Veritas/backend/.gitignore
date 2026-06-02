@@ -16,3 +16,8 @@ target/
 *.swp
 *.swo
 *~
+
+# 【强制】提交 IDE 团队共享配置（覆盖上方忽略规则）
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json

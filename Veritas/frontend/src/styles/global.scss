@@ -87,3 +87,8 @@ a:hover {
   margin: 0 auto;
   padding: var(--spacing-md);
 }
+
+.app-main--full {
+  max-width: none;
+  padding: 0;
+}

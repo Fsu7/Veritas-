@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/userStore'
 import { usePaperStore } from '@/stores/paperStore'
 import { getRecentSearches, saveRecentSearch, clearRecentSearches } from '@/utils/storage'
+import AppFooter from '@/components/layout/AppFooter.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -91,64 +92,119 @@ function handleClearRecent() {
         </div>
       </div>
     </div>
+    <AppFooter class="home-view__footer" />
   </div>
 </template>
 
 <style scoped lang="scss">
 .home-view {
-  min-height: 100vh;
+  position: fixed;
+  top: var(--header-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  background-color: #f5f7fa;
+  z-index: 1;
 }
 
 .home-view__content {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-xl);
+  padding: var(--spacing-md);
+  overflow: hidden;
+}
+
+.home-view__footer {
+  flex-shrink: 0;
+  margin-top: auto;
 }
 
 .home-view__search-box {
   width: 100%;
-  max-width: 600px;
+  max-width: 720px;
   text-align: center;
 }
 
 .home-view__title {
-  font-size: var(--font-size-xxl);
-  font-weight: 600;
-  margin-bottom: var(--spacing-sm);
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0 0 var(--spacing-md);
   color: var(--el-text-color-primary);
   text-align: center;
+  letter-spacing: -0.5px;
+
+  @media (max-width: 768px) {
+    font-size: 36px;
+  }
 }
 
 .home-view__subtitle {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-lg);
   color: var(--el-color-info);
-  margin-bottom: var(--spacing-xl);
+  margin: 0 0 var(--spacing-xl);
+  text-align: center;
+  font-weight: 400;
 }
 
 .home-view__input-wrapper {
   margin-bottom: var(--spacing-lg);
+
+  :deep(.el-input__wrapper) {
+    padding: 4px 16px;
+    border-radius: var(--radius-md);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+
+  :deep(.el-input__inner) {
+    height: 56px;
+    font-size: var(--font-size-lg);
+  }
+
+  :deep(.el-input-group__append) {
+    background-color: var(--el-color-primary);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  }
+
+  :deep(.el-input-group__append .el-button) {
+    height: 56px;
+    padding: 0 32px;
+    font-size: var(--font-size-base);
+    font-weight: 500;
+    color: #fff;
+    border: none;
+  }
 }
 
 .home-view__recent {
-  margin-top: var(--spacing-lg);
+  margin-top: var(--spacing-md);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: center;
   gap: var(--spacing-sm);
+  max-width: 720px;
 }
 
 .home-view__recent-label {
   color: var(--el-color-info);
   font-size: var(--font-size-sm);
-  margin-right: var(--spacing-sm);
+  margin-right: var(--spacing-xs);
 }
 
 .home-view__recent-tag {
   cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    transform: translateY(-1px);
+  }
 }
 </style>

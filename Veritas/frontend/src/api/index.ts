@@ -9,6 +9,27 @@ function isAuthRequest(url: string | undefined): boolean {
   return AUTH_WHITELIST.some(path => url.includes(path))
 }
 
+/**
+ * 将后端 snake_case 字段递归转换为 camelCase。
+ * 后端 application.yml 配置了 property-naming-strategy: SNAKE_CASE，
+ * Java DTO (camelCase) 序列化时强制输出 snake_case，前端需要做适配。
+ * 示例：{ user_id, has_profile, created_at } → { userId, hasProfile, createdAt }
+ */
+function snakeToCamel<T = unknown>(input: T): T {
+  if (input === null || input === undefined) return input
+  if (typeof input !== 'object') return input
+  if (input instanceof Date || input instanceof RegExp || input instanceof File) return input
+  if (Array.isArray(input)) {
+    return input.map((item) => snakeToCamel(item)) as unknown as T
+  }
+  const result: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    const camelKey = key.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase())
+    result[camelKey] = snakeToCamel(value)
+  }
+  return result as T
+}
+
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 30000,
@@ -34,7 +55,7 @@ http.interceptors.request.use(
 
 http.interceptors.response.use(
   (response) => {
-    const data = response.data as ApiResponse<unknown>
+    const data = snakeToCamel(response.data) as ApiResponse<unknown>
     if (data.code === 200) {
       return data.data as ReturnType<typeof response.data>
     }

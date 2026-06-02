@@ -1,7 +1,13 @@
 package com.literatureassistant.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.MapperFeature;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import com.literatureassistant.dto.request.LoginRequest;
+import com.literatureassistant.dto.request.ProfileUpdateRequest;
 import com.literatureassistant.dto.request.RegisterRequest;
 import com.literatureassistant.dto.request.UserUpdateRequest;
 import com.literatureassistant.dto.response.LoginResponse;
@@ -22,6 +28,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
@@ -42,13 +49,18 @@ class UserControllerTest {
 
     private MockMvc mockMvc;
 
-    private ObjectMapper objectMapper = new ObjectMapper();
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
+        objectMapper = new ObjectMapper()
+                .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
+                .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS);
+        MappingJackson2HttpMessageConverter converter = new MappingJackson2HttpMessageConverter(objectMapper);
         mockMvc = MockMvcBuilders.standaloneSetup(userController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setValidator(new LocalValidatorFactoryBean())
+                .setMessageConverters(converter)
                 .build();
     }
 
@@ -210,5 +222,47 @@ class UserControllerTest {
                         .header("Authorization", "Bearer invalid-token"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    @DisplayName("GET /api/users/{userId} - 数据隔离: 用户B无法访问用户A的资料(Service抛403)")
+    void getUserInfo_isolation_userBAccessUserA_returns403() throws Exception {
+        when(userService.getUserInfo("usr_userA"))
+                .thenThrow(new BusinessException(403, "无权访问该用户资源", "FORBIDDEN"));
+
+        mockMvc.perform(get("/api/users/usr_userA"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    @DisplayName("GET /api/users/{userId}/profile - 数据隔离: 用户B无法访问用户A的画像")
+    void getProfile_isolation_userBAccessUserA_returns403() throws Exception {
+        when(userService.getProfile("usr_userA"))
+                .thenThrow(new BusinessException(403, "无权访问该用户画像", "FORBIDDEN"));
+
+        mockMvc.perform(get("/api/users/usr_userA/profile"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    @DisplayName("PUT /api/users/{userId}/profile - 数据隔离: 用户B无法修改用户A的画像")
+    void updateProfile_isolation_userBModifyUserA_returns403() throws Exception {
+        ProfileUpdateRequest req = ProfileUpdateRequest.builder()
+                .educationLevel(com.literatureassistant.enums.EducationLevel.MASTER)
+                .researchField("NLP")
+                .knowledgeLevel(com.literatureassistant.enums.KnowledgeLevel.INTERMEDIATE)
+                .preferredStyle(com.literatureassistant.enums.PreferredStyle.BALANCED)
+                .build();
+
+        when(userService.updateProfile(eq("usr_userA"), any(ProfileUpdateRequest.class)))
+                .thenThrow(new BusinessException(403, "无权修改该用户画像", "FORBIDDEN"));
+
+        mockMvc.perform(put("/api/users/usr_userA/profile")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
     }
 }
