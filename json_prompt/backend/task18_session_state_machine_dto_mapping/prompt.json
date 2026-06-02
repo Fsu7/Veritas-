@@ -1,0 +1,508 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.2",
+    "milestone": "M3：前后端联调 / JM2：Java后端M2 基础API可用（Week 5 Day 4 下午）",
+    "requirement": "在 task17 基础上完善会话管理模块（F2.3.1 ~ F2.3.5 增强）：(1) 实现完整会话状态机：定义 ALLOWED_TRANSITIONS 静态常量（ACTIVE→{COMPLETED, EXPIRED}、COMPLETED→{}、EXPIRED→{}），validateStatusTransition(current, target) 校验非法转换抛 BusinessException(400, INVALID_STATUS_TRANSITION)，isTerminal(status) 判定终态，markAsCompleted/markAsExpired 业务封装方法；(2) 新增 SessionMapper (MapStruct)：toResponse/toDetailResponse/toResponseList 三个方法，使用 @Mapping expression='java(session.getStatus().getDbValue())' 处理 SessionStatus 枚举→String dbValue 转换；(3) 完善 SessionStatusUpdateRequest DTO：添加 @NotNull(message='状态不能为空') 校验；(4) 新增 SessionDetailResponse DTO：继承 SessionResponse 全部字段 + 额外 analysisCount(Integer) 字段，描述该会话关联的分析结果数（通过 AnalysisResultRepository.countBySessionId 计算）；(5) 重构 SessionService：5 个方法统一通过 SessionMapper 完成 Entity→DTO 转换，updateStatus 重构为调用 validateStatusTransition 校验后再 save。本任务依赖 task17 已完成的 SessionService 骨架、Controller、SessionCreateRequest、SessionResponse、Repository。",
+    "requirement_ids": ["F2.3.1", "F2.3.2", "F2.3.3", "F2.3.4", "F2.3.5"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "§6.3 会话状态机（active→completed/expired 转换规则图）、§11.3 枚举类型定义与 ORM 映射（DbValueEnum + AttributeConverter 模式，SessionStatus 枚举 dbValue 为 active/completed/expired）、§6.2.2 SessionService 方法签名（createSession/listSessions/getSessionDetail/updateStatus/deleteSession）"
+      },
+      {
+        "path": "docs/database/数据库设计文档.md",
+        "purpose": "§3.4 sessions 表 status 字段 ENUM('active','completed','expired') + §3.5 analysis_results 表外键 session_id（用于计算 analysisCount）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "§9.2 Java 后端规范（MapStruct 强制使用 + @Mapping expression 枚举转换 + @JsonProperty snake_case + Entity/DTO 分离）"
+      },
+      {
+        "path": "json_prompt/backend/task17_session_controller_service_basic/prompt.md",
+        "purpose": "task17 任务说明（5 个端点 + SessionService 骨架 + SessionCreateRequest + SessionResponse 占位）"
+      },
+      {
+        "path": "json_prompt/backend/task15_paper_controller_service_list_detail/prompt.md",
+        "purpose": "PaperMapper 模式参考（@Mapper(componentModel='spring') + @Mapping qualifiedByName + JsonStringListHelper 注入 ObjectMapper）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.mapper",
+        "description": "MapStruct 映射器包，新增 SessionMapper"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.request",
+        "description": "请求 DTO 包，完善 SessionStatusUpdateRequest（@NotNull 校验）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.response",
+        "description": "响应 DTO 包，新增 SessionDetailResponse（继承 SessionResponse）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "服务包，重构 SessionService（注入 SessionMapper + 状态机方法 + AnalysisResultRepository）"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/entity/Session.java",
+        "description": "Session 实体已存在（6 字段：id/sessionId/userId/topic/status/createdAt），status 字段使用 @Convert(converter = SessionStatusConverter.class) 显式注解。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/enums/SessionStatus.java",
+        "description": "SessionStatus 枚举已存在：3 值 ACTIVE('active')/COMPLETED('completed')/EXPIRED('expired')，implements DbValueEnum 提供 getDbValue() 与 fromDbValue() 静态方法。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/SessionRepository.java",
+        "description": "SessionRepository 已存在：findBySessionId + findByUserIdOrderByCreatedAtDesc。task18 无需新增 Repository 方法。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/AnalysisResultRepository.java",
+        "description": "AnalysisResultRepository 已存在：findByAnalysisId + findBySessionId + findBySessionIdAndStatus。task18 需新增 long countBySessionId(String sessionId) 派生方法（Spring Data JPA 自动从方法名派生 SQL：SELECT COUNT(*) FROM analysis_results WHERE session_id = ?）",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "json_prompt/backend/task17_session_controller_service_basic/SessionCreateRequest.java",
+        "description": "task17 已创建：1 字段 topic（@NotBlank + @Size(max=500)）",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "json_prompt/backend/task17_session_controller_service_basic/SessionResponse.java",
+        "description": "task17 已创建：5 字段（sessionId/userId/topic/status/createdAt），@JsonProperty 输出 snake_case，status 为 String 类型。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "json_prompt/backend/task17_session_controller_service_basic/SessionStatusUpdateRequest.java",
+        "description": "task17 占位创建：1 字段 status（SessionStatus 枚举）。task18 需添加 @NotNull 校验注解。",
+        "reuse_type": "modify"
+      },
+      {
+        "file_path": "json_prompt/backend/task17_session_controller_service_basic/SessionService.java",
+        "description": "task17 已创建：5 个核心方法（手动 Entity→DTO 转换，无 Mapper）。task18 需重构：注入 SessionMapper + AnalysisResultRepository，5 个方法改用 Mapper 转换，新增 4 个状态机相关方法（validateStatusTransition/markAsCompleted/markAsExpired/isTerminal）。",
+        "reuse_type": "modify"
+      },
+      {
+        "file_path": "json_prompt/backend/task17_session_controller_service_basic/SessionController.java",
+        "description": "task17 已创建：5 个端点（POST/GET/GET-by-id/PUT-status/DELETE）。task18 **不修改** Controller，仅在 Service 内部扩展状态机。",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/PaperMapper.java",
+        "description": "MapStruct 模式参考：@Mapper(componentModel='spring', uses = {JsonStringListHelper.class}) + @Mapping(qualifiedByName='jsonToList') + 内嵌 @Component JsonStringListHelper 注入 ObjectMapper",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/UserMapper.java",
+        "description": "MapStruct 模式参考：@Mapper(componentModel='spring') + @Mapping(target='...', expression='java(entity.getField().getDbValue())') 处理枚举 dbValue 转换。SessionMapper 复用此模式处理 SessionStatus 枚举。",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "SessionMapper",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/SessionMapper.java",
+      "responsibility": "MapStruct 映射器，Session Entity ↔ SessionResponse / SessionDetailResponse 双向转换；处理 SessionStatus 枚举→String dbValue 转换；支持列表批量转换",
+      "key_interfaces": [
+        {
+          "name": "toResponse",
+          "signature": "@Mapping(target='status', expression='java(session.getStatus().getDbValue())') SessionResponse toResponse(Session session)",
+          "description": "Session Entity → SessionResponse（处理 status 枚举→String 转换）"
+        },
+        {
+          "name": "toDetailResponse",
+          "signature": "@Mapping(target='status', expression='java(session.getStatus().getDbValue())') SessionDetailResponse toDetailResponse(Session session)",
+          "description": "Session Entity → SessionDetailResponse（同 toResponse + analysisCount 字段由 Service 设置）"
+        },
+        {
+          "name": "toResponseList",
+          "signature": "List<SessionResponse> toResponseList(List<Session> sessions)",
+          "description": "批量转换 List<Session> → List<SessionResponse>"
+        }
+      ]
+    },
+    {
+      "name": "SessionStatusUpdateRequest",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/SessionStatusUpdateRequest.java",
+      "responsibility": "状态更新请求 DTO（task18 完善）：1 字段 status（SessionStatus 枚举），添加 @NotNull 校验",
+      "key_interfaces": [
+        {
+          "name": "status",
+          "signature": "@NotNull(message = \"状态不能为空\") private SessionStatus status",
+          "description": "目标状态（必填，SessionStatus 枚举：ACTIVE/COMPLETED/EXPIRED）"
+        }
+      ]
+    },
+    {
+      "name": "SessionDetailResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/SessionDetailResponse.java",
+      "responsibility": "会话详情响应 DTO（继承 SessionResponse）：额外包含 analysisCount 字段，描述该会话关联的分析结果数",
+      "key_interfaces": [
+        {
+          "name": "analysisCount",
+          "signature": "@JsonProperty(\"analysis_count\") private Integer analysisCount",
+          "description": "关联分析结果数量（通过 AnalysisResultRepository.countBySessionId 计算）"
+        }
+      ]
+    },
+    {
+      "name": "SessionService (重构)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/SessionService.java",
+      "responsibility": "会话业务逻辑层（task18 增强）：5 个核心方法改用 SessionMapper + 4 个状态机方法（validateStatusTransition/markAsCompleted/markAsExpired/isTerminal）+ 私有 ALLOWED_TRANSITIONS 常量",
+      "key_interfaces": [
+        {
+          "name": "validateStatusTransition",
+          "signature": "private void validateStatusTransition(Session session, SessionStatus targetStatus)",
+          "description": "校验状态转换合法性：ALLOWED_TRANSITIONS.containsKey(session.getStatus()) && ALLOWED_TRANSITIONS.get(...).contains(targetStatus)，非法转换抛 BusinessException(400, INVALID_STATUS_TRANSITION)"
+        },
+        {
+          "name": "isTerminal",
+          "signature": "private boolean isTerminal(SessionStatus status)",
+          "description": "判定是否为终态：COMPLETED/EXPIRED 返回 true，ACTIVE 返回 false"
+        },
+        {
+          "name": "markAsCompleted",
+          "signature": "@CacheEvict(value='sessionState', key='#sessionId') public SessionResponse markAsCompleted(String sessionId)",
+          "description": "业务封装：将会话标记为 COMPLETED（分析任务完成时由 AnalysisService 调用），内部走状态机校验"
+        },
+        {
+          "name": "markAsExpired",
+          "signature": "@CacheEvict(value='sessionState', key='#sessionId') public SessionResponse markAsExpired(String sessionId)",
+          "description": "业务封装：将会话标记为 EXPIRED（24h 未操作或定时任务触发时调用），内部走状态机校验"
+        },
+        {
+          "name": "updateStatus (重构)",
+          "signature": "@CacheEvict(value='sessionState', key='#sessionId') public void updateStatus(String sessionId, SessionStatus newStatus)",
+          "description": "task17 简单更新重构为：调用 validateStatusTransition 校验 → save → @CacheEvict"
+        }
+      ]
+    },
+    {
+      "name": "AnalysisResultRepository (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/AnalysisResultRepository.java",
+      "responsibility": "新增派生方法：long countBySessionId(String sessionId) — Spring Data JPA 自动派生 SELECT COUNT(*) FROM analysis_results WHERE session_id = ?",
+      "key_interfaces": [
+        {
+          "name": "countBySessionId",
+          "signature": "long countBySessionId(String sessionId)",
+          "description": "统计指定会话关联的分析结果数"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/SessionMapper.java",
+      "description": "MapStruct 映射器：@Mapper(componentModel='spring') + toResponse/toDetailResponse/toResponseList 三个方法，使用 @Mapping expression='java(session.getStatus().getDbValue())' 处理 SessionStatus 枚举→String dbValue 转换",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/SessionDetailResponse.java",
+      "description": "详情响应 DTO：@EqualsAndHashCode(callSuper=true) + @ToString(callSuper=true) + @Data @NoArgsConstructor @AllArgsConstructor @SuperBuilder 继承 SessionResponse，额外字段 @JsonProperty(\"analysis_count\") private Integer analysisCount",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/SessionStatusUpdateRequest.java",
+      "description": "在 task17 占位基础上添加 @NotNull(message=\"状态不能为空\") 校验注解到 status 字段；import jakarta.validation.constraints.NotNull",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/AnalysisResultRepository.java",
+      "description": "新增派生方法 long countBySessionId(String sessionId)，Spring Data JPA 自动派生 SQL",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/SessionService.java",
+      "description": "重构 SessionService：(1) 注入 SessionMapper + AnalysisResultRepository 依赖；(2) 5 个核心方法改用 sessionMapper.toResponse/toDetailResponse/toResponseList 替换手动构建；(3) 新增 4 个状态机方法（validateStatusTransition/isTerminal/markAsCompleted/markAsExpired）+ ALLOWED_TRANSITIONS 静态常量；(4) updateStatus 内部调用 validateStatusTransition 校验；markAsCompleted/markAsExpired 是 P1 业务封装（task18 实现 + 单测，task19/AnalysisService 调用）",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "SessionMapper (MapStruct)：@Mapper(componentModel='spring') + 3 个方法。(1) @Mapping(target='status', expression='java(session.getStatus().getDbValue())') SessionResponse toResponse(Session session) — status 枚举→String dbValue；(2) @Mapping(target='status', expression='java(session.getStatus().getDbValue())') SessionDetailResponse toDetailResponse(Session session) — 注意 analysisCount 字段不由 Mapper 设置（由 Service 通过 analysisResultRepository.countBySessionId 手动注入：mapper.toDetailResponse(session) → setAnalysisCount(count)）；(3) List<SessionResponse> toResponseList(List<Session> sessions) — 批量转换。关键：所有 @Mapping 都需指定 status 字段，否则 MapStruct 默认按 Java 字段名复制（会输出 SessionStatus.ACTIVE 枚举对象）。",
+        "priority": "P0",
+        "acceptance_condition": "SessionMapper 成功将 Session.status（SessionStatus 枚举）转换为 SessionResponse.status（String 小写 dbValue）；analysisCount 字段保留初始 null，由 Service 设置"
+      },
+      {
+        "id": "FR-002",
+        "description": "SessionStatusUpdateRequest 完善：在 task17 占位基础上添加 @NotNull(message=\"状态不能为空\") private SessionStatus status；import jakarta.validation.constraints.NotNull。Controller 的 PUT 端点使用 @Valid @RequestBody 即可触发 400 校验。",
+        "priority": "P0",
+        "acceptance_condition": "PUT /api/sessions/{sessionId}/status 请求 body 缺 status 字段返回 400（@NotNull 校验）；status=null 同样返回 400"
+      },
+      {
+        "id": "FR-003",
+        "description": "SessionDetailResponse DTO：@EqualsAndHashCode(callSuper=true) @ToString(callSuper=true) @Data @NoArgsConstructor @AllArgsConstructor @SuperBuilder 继承 SessionResponse 全部 5 字段 + 额外 1 字段 @JsonProperty(\"analysis_count\") private Integer analysisCount。注意：必须使用 @SuperBuilder 注解（与 PaperDetailResponse 类似），否则 Builder 模式无法继承父类字段。",
+        "priority": "P0",
+        "acceptance_condition": "SessionDetailResponse 继承 SessionResponse 全部字段，JSON 输出包含 analysis_count 字段"
+      },
+      {
+        "id": "FR-004",
+        "description": "AnalysisResultRepository 扩展：新增 long countBySessionId(String sessionId) 派生方法。Spring Data JPA 自动派生：SELECT COUNT(*) FROM analysis_results WHERE session_id = ?。注意：@Transactional(readOnly = true) 类级注解已存在，无需额外添加。",
+        "priority": "P0",
+        "acceptance_condition": "analysisResultRepository.countBySessionId('ses_001') 返回 long 类型计数（如 0/1/3）"
+      },
+      {
+        "id": "FR-005",
+        "description": "SessionService 状态机常量 + 校验方法：(1) 私有静态常量 Map<SessionStatus, Set<SessionStatus>> ALLOWED_TRANSITIONS：ACTIVE→{COMPLETED, EXPIRED}，COMPLETED→{}，EXPIRED→{}，使用 Map.of() 初始化或 new EnumMap<>(SessionStatus.class)；(2) 私有 void validateStatusTransition(Session session, SessionStatus targetStatus)：(a) session.getStatus() == targetStatus 抛 BusinessException(400, '会话状态已是目标状态', 'SAME_STATUS_NOOP')；(b) !ALLOWED_TRANSITIONS.containsKey(session.getStatus()) || !ALLOWED_TRANSITIONS.get(session.getStatus()).contains(targetStatus) 抛 BusinessException(400, '非法的状态转换：从 ' + from + ' 到 ' + to, 'INVALID_STATUS_TRANSITION')；(3) 私有 boolean isTerminal(SessionStatus status)：status == COMPLETED || status == EXPIRED 返回 true，否则 false。",
+        "priority": "P0",
+        "acceptance_condition": "ACTIVE→COMPLETED 合法通过；ACTIVE→EXPIRED 合法通过；COMPLETED→ACTIVE 抛 400 (INVALID_STATUS_TRANSITION)；COMPLETED→COMPLETED 抛 400 (SAME_STATUS_NOOP)；EXPIRED→任何状态抛 400 (INVALID_STATUS_TRANSITION)"
+      },
+      {
+        "id": "FR-006",
+        "description": "SessionService updateStatus 重构：原 task17 简单更新重构为：(1) findBySessionId 查 Session，不存在抛 ResourceNotFoundException；(2) validateDataIsolation(session.getUserId())；(3) 关键：调用 validateStatusTransition(session, newStatus) 校验（替换 task17 的相同状态幂等检查）；(4) session.setStatus(newStatus) + sessionRepository.save(session) + @CacheEvict('sessionState', key='#sessionId')；(5) log.info 输出状态转换日志（包含 sessionId、from、to）。",
+        "priority": "P0",
+        "acceptance_condition": "合法转换成功 + 缓存清空；非法转换抛 400；越权抛 403；sessionId 不存在抛 404"
+      },
+      {
+        "id": "FR-007",
+        "description": "SessionService markAsCompleted(String sessionId)→SessionResponse（业务封装，P1）：(1) 内部不调用 validateDataIsolation（因由 AnalysisService 在受信任上下文调用，无需用户级鉴权）；(2) 调用 validateStatusTransition(session, SessionStatus.COMPLETED) 校验（当前状态必须为 ACTIVE）；(3) session.setStatus(COMPLETED) + sessionRepository.save(session) + @CacheEvict('sessionState', key='#sessionId')；(4) 返回 sessionMapper.toResponse(session)。该方法在 task19/AnalysisService 论文分析完成时被调用。",
+        "priority": "P1",
+        "acceptance_condition": "ACTIVE→COMPLETED 成功；COMPLETED→COMPLETED 抛 400 (SAME_STATUS_NOOP)；EXPIRED→COMPLETED 抛 400 (INVALID_STATUS_TRANSITION)"
+      },
+      {
+        "id": "FR-008",
+        "description": "SessionService markAsExpired(String sessionId)→SessionResponse（业务封装，P1）：同 markAsCompleted 但目标状态为 EXPIRED。该方法在 JM6 定时任务清理 24h 未操作会话时被调用。",
+        "priority": "P1",
+        "acceptance_condition": "ACTIVE→EXPIRED 成功；其他转换抛 400"
+      },
+      {
+        "id": "FR-009",
+        "description": "SessionService 5 个核心方法重构（统一使用 SessionMapper）：(1) createSession：构造 Session Entity + sessionRepository.save → sessionMapper.toResponse(session)（替换 task17 的手动构建 SessionResponse）；(2) listSessions：Page<Session> → List<SessionResponse> 使用 sessionMapper.toResponseList(page.getContent())，PageResponse.fromPage(page, mappedList)；(3) getSessionDetail：findBySessionId → validateDataIsolation → sessionMapper.toResponse(session) + @Cacheable 缓存；(4) getSessionDetail (P1 增强，可选)：可扩展为返回 SessionDetailResponse（含 analysisCount），需 sessionMapper.toDetailResponse(session) + 注入 analysisCount = (int) analysisResultRepository.countBySessionId(sessionId)；(5) deleteSession 保持不变（仅删除不返回 DTO）。",
+        "priority": "P0",
+        "acceptance_condition": "5 个方法统一通过 SessionMapper 完成 Entity→DTO 转换，Controller 无需修改"
+      },
+      {
+        "id": "FR-010",
+        "description": "SessionController 兼容性：task18 不修改 Controller（task17 已实现 5 个端点 + 正确传参到 Service）。Service 内部从手动构建改为 Mapper 构建，对 Controller 完全透明。注意：getSessionDetail 端点当前返回 SessionResponse 类型（task17），task18 即使 Service 内部升级为 SessionDetailResponse，Controller 也需相应修改返回类型 — 建议在 task18 中修改 SessionController.getSessionDetail 的返回类型为 SessionDetailResponse，并通过 service.getSessionDetail() 内部返回 SessionDetailResponse。",
+        "priority": "P0",
+        "acceptance_condition": "GET /api/sessions/{sessionId} 返回 SessionDetailResponse（含 analysis_count 字段）"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "sessionId", "python": "session_id", "json": "session_id" },
+          { "java": "userId", "python": "user_id", "json": "user_id" },
+          { "java": "createdAt", "python": "created_at", "json": "created_at" },
+          { "java": "analysisCount", "python": "analysis_count", "json": "analysis_count" },
+          { "java": "status (SessionStatus enum)", "python": "status (lowercase string)", "json": "active/completed/expired" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/sessions/{sessionId}",
+          "method": "GET",
+          "response_format": {
+            "code": 200,
+            "data": {
+              "session_id": "ses_a1b2c3d4",
+              "user_id": "usr_xxxx",
+              "topic": "Multi-Agent",
+              "status": "active",
+              "created_at": "2026-05-23T10:00:00",
+              "analysis_count": 3
+            }
+          }
+        },
+        {
+          "endpoint": "/api/sessions/{sessionId}/status",
+          "method": "PUT",
+          "request_format_invalid": {
+            "body": {}
+          },
+          "response_format_invalid": {
+            "code": 400,
+            "message": "状态不能为空"
+          }
+        },
+        {
+          "endpoint": "/api/sessions/{sessionId}/status",
+          "method": "PUT",
+          "request_format_invalid_transition": {
+            "body": { "status": "active" }
+          },
+          "response_format_invalid_transition": {
+            "code": 400,
+            "message": "非法的状态转换：从 completed 到 active"
+          }
+        }
+      ],
+      "data_flow": "Controller → SessionService（注入 SessionMapper + AnalysisResultRepository） → 状态机校验（validateStatusTransition） → SessionRepository 操作 MySQL → Session Entity → SessionMapper.toResponse/toDetailResponse（@Mapping expression 处理 status 枚举→String dbValue） → SessionResponse/SessionDetailResponse → ApiResponse 包装 → JSON 响应（snake_case）。"
+    },
+    "degradation_requirements": {
+      "llm_degradation": "本任务不涉及 LLM 调用，无降级要求",
+      "agent_degradation": "本任务不涉及 Agent 调用，无降级要求"
+    },
+    "security_requirements": [
+      {
+        "category": "jwt_auth",
+        "requirement": "PUT /api/sessions/{sessionId}/status 需 JWT 认证（已在 SecurityConfig anyRequest().authenticated() 覆盖），status 字段缺失返回 400"
+      },
+      {
+        "category": "data_isolation",
+        "requirement": "updateStatus 内部必须调用 validateDataIsolation 私有方法，比对 currentUserId 与 session.getUserId()，越权返回 403 (FORBIDDEN_ACCESS)。markAsCompleted/markAsExpired 是 P1 业务封装方法（由 AnalysisService/定时任务调用，不走 Controller），无需数据隔离"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "API 响应不包含敏感信息，状态机错误信息可暴露当前状态（便于前端调试），但不包含用户密码/Token"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "database": {
+        "table_name": "snake_case, 复数形式",
+        "column_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "sessionId", "python": "session_id", "json": "session_id" },
+        { "java": "userId", "python": "user_id", "json": "user_id" },
+        { "java": "createdAt", "python": "created_at", "json": "created_at" },
+        { "java": "analysisCount", "python": "analysis_count", "json": "analysis_count" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" }
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息"
+      ]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块（UserService/PaperService/AnalysisService/SessionController 等）", "reason": "避免引入无关变更，task18 范围内仅限 SessionService/SessionMapper/DTO/Repository", "severity": "high" },
+    { "id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical" },
+    { "id": "FA-004", "action": "破坏分层调用规范（SessionController直接操作SessionRepository）", "reason": "分层架构约束", "severity": "critical" },
+    { "id": "FA-005", "action": "Session Entity直接返回给前端（必须通过SessionResponse/SessionDetailResponse转换）", "reason": "数据隔离与接口稳定性", "severity": "high" },
+    { "id": "FA-006", "action": "硬编码敏感配置", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high" },
+    { "id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium" },
+    { "id": "FA-009", "action": "使用SQL拼接", "reason": "SQL注入防护", "severity": "critical" },
+    { "id": "FA-010", "action": "在 SessionMapper 中实现业务逻辑（如计算 analysisCount）", "reason": "Mapper 仅做 Entity↔DTO 字段映射，业务逻辑在 Service 层", "severity": "high" },
+    { "id": "FA-011", "action": "在状态机方法中跳过 validateStatusTransition 校验直接 save", "reason": "状态机是核心约束，必须强制走校验", "severity": "critical" },
+    { "id": "FA-012", "action": "在 markAsCompleted/markAsExpired 中添加数据隔离校验（validateDataIsolation）", "reason": "这两个是受信任内部方法（由 AnalysisService/定时任务调用），不走 Controller 鉴权", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "SessionMapperTest",
+        "description": "测试 SessionMapper Entity↔DTO 转换：(1) Session.status=ACTIVE → SessionResponse.status='active'；(2) Session.status=COMPLETED → SessionResponse.status='completed'；(3) Session.status=EXPIRED → SessionResponse.status='expired'；(4) Session → SessionDetailResponse 继承字段正确（session_id/user_id/topic/status/created_at），analysisCount 初始为 null（由 Service 设置）；(5) List<Session> 批量转换 List<SessionResponse> 元素数量一致；(6) Session.status=null 抛 NullPointerException（防御性测试，可选）。",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "SessionStateMachineTest",
+        "description": "测试状态机核心方法（独立测试类，专注状态转换）：(1) validateStatusTransition ACTIVE→COMPLETED 合法通过；(2) ACTIVE→EXPIRED 合法通过；(3) ACTIVE→ACTIVE 抛 BusinessException(400, SAME_STATUS_NOOP)；(4) COMPLETED→ACTIVE 抛 BusinessException(400, INVALID_STATUS_TRANSITION)；(5) COMPLETED→COMPLETED 抛 BusinessException(400, SAME_STATUS_NOOP)；(6) EXPIRED→任何状态抛 BusinessException(400, INVALID_STATUS_TRANSITION)；(7) isTerminal ACTIVE=false, COMPLETED=true, EXPIRED=true；(8) markAsCompleted ACTIVE→COMPLETED 成功 + 缓存清空（验证 save 被调用 + @CacheEvict 生效）；(9) markAsCompleted EXPIRED→COMPLETED 抛 400；(10) markAsExpired ACTIVE→EXPIRED 成功 + 缓存清空。",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "SessionServiceRefactorTest",
+        "description": "测试 SessionService 5 个核心方法重构后的行为（使用 Mockito Mock SessionRepository + SessionMapper + AnalysisResultRepository）：(1) createSession 通过 SessionMapper.toResponse 转换（验证 mapper 被调用且返回 SessionResponse）；(2) listSessions 通过 SessionMapper.toResponseList 批量转换；(3) getSessionDetail 通过 SessionMapper.toResponse 转换 + 调用 analysisResultRepository.countBySessionId 计算 analysisCount 并设置到 SessionDetailResponse；(4) updateStatus 调用 validateStatusTransition（合法转换走 save + 缓存清空，非法转换抛 400 不走 save）；(5) deleteSession 行为不变。",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "SessionControllerRefactorTest",
+        "description": "验证 SessionController 5 个端点在重构后的行为：(1) GET /api/sessions/{sessionId} 返回 SessionDetailResponse（含 analysis_count 字段）；(2) PUT /api/sessions/{sessionId}/status 请求 body 缺 status 字段返回 400（@NotNull 校验）；(3) PUT /api/sessions/{sessionId}/status 非法状态转换返回 400 (INVALID_STATUS_TRANSITION)；(4) 其余端点行为与 task17 一致。",
+        "layers_involved": ["java_backend"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，SessionMapper/SessionDetailResponse/SessionStatusUpdateRequest 完善版/SessionService 重构后无错误"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=SessionMapperTest,SessionStateMachineTest,SessionServiceRefactorTest,SessionServiceTest",
+        "expected_result": "所有新增/已有 Session 相关单元测试通过"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test",
+        "expected_result": "所有测试通过（含 task17 已通过的测试 + task18 新增测试）"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "SessionMapper.toResponse 正确将 Session.status (SessionStatus 枚举) 转换为 SessionResponse.status (String 'active'/'completed'/'expired')", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "SessionMapper.toDetailResponse 继承 SessionResponse 全部字段，analysisCount 字段初始为 null（由 Service 注入）", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "SessionStatusUpdateRequest.status 添加 @NotNull 校验：缺字段或 null 返回 400", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "AnalysisResultRepository.countBySessionId(String) 返回 long 类型计数", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "SessionService 状态机：ACTIVE→{COMPLETED, EXPIRED} 合法；COMPLETED→{ACTIVE, COMPLETED, EXPIRED} 全部非法（仅 EXPIRED 终态不可转换）", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "SessionService.updateStatus 调用 validateStatusTransition 校验后 save + @CacheEvict 清空缓存", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "SessionService.markAsCompleted 仅允许 ACTIVE→COMPLETED，其他状态抛 400", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "SessionService.markAsExpired 仅允许 ACTIVE→EXPIRED，其他状态抛 400", "verified_by": "automated_test" },
+    { "id": "AC-009", "criterion": "SessionService 5 个核心方法统一通过 SessionMapper 转换，Controller 无需修改业务逻辑", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "GET /api/sessions/{sessionId} 返回 SessionDetailResponse（含 analysis_count 字段）", "verified_by": "automated_test" },
+    { "id": "AC-011", "criterion": "PUT /api/sessions/{sessionId}/status 请求 body 缺 status 字段返回 400（@NotNull 校验）", "verified_by": "automated_test" },
+    { "id": "AC-012", "criterion": "PUT /api/sessions/{sessionId}/status 非法状态转换返回 400 (INVALID_STATUS_TRANSITION)", "verified_by": "automated_test" },
+    { "id": "AC-013", "criterion": "SessionMapperTest + SessionStateMachineTest + SessionServiceRefactorTest 全部通过，mvn compile + mvn test 均成功", "verified_by": "automated_test" },
+    { "id": "AC-014", "criterion": "未修改 SessionController（task17 已实现）+ 未修改其他模块（UserService/PaperService/AnalysisService 等）", "verified_by": "code_review" }
+  ]
+}

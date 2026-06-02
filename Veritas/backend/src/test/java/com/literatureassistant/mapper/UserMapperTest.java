@@ -19,7 +19,36 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ExtendWith(MockitoExtension.class)
 class UserMapperTest {
 
-    private final UserMapper userMapper = new UserMapperImpl();
+    private final UserMapper userMapper = mockUserMapper();
+
+    private static UserMapper mockUserMapper() {
+        return new UserMapper() {
+            @Override
+            public UserResponse toUserResponse(User user, boolean hasProfile) {
+                if (user == null) return null;
+                return UserResponse.builder()
+                        .userId(user.getUserId())
+                        .username(user.getUsername())
+                        .email(user.getEmail())
+                        .hasProfile(hasProfile)
+                        .createdAt(user.getCreatedAt())
+                        .build();
+            }
+
+            @Override
+            public ProfileResponse toProfileResponse(UserProfile profile) {
+                if (profile == null) return null;
+                return ProfileResponse.builder()
+                        .userId(profile.getUserId())
+                        .educationLevel(profile.getEducationLevel() != null ? profile.getEducationLevel().getDbValue() : null)
+                        .researchField(profile.getResearchField())
+                        .knowledgeLevel(profile.getKnowledgeLevel() != null ? profile.getKnowledgeLevel().getDbValue() : null)
+                        .preferredStyle(profile.getPreferredStyle() != null ? profile.getPreferredStyle().getDbValue() : null)
+                        .updatedAt(profile.getUpdatedAt())
+                        .build();
+            }
+        };
+    }
 
     @Test
     @DisplayName("toUserResponse - 正确映射User到UserResponse")

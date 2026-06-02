@@ -18,4 +18,6 @@ public interface AnalysisResultRepository extends JpaRepository<AnalysisResult, 
     List<AnalysisResult> findBySessionId(String sessionId);
 
     List<AnalysisResult> findBySessionIdAndStatus(String sessionId, AnalysisStatus status);
+
+    long countBySessionId(String sessionId);
 }

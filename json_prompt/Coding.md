@@ -180,6 +180,8 @@ json_prompt/
 | 14 | task14_profile_crud_dto | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.1.5 |
 | 15 | task15_paper_controller_service_list_detail | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.2.1, F2.2.2 |
 | 16 | task16_paper_search_fulltext_filter_sort | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.2.3 |
+| 17 | task17_session_controller_service_basic | v0.3 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.3.1, F2.3.2 |
+| 18 | task18_session_state_machine_dto_mapping | v0.3 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.3.1, F2.3.2 |
 
 ### ai-service/
 
