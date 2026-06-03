@@ -73,7 +73,7 @@ F5  模型模块
 |-----|------|---------|
 | ADR-001 | 三层分离架构 | Vue3 + Spring Boot + FastAPI，关注点分离 |
 | ADR-002 | 多智能体协同编排 | LangGraph StateGraph编排6个Agent |
-| ADR-003 | LLM三级降级 | 软件方模型→外接API→本地Qwen2 |
+| ADR-003 | LLM三级降级 | 软件方模型→外接API（当前=DeepSeek V4 Flash）→本地Qwen2 |
 | ADR-004 | 四数据库存储 | MySQL(结构化) + Redis(缓存) + ChromaDB(向量) + Neo4j(知识图谱，计划M4+)|
 | ADR-005 | 混合RAG检索 | 语义+关键词双路检索 + RRF融合 |
 | ADR-006 | 个性化引擎 | 用户画像→Prompt个性化片段注入 |

@@ -19,6 +19,7 @@
 | 版本 | 日期 | 修订人 | 修订内容 |
 |------|------|--------|---------|
 | v1.0 | 2026-05-29 | 项目组 | 初始版本，基于项目策划案、系统架构设计、模块清单、技术栈、现有代码实现综合编写 |
+| v1.1 | 2026-06-03 | 项目组 | **LLM 切换记录**：外接API方案B默认LLM从阿里云DashScope(qwen-plus)切到 **DeepSeek V4 Flash**（`https://api.deepseek.com/v1`，OpenAI 兼容）。原因：1M 上下文、价格 ¥1/百万 tokens（输入）、支持思考模式。Embedding 仍保留阿里云百炼 text-embedding-v4。冒烟测试通过。 |
 
 ---
 
@@ -164,7 +165,7 @@ graph TB
         ARXIV[arXiv API]
         SEMANTIC[Semantic Scholar API]
         BUILTIN_LLM[软件方模型服务]
-        EXT_API[外接LLM API<br/>讯飞星火/DeepSeek/通义千问]
+        EXT_API[外接LLM API<br/>当前=DeepSeek V4 Flash<br/>备选:讯飞星火/通义千问]
         EMBED_API[Embedding API<br/>阿里云百炼 text-embedding-v4]
     end
 

@@ -67,6 +67,10 @@ class AgentState(TypedDict):
 优先级1: BuiltinLLMProvider（软件方模型）→ 优先级2: APILLMProvider（外接API）→ 优先级3: LocalLLMProvider（本地Qwen2）
 ```
 
+**当前生效（2026-06 起）**: 方案B 外接API — `DeepSeek V4 Flash`（OpenAI 兼容，`https://api.deepseek.com/v1`）
+- 选型理由：1M 上下文、推理接近 V4-Pro、价格仅为 Pro 的 1/3（输入 ¥1/百万 tokens）、支持思考模式
+- 冒烟测试已验证：`POST /api/agent/analyze` 端到端跑通，generator 耗时 ~15s，报告完整
+
 降级恢复：每5分钟尝试恢复到更高级别Provider。
 
 ---

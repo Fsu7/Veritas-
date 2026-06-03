@@ -15,6 +15,7 @@
 |------|------|--------|---------|
 | v1.0 | 2026-05-23 | 项目组 | 初始版本 |
 | v1.1 | 2026-05-25 | 项目组 | M1修复后更新：Embedding模型bge-large-zh→bge-m3、维度校验、软件方URL空值保护、camelCase alias、/health 503、LLM超时控制、AppState重构 |
+| v1.2 | 2026-06-03 | 项目组 | LLM外接API方案B切换：默认LLM从阿里云DashScope(qwen-plus)切到 **DeepSeek V4 Flash**（OpenAI 兼容，`https://api.deepseek.com/v1`）。原因：1M 上下文、推理接近 V4-Pro、价格仅 ¥1/百万 tokens（输入）。Embedding仍保留阿里云百炼 text-embedding-v4。冒烟测试已通过。 |
 
 ---
 
@@ -104,7 +105,7 @@
 │  PersonalizationService → SearchService                     │
 ├─────────────────────────────────────────────────────────────┤
 │                      基础设施层（Infrastructure）             │
-│  ChromaDB → text-embedding-v4(阿里云百炼) → Qwen2/API/软件方模型             │
+│  ChromaDB → text-embedding-v4(阿里云百炼 Embedding) → DeepSeek V4 Flash(外接API)/软件方模型/本地Qwen2 │
 │  Prompt模板 → Redis（可选） → MySQL（通过Java间接访问）      │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -1527,9 +1528,13 @@ class APILLMProvider:
     支持：
     - OpenAI兼容接口
     - 讯飞星火（OpenAI兼容模式）
-    - DeepSeek
+    - DeepSeek（含 V4-Flash，当前默认）
     - 通义千问
     - 任何OpenAI兼容端点
+
+    当前生效配置（2026-06 起）：
+        base_url = https://api.deepseek.com/v1
+        model    = deepseek-v4-flash
     """
 
     mode = "api"
@@ -2685,13 +2690,13 @@ EMBEDDING_EXPECTED_DIMENSION=1024
 # EMBEDDING_API_MODEL=        # 外接API 模型名
 
 # LLM配置（三路并行，auto模式按优先级降级）
-LLM_MODE=auto
+LLM_MODE=api
 # 方案A：软件方模型（最高优先级，待发榜单位提供URL后配置）
 # LLM_BUILTIN_URL=https://llm.literature-assistant.com/v1
-# 方案B：外接API（中等优先级，用户自配）
-# LLM_API_KEY=sk-xxx
-# LLM_API_BASE=https://api.deepseek.com/v1
-# LLM_MODEL_NAME=deepseek-chat
+# 方案B：外接API（中等优先级，当前生效 = DeepSeek V4 Flash）
+LLM_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+LLM_API_BASE=https://api.deepseek.com/v1
+LLM_MODEL_NAME=deepseek-v4-flash
 # 方案C：本地模型（最低优先级，兜底方案）
 # LLM_LOCAL_MODEL_PATH=Qwen/Qwen2-7B-Instruct
 

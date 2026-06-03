@@ -30,7 +30,9 @@
 | 数据库 | Redis | 7.0 |
 | 向量库 | ChromaDB | 0.5+ |
 | 图数据库 | Neo4j | 5.x Community |
-| Embedding | BAAI/bge-m3 / text-embedding-v4（阿里云百炼） | 1024维 |
+| LLM（当前生效） | **DeepSeek V4 Flash**（外接API方案B） | 284B/13B MoE · 1M 上下文 |
+| LLM（备选） | 软件方模型 / OpenAI兼容接口（讯飞星火/通义千问等） / 本地Qwen2 | 三路自动降级 |
+| Embedding | BAAI/bge-m3（本地备选） / text-embedding-v4（阿里云百炼） | 1024维 |
 | 部署 | Docker Compose | — |
 
 ---
@@ -54,11 +56,19 @@ REDIS_HOST=redis
 REDIS_PORT=6379
 JWT_SECRET=your_jwt_secret
 AI_SERVICE_URL=http://ai-service:8000
-LLM_MODE=auto                    # auto|builtin|api|local
-LLM_BUILTIN_URL=https://llm.literature-assistant.com/v1
-LLM_API_KEY=
-LLM_API_BASE=
-LLM_MODEL_NAME=
+LLM_MODE=api                     # auto|builtin|api|local
+# 当前生效：DeepSeek V4 Flash（外接API方案B，OpenAI 兼容）
+LLM_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+LLM_API_BASE=https://api.deepseek.com/v1
+LLM_MODEL_NAME=deepseek-v4-flash
+# 备选：软件方模型
+# LLM_BUILTIN_URL=https://llm.literature-assistant.com/v1
+# 备选：本地模型
+# LLM_LOCAL_MODEL_PATH=Qwen/Qwen2-7B-Instruct
+# Embedding：阿里云百炼（text-embedding-v4，1024 维）
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+DASHSCOPE_EMBEDDING_MODEL=text-embedding-v4
+DASHSCOPE_EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 CHROMA_PATH=./data/vector_db
 EMBEDDING_MODEL_NAME=BAAI/bge-m3
 ```
