@@ -20,21 +20,28 @@ class VectorStoreService:
         self.status = "disconnected"
 
     async def initialize(self) -> None:
+        loop = asyncio.get_event_loop()
         try:
-            self.client = chromadb.PersistentClient(
-                path=self.settings.CHROMA_PATH or "./data/vector_db"
+            self.client = await loop.run_in_executor(
+                None,
+                lambda: chromadb.PersistentClient(
+                    path=self.settings.CHROMA_PATH or "./data/vector_db"
+                ),
             )
 
-            self.collection = self.client.get_or_create_collection(
-                name="papers",
-                metadata={
-                    "hnsw:space": "cosine",
-                    "hnsw:M": 16,
-                    "hnsw:construction_ef": 200,
-                },
+            self.collection = await loop.run_in_executor(
+                None,
+                lambda: self.client.get_or_create_collection(
+                    name="papers",
+                    metadata={
+                        "hnsw:space": "cosine",
+                        "hnsw:M": 16,
+                        "hnsw:construction_ef": 200,
+                    },
+                ),
             )
 
-            count = self.collection.count()
+            count = await loop.run_in_executor(None, self.collection.count)
             self.status = "connected"
             logger.info(f"ChromaDB initialized, papers count={count}")
         except Exception as e:

@@ -1,7 +1,12 @@
+import asyncio
+
 from loguru import logger
 
 from app.core.config import settings
 from app.core.logging import setup_logging
+
+
+SERVICE_INIT_TIMEOUT = 15
 
 
 class AppState:
@@ -14,6 +19,27 @@ class AppState:
 
 
 app_state = AppState()
+
+
+async def _safe_init(coro, name: str, timeout: int = SERVICE_INIT_TIMEOUT):
+    """带超时保护的 service 初始化（避免卡死整个 startup）"""
+    try:
+        await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.error(f"{name} init timeout after {timeout}s, skipped")
+    except Exception as e:
+        logger.error(f"{name} init failed: {type(e).__name__}: {e}")
+
+
+async def _safe_init_blocking(func, name: str, timeout: int = SERVICE_INIT_TIMEOUT):
+    """在线程池中运行同步初始化（避免阻塞事件循环）"""
+    try:
+        loop = asyncio.get_event_loop()
+        await asyncio.wait_for(loop.run_in_executor(None, func), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.error(f"{name} init timeout after {timeout}s, skipped")
+    except Exception as e:
+        logger.error(f"{name} init failed: {type(e).__name__}: {e}")
 
 
 async def on_startup() -> None:
@@ -30,34 +56,22 @@ async def on_startup() -> None:
     from app.services.embedding_service import EmbeddingService
 
     app_state.embedding_service = EmbeddingService(settings)
-    try:
-        await app_state.embedding_service.load_model()
-    except Exception as e:
-        logger.error(f"EmbeddingService load_model failed: {e}")
+    await _safe_init(app_state.embedding_service.load_model(), "EmbeddingService", timeout=20)
 
     from app.services.vector_store_service import VectorStoreService
 
     app_state.vector_store_service = VectorStoreService(settings)
-    try:
-        await app_state.vector_store_service.initialize()
-    except Exception as e:
-        logger.error(f"VectorStoreService initialize failed: {e}")
+    await _safe_init(app_state.vector_store_service.initialize(), "VectorStoreService", timeout=30)
 
     from app.services.llm_service import LLMService
 
     app_state.llm_service = LLMService(settings)
-    try:
-        await app_state.llm_service.initialize()
-    except Exception as e:
-        logger.error(f"LLMService initialize failed: {e}")
+    await _safe_init(app_state.llm_service.initialize(), "LLMService", timeout=20)
 
     from app.services.prompt_manager import PromptManager
 
     app_state.prompt_manager = PromptManager()
-    try:
-        await app_state.prompt_manager.load_templates()
-    except Exception as e:
-        logger.error(f"PromptManager load_templates failed: {e}")
+    await _safe_init(app_state.prompt_manager.load_templates(), "PromptManager", timeout=5)
 
     from app.services.search_service import SearchService
 
@@ -79,7 +93,7 @@ async def on_startup() -> None:
     else:
         logger.warning("Reranker initialized but SearchService unavailable for injection")
 
-    logger.info("AI Service started successfully")
+    logger.info("AI Service started successfully (with degradation allowed)")
 
 
 async def on_shutdown() -> None:

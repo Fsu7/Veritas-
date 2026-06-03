@@ -4,7 +4,6 @@ from typing import Union
 import numpy as np
 from loguru import logger
 from openai import AsyncOpenAI
-from sentence_transformers import SentenceTransformer
 
 from app.exception import ModelNotLoadedException
 
@@ -28,58 +27,35 @@ class EmbeddingService:
         if self.settings.DASHSCOPE_API_KEY:
             try:
                 self._init_dashscope_client()
-                test_resp = await self._api_client.embeddings.create(
-                    model=self.settings.DASHSCOPE_EMBEDDING_MODEL,
-                    input=["test"],
-                )
-                dim = len(test_resp.data[0].embedding)
-                self._dimension = dim
+                self._dimension = self.settings.EMBEDDING_EXPECTED_DIMENSION
                 self.status = "loaded_api"
                 masked_key = self.settings.DASHSCOPE_API_KEY[:4] + "****"
                 logger.info(
-                    f"Embedding model loaded via DashScope API, "
+                    f"Embedding client initialized for DashScope API "
+                    f"(lazy test, no startup call), "
                     f"model={self.settings.DASHSCOPE_EMBEDDING_MODEL}, "
-                    f"dimension={dim}, key={masked_key}"
+                    f"expected_dimension={self._dimension}, key={masked_key}"
                 )
                 return
             except Exception as e:
                 masked_key = self.settings.DASHSCOPE_API_KEY[:4] + "****"
                 logger.warning(
-                    f"DashScope API connection failed (key={masked_key}): {e}, "
-                    f"falling back to local model"
+                    f"DashScope client init failed (key={masked_key}): {e}, "
+                    f"local model disabled by user policy"
                 )
                 self._api_client = None
+                self.status = "disabled"
+                return
 
-        try:
-            loop = asyncio.get_event_loop()
-            self.model = await loop.run_in_executor(
-                None,
-                self._load_local_model,
-            )
-            if hasattr(self.model, 'get_embedding_dimension'):
-                self._dimension = self.model.get_embedding_dimension()
-            else:
-                self._dimension = self.model.get_sentence_embedding_dimension()
+        self.status = "disabled"
+        logger.warning(
+            "DASHSCOPE_API_KEY not configured and local model download is disabled. "
+            "EmbeddingService will be unavailable."
+        )
 
-            expected = getattr(self.settings, 'EMBEDDING_EXPECTED_DIMENSION', self.EXPECTED_DIMENSION)
-            if self._dimension != expected:
-                logger.warning(
-                    f"Local model dimension={self._dimension} != expected={expected}, "
-                    f"vector operations may fail with existing ChromaDB data"
-                )
+    def _load_local_model(self) -> "SentenceTransformer":
+        from sentence_transformers import SentenceTransformer
 
-            self.status = "loaded_local"
-            logger.info(
-                f"Embedding model loaded via local "
-                f"{self.settings.EMBEDDING_MODEL_PATH or 'BAAI/bge-m3'}, "
-                f"dimension={self.dimension}, device={self.settings.EMBEDDING_DEVICE}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to load local embedding model: {e}")
-            self.status = "error"
-            raise RuntimeError("No embedding service available") from e
-
-    def _load_local_model(self) -> SentenceTransformer:
         return SentenceTransformer(
             self.settings.EMBEDDING_MODEL_PATH or "BAAI/bge-m3",
             device=self.settings.EMBEDDING_DEVICE or "cpu",
