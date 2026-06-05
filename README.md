@@ -8,7 +8,7 @@
 
 </div>
 
-![Veritas 求真 — 科研文献智能助手](docs/Photo/首页介绍.png)
+![Veritas 求真 — 科研文献智能助手](docs/Photo/求真.png)
 
 <br />
 
