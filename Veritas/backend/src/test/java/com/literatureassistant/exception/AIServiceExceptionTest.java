@@ -11,9 +11,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class AIServiceExceptionTest {
 
     @Test
-    void codeIs503() {
+    void codeIs502() {
         AIServiceException ex = new AIServiceException("AI服务调用失败", new IOException("Connection refused"));
-        assertEquals(503, ex.getCode());
+        assertEquals(502, ex.getCode());
     }
 
     @Test
@@ -41,8 +41,8 @@ class AIServiceExceptionTest {
         AIServiceException ex1 = new AIServiceException("连接超时", new TimeoutException("30s elapsed"));
         AIServiceException ex2 = new AIServiceException("连接拒绝", new ConnectException("Connection refused"));
 
-        assertEquals(503, ex1.getCode());
-        assertEquals(503, ex2.getCode());
+        assertEquals(502, ex1.getCode());
+        assertEquals(502, ex2.getCode());
         assertInstanceOf(TimeoutException.class, ex1.getCause());
         assertInstanceOf(ConnectException.class, ex2.getCause());
     }

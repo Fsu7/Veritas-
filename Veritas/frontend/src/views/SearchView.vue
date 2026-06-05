@@ -72,6 +72,13 @@ function handleSelect(paperId: string) {
   router.push({ name: 'PaperDetail', params: { paperId } })
 }
 
+function handleToggleSelect(paper: import('@/types/paper').Paper) {
+  const result = paperStore.togglePaperSelection(paper)
+  if (!result.success) {
+    ElMessage.warning(result.reason ?? '操作失败')
+  }
+}
+
 function handleRetry() {
   handleSearch()
 }
@@ -139,10 +146,13 @@ watch(() => route.query.q, (newQ) => {
           v-for="paper in paperStore.searchResults"
           :key="paper.paperId"
           :paper="paper"
+          :selectable="true"
+          :selected="paperStore.selectedPaperIds.includes(paper.paperId)"
           :is-favorited="paperStore.favorites.includes(paper.paperId)"
           @select="handleSelect"
           @analyze="handleAnalyze"
           @favorite="handleFavorite"
+          @toggle-select="handleToggleSelect"
         />
       </div>
 

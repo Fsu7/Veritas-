@@ -11,21 +11,21 @@ export function usePagination(
     Math.ceil(total.value / pageSize.value) || 1
   )
 
-  function handleCurrentChange(
+  async function handleCurrentChange(
     page: number,
     callback: (page: number) => Promise<void>
   ) {
     currentPage.value = page
-    callback(page)
+    await callback(page)
   }
 
-  function handleSizeChange(
+  async function handleSizeChange(
     size: number,
     callback: (size: number) => Promise<void>
   ) {
     pageSize.value = size
     currentPage.value = 1
-    callback(size)
+    await callback(size)
   }
 
   function resetPage() {

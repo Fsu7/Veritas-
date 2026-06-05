@@ -91,8 +91,9 @@ class GlobalExceptionHandlerTest {
         AIServiceException e = new AIServiceException("Python服务内部错误", new IOException("Connection refused"));
         ResponseEntity<ApiResponse<Void>> response = handler.handleAIService(e);
 
-        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
-        assertEquals(503, response.getBody().getCode());
+        // 修复 S-002: AIServiceException 改为 502 Bad Gateway
+        assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+        assertEquals(502, response.getBody().getCode());
         assertEquals("AI服务暂时不可用，请稍后重试", response.getBody().getMessage());
         assertNull(response.getBody().getData());
     }
@@ -102,8 +103,9 @@ class GlobalExceptionHandlerTest {
         AIServiceException e = new AIServiceException("Python服务返回500: NullPointerException at com.xxx.Service", new RuntimeException("NPE"));
         ResponseEntity<ApiResponse<Void>> response = handler.handleAIService(e);
 
-        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
-        assertEquals(503, response.getBody().getCode());
+        // 修复 S-002: AIServiceException 改为 502 Bad Gateway
+        assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+        assertEquals(502, response.getBody().getCode());
         assertEquals("AI服务暂时不可用，请稍后重试", response.getBody().getMessage());
         assertFalse(response.getBody().getMessage().contains("Python"));
         assertFalse(response.getBody().getMessage().contains("NullPointerException"));

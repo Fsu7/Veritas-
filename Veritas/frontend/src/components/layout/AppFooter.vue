@@ -14,8 +14,8 @@
 <style scoped lang="scss">
 .app-footer {
   flex-shrink: 0;
-  background-color: #f5f7fa;
-  border-top: 1px solid #e4e7ed;
+  background-color: var(--el-bg-color-page);
+  border-top: 1px solid var(--el-border-color-lighter);
   padding: var(--spacing-md) 0;
 
   &__content {

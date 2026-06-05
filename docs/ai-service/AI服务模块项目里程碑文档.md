@@ -3,9 +3,9 @@
 > **课题编号**：XH-202630
 > **课题名称**：领域知识个性化生成与多智能体协同决策系统研究
 > **发榜单位**：上海云之脑智能科技有限公司（科大讯飞全资子公司）
-> **文档版本**：v1.2
+> **文档版本**：v1.3
 > **创建日期**：2026年5月24日
-> **文档状态**：AM2代码就绪（待数据入库→实测）
+> **文档状态**：AM3完成（API完善+Java对接+Java端SSE转发前置完成）
 
 ---
 
@@ -17,6 +17,7 @@
 | v1.1 | 2026-05-25 | 项目组 | AM1完成确认：8项修复(bge-m3/URL空值保护/camelCase alias/health 503/LLM超时/AppState/analysis_type/.dockerignore)，15项检查点12通过 |
 | v1.2 | 2026-06-02 | 项目组 | AM2阶段审阅完成：3-Agent + LangGraph + RAG + Personalization代码就绪，12/13交付物已实现。唯一待办：执行import_papers.py将200+篇论文向量化入库。详见[AM2阶段审阅报告](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/log/阶段审阅报告/ai-service/M2-阶段审阅报告.md) |
 | v1.3 | 2026-06-03 | 项目组 | **LLM外接API方案B切换**：默认LLM从阿里云DashScope(qwen-plus)切到 **DeepSeek V4 Flash**（OpenAI 兼容，`https://api.deepseek.com/v1`）。原因：1M 上下文、价格仅 ¥1/百万 tokens（输入）、推理接近 V4-Pro、支持思考模式。Embedding 仍保留阿里云百炼 text-embedding-v4。冒烟测试通过：`POST /api/agent/analyze` 端到端返回 ~2.2k 字报告 + 个性化标签，generator 耗时 ~15s。 |
+| v1.4 | 2026-06-05 | 项目组 | **AM3完成确认**：API完善+Java对接100%通过，12/12检查点全部通过✅。Python端交付：统一响应包装器 / 422中文友好 / Enum严格校验 / SSE流式推送(7种事件+ping+重连) / 健康检查6组件 / 模型状态12字段 / camelCase双向映射 / 三级降级链。Java端已前置实现SSE全链路转发（AgentSseEvent DTO + sseWebClient Bean 150s超时 + `GET /api/analysis/{id}/agent-stream` 端点 + Last-Event-ID + 数据隔离校验）。ModelStatusDTO已扩展6字段对齐Python端。Java端代码272/272测试通过，BUILD SUCCESS。详见[AM3阶段审阅报告](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/log/阶段审阅报告/ai-service/M3-阶段审阅报告.md) 与 [JM3修复验证报告](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/log/阶段审阅报告/backend/JM3-AI服务调用打通-审阅报告.md)。 |
 
 ---
 
@@ -101,8 +102,8 @@ graph LR
 | 里程碑 | 时间窗口 | 对应项目里程碑 | 核心交付 | 状态 |
 |--------|---------|-------------|---------|------|
 | **AM1：项目骨架与模型层就绪** | Week 1-2（5/23 - 6/5） | M1 | FastAPI骨架+Embedding+LLM三路降级+ChromaDB | ✅ |
-| **AM2：RAG检索与3-Agent基础可用** | Week 3-4（6/6 - 6/19） | M2 | RAG检索+检索/分析/生成3Agent+LangGraph基础流程 | 🟡 |
-| **AM3：API完善与Java对接** | Week 5-6（6/20 - 7/3） | M3 | API校验+SSE推送+健康检查+Java联调 | ⬜ |
+| **AM2：RAG检索与3-Agent基础可用** | Week 3-4（6/6 - 6/19） | M2 | RAG检索+检索/分析/生成3Agent+LangGraph基础流程 | ✅（待数据实测） |
+| **AM3：API完善与Java对接** | Week 5-6（6/20 - 7/3） | M3 | API校验+SSE推送+健康检查+Java联调+SSE转发前置 | ✅ |
 | **AM4：6-Agent协同与个性化引擎** | Week 7-8（7/4 - 7/17） | M4 | 协调者/对比/审核Agent+降级机制+个性化引擎+SSE完善 | ⬜ |
 | **AM5：混合检索与功能完善** | Week 9-10（7/18 - 7/31） | M5 | 混合检索+矛盾发现+流式输出+外接Embedding API | ⬜ |
 | **AM6：性能优化与交付就绪** | Week 11-14（8/1 - 9/30） | M6 | 模型量化+检索优化+测试+部署文档 | ⬜ |
@@ -111,10 +112,10 @@ graph LR
 进度条：
 
 AM1 ████████████████████████████████  Week 1-2 ✅
-AM2 ████████░░░░░░░░░░░░░░░░░░░░░░░  Week 1-4
-AM3 ████████████░░░░░░░░░░░░░░░░░░░  Week 1-6
-AM4 ████████████████░░░░░░░░░░░░░░░  Week 1-8
-AM5 ████████████████████░░░░░░░░░░░  Week 1-10
+AM2 ████████████████████████████████  Week 3-4 ✅（代码就绪，待数据入库实测）
+AM3 ████████████████████████████████  Week 5-6 ✅（含Java端SSE转发前置）
+AM4 ██████████████████░░░░░░░░░░░░░░  Week 1-8
+AM5 ████████████████████████░░░░░░░░  Week 1-10
 AM6 ████████████████████████████████  Week 1-14
 ```
 
@@ -352,20 +353,25 @@ curl -X POST http://localhost:8000/api/agent/analyze \
 
 | 序号 | 交付物 | 验收标准 | 状态 |
 |------|--------|---------|------|
-| 1 | 请求校验完善 | Pydantic @Valid校验生效，空topic/非法枚举返回422 | ⬜ |
-| 2 | 统一响应格式 | {code, message, data, timestamp} 与Java后端一致 | ⬜ |
-| 3 | SSE推送基础 | EventSourceResponse返回Agent状态流 | ⬜ |
-| 4 | 健康检查完善 | /health 返回LLM/Embedding/Chroma三组件状态 | ⬜ |
-| 5 | 模型状态API | `GET /api/model/status` 返回模型加载状态 | ⬜ |
-| 6 | Java→Python通信验证 | Java WebClient成功调用Python Agent接口 | ⬜ |
-| 7 | 请求格式兼容 | Java camelCase → Python snake_case 转换正确 | ⬜ |
-| 8 | 响应格式兼容 | Python返回JSON格式Java可正确解析 | ⬜ |
-| 9 | 错误响应统一 | Python异常返回与Java后端统一格式 | ⬜ |
-| 10 | 超时与降级处理 | Python服务不可用时Java收到降级提示 | ⬜ |
+| 1 | 请求校验完善 | Pydantic @Valid校验生效，空topic/非法枚举返回422 | ✅ |
+| 2 | 统一响应格式 | {code, message, data, timestamp} 与Java后端一致 | ✅ |
+| 3 | SSE推送基础 | EventSourceResponse返回Agent状态流 | ✅ |
+| 4 | 健康检查完善 | /health 返回LLM/Embedding/Chroma三组件状态 | ✅（实际6组件） |
+| 5 | 模型状态API | `GET /api/model/status` 返回模型加载状态 | ✅（12字段） |
+| 6 | Java→Python通信验证 | Java WebClient成功调用Python Agent接口 | ✅ |
+| 7 | 请求格式兼容 | Java camelCase → Python snake_case 转换正确 | ✅ |
+| 8 | 响应格式兼容 | Python返回JSON格式Java可正确解析 | ✅ |
+| 9 | 错误响应统一 | Python异常返回与Java后端统一格式 | ✅ |
+| 10 | 超时与降级处理 | Python服务不可用时Java收到降级提示 | ✅ |
+| 11 | **SSE事件7种类型** | agent_started/agent_state_update/agent_completed/agent_failed/analysis_completed/error/ping | ✅ |
+| 12 | **SSE Keep-alive + 断线重连** | 15s ping + Last-Event-ID Header | ✅ |
+| 13 | **Java端SSE转发** | `GET /api/analysis/{id}/agent-stream` 端点（JM3前置） | ✅ |
+| 14 | **ModelStatusDTO扩展** | 12字段对齐Python端（新增6字段） | ✅ |
+| 15 | **Java端272/272测试通过** | BUILD SUCCESS | ✅ |
 
 ### 5.3 详细任务分解
 
-#### Week 5 Day 1-3：API完善
+#### Week 5 Day 1-3：API完善✅
 
 | 天数 | 任务 | 产出 |
 |------|------|------|
@@ -373,7 +379,7 @@ curl -X POST http://localhost:8000/api/agent/analyze \
 | Day 2 | SSE推送基础实现 | api/endpoints/agent.py扩展 |
 | Day 3 | 健康检查完善 + 模型状态API | api/endpoints/model.py |
 
-#### Week 5 Day 4 - Week 6 Day 2：Java联调
+#### Week 5 Day 4 - Week 6 Day 2：Java联调✅
 
 | 天数 | 任务 | 产出 |
 |------|------|------|
@@ -381,29 +387,45 @@ curl -X POST http://localhost:8000/api/agent/analyze \
 | Day 6-7 | 请求/响应格式兼容性验证 | 字段映射文档 |
 | Day 8-9 | 错误处理联调 + 降级测试 | 降级机制验证 |
 
-#### Week 6 Day 3-7：SSE与稳定性
+#### Week 6 Day 3-7：SSE与稳定性✅
 
 | 天数 | 任务 | 产出 |
 |------|------|------|
 | Day 3-4 | SSE推送稳定性测试 + 断线重连 | SSE测试代码 |
 | Day 5-7 | 集成测试 + Bug修复 | 测试报告 |
 
+#### Week 6 Day 8-10：Java端SSE转发前置（JM3阶段）✅
+
+| 天数 | 任务 | 产出 |
+|------|------|------|
+| Day 8 | AgentSseEvent DTO + PythonAIClient.analyzeStream() | dto/response/AgentSseEvent.java |
+| Day 9 | sseWebClient Bean (150s超时) + generateReportStream() | WebClientConfig.java + AgentClientService.java |
+| Day 10 | `GET /api/analysis/{id}/agent-stream` 端点 + validateAnalysisAccess() | AnalysisController.java + AnalysisService.java |
+
 ### 5.4 验收检查点
 
 ```
-□ 请求校验: 空topic返回422，非法枚举返回422
-□ 统一响应: 所有API返回{code, message, data, timestamp}格式
-□ SSE推送: Agent执行过程中SSE流正常推送状态
-□ 健康检查: /health 返回三组件状态（LLM/Embedding/Chroma）
-□ 模型状态: /api/model/status 返回模型加载详情
-□ Java调用: Java成功调用 POST /api/agent/analyze
-□ 字段转换: Java camelCase正确映射到Python snake_case
-□ 响应解析: Java正确解析Python返回的JSON
-□ 错误处理: Python异常时Java收到统一格式错误响应
-□ 降级: Python不可用时Java收到降级提示，不崩溃
-□ SSE事件格式: event:agent_state_update + data:JSON
-□ 超时: Python处理超时30s后Java收到超时响应
+✅ 请求校验: 空topic返回422，非法枚举返回422
+✅ 统一响应: 所有API返回{code, message, data, timestamp}格式
+✅ SSE推送: Agent执行过程中SSE流正常推送状态
+✅ 健康检查: /health 返回三组件状态（LLM/Embedding/Chroma）
+✅ 模型状态: /api/model/status 返回模型加载详情
+✅ Java调用: Java成功调用 POST /api/agent/analyze
+✅ 字段转换: Java camelCase正确映射到Python snake_case
+✅ 响应解析: Java正确解析Python返回的JSON
+✅ 错误处理: Python异常时Java收到统一格式错误响应
+✅ 降级: Python不可用时Java收到降级提示，不崩溃
+✅ SSE事件格式: event:agent_state_update + data:JSON
+✅ 超时: Python处理超时30s后Java收到超时响应
+✅ SSE事件类型: 7种类型完整（agent_started/agent_state_update/agent_completed/agent_failed/analysis_completed/error/ping）
+✅ SSE Keep-alive: 15s间隔ping心跳
+✅ 断线重连: Last-Event-ID Header透传
+✅ Java端SSE转发: GET /api/analysis/{id}/agent-stream 端点（JM3前置实现）
+✅ ModelStatusDTO扩展: 12字段对齐Python端（providerCandidates/chromaPaperCount/gpuMemoryUsed/llmProviderCount/searchService/reranker）
+✅ Java端272/272测试: BUILD SUCCESS
 ```
+
+> **审阅备注**（2026-06-05）：12项核心检查点 + 6项扩展项（18项）**全部通过** ✅。AM3完成度 100%，P0/P1 风险 0 个。Python端全部功能完整：统一响应格式、422中文友好、Enum严格校验、SSE流式推送(7种事件+ping+重连)、健康检查6组件、模型状态10字段、camelCase双向映射、三级降级链。Java端SSE转发已在JM3阶段前置实现（AgentSseEvent DTO + sseWebClient Bean 150s超时 + 数据隔离校验），可提前进入 JM4 前端 EventSource 集成。详见 [AM3阶段审阅报告](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/log/阶段审阅报告/ai-service/M3-阶段审阅报告.md) 与 [JM3修复验证报告](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/log/阶段审阅报告/backend/JM3-AI服务调用打通-审阅报告.md)。
 
 ### 5.5 关键演示场景
 
@@ -424,12 +446,14 @@ curl -X POST http://localhost:8000/api/agent/analyze \
 
 ### 5.6 风险与应对
 
-| 风险 | 应对 |
-|------|------|
-| Java-Python字段命名不一致 | Pydantic field alias + @JsonProperty注解 |
-| SSE流中断 | 前端useSSE自动重连（3s间隔，最多5次） |
-| Python响应格式变更影响Java | 严格定义API契约，增加字段兼容性处理 |
-| 并发请求导致模型OOM | 限制并发数，使用异步处理 |
+| 风险 | 应对 | 状态 |
+|------|------|------|
+| Java-Python字段命名不一致 | Pydantic field alias + @JsonProperty注解 | ✅ 已验证：Java 全局 SNAKE_CASE + Python↔Java 接口 DTO 用 @JsonProperty 显式覆盖 |
+| SSE流中断 | 前端useSSE自动重连（3s间隔，最多5次）+ Python 端 Last-Event-ID 断线重连 | ✅ Python + Java 端均已实现 |
+| Python响应格式变更影响Java | 严格定义API契约 + 272 个 Java 端单测覆盖 | ✅ 已通过 |
+| 并发请求导致模型OOM | 限制并发数，使用异步处理 | ⬜ 推迟到 AM5/AM6 |
+| SSE 408 超时未处理 | Python 端 AgentTimeoutException(408) 已实现，Java 端需在 JM4 处理 408 事件 | ⬜ 推迟到 JM4 |
+| /health 503 时 HTTP 码与业务码不一致 | Python 端 fail_response 需统一 | ⬜ 推迟到 AM4 |
 
 ---
 
@@ -724,9 +748,9 @@ curl -X POST http://localhost:8000/api/agent/analyze \
 
 ```mermaid
 graph TD
-    AM1["AM1 骨架+模型层<br/>Week 1-2"]
-    AM2["AM2 RAG+3Agent<br/>Week 3-4"]
-    AM3["AM3 API+Java对接<br/>Week 5-6"]
+    AM1["AM1 骨架+模型层<br/>Week 1-2<br/>✅"]
+    AM2["AM2 RAG+3Agent<br/>Week 3-4<br/>✅"]
+    AM3["AM3 API+Java对接<br/>Week 5-6<br/>✅"]
     AM4["AM4 6Agent+个性化<br/>Week 7-8"]
     AM5["AM5 混合检索+完善<br/>Week 9-10"]
     AM6["AM6 优化+交付<br/>Week 11-14"]
@@ -758,11 +782,13 @@ graph LR
         M1_DATA["M1 MySQL/Redis就绪"]
         M1_DATA2["M1 200+篇论文数据"]
         JM2["JM2 Java基础API"]
+        JM3["JM3 Java端SSE转发"]
     end
 
     M1_DATA -.->|AM1需要| AM1
     M1_DATA2 -.->|AM2需要| AM2
     JM2 -.->|AM3需要| AM3
+    JM3 -.->|AM4需要| AM4
 ```
 
 ### 9.3 关键路径
@@ -825,6 +851,8 @@ graph LR
 | **AM5前** | 6-Agent协同流程稳定；SSE推送正常 |
 | **AM6前** | 性能基线测试，确认优化方向 |
 
+> **AM3 复审（2026-06-05）**: 所有 P0/P1 风险已通过修复关闭。SSE 408 / /health 503 业务码 / OOM 三个残余风险已规划到 AM4 / JM4 后续阶段。
+
 ---
 
 ## 11 AI服务验收标准汇总
@@ -864,14 +892,14 @@ graph LR
 
 ### 11.4 里程碑级验收
 
-| 里程碑 | 核心验收标准 | 不通过条件 |
-|--------|-------------|-----------|
-| AM1 | FastAPI可启动，至少一路LLM可用，Embedding 1024维向量 | 模型不可用 |
-| AM2 | 3-Agent端到端分析可用，耗时<30秒 | Agent无法返回结果 |
-| AM3 | Java成功调用Python AI服务，SSE推送正常 | 通信链路不通 |
-| AM4 | 6-Agent协同可用，个性化差异>60% | 协同失败或无差异 |
-| AM5 | 混合检索准确率>纯语义检索，流式首字节<2秒 | 检索或流式不达标 |
-| AM6 | 性能达标+P0功能100%通过 | 性能或功能不达标 |
+| 里程碑 | 核心验收标准 | 不通过条件 | 状态 |
+|--------|-------------|-----------|------|
+| AM1 | FastAPI可启动，至少一路LLM可用，Embedding 1024维向量 | 模型不可用 | ✅ |
+| AM2 | 3-Agent端到端分析可用，耗时<30秒 | Agent无法返回结果 | ✅（代码就绪，待数据实测） |
+| AM3 | Java成功调用Python AI服务，SSE推送正常 | 通信链路不通 | ✅（含Java端SSE转发前置） |
+| AM4 | 6-Agent协同可用，个性化差异>60% | 协同失败或无差异 | ⬜ |
+| AM5 | 混合检索准确率>纯语义检索，流式首字节<2秒 | 检索或流式不达标 | ⬜ |
+| AM6 | 性能达标+P0功能100%通过 | 性能或功能不达标 | ⬜ |
 
 ---
 
@@ -924,18 +952,24 @@ graph LR
 ### AM3检查清单
 
 ```
-□ 请求校验: Pydantic @Valid生效
-□ 统一响应: {code, message, data, timestamp}格式
-□ SSE推送: EventSourceResponse返回Agent状态流
-□ /health返回三组件状态
-□ /api/model/status返回模型详情
-□ Java→Python通信成功
-□ 字段转换: camelCase↔snake_case正确
-□ 响应解析: Java正确解析Python JSON
-□ 错误响应: 统一格式
-□ 降级处理: Python不可用时Java收到降级提示
-□ SSE事件格式: event:agent_state_update + data:JSON
-□ 超时处理: 30s超时后正常返回
+✅ 请求校验: Pydantic @Valid生效（空topic/非法枚举返回422中文友好消息）
+✅ 统一响应: {code, message, data, timestamp}格式
+✅ SSE推送: EventSourceResponse返回Agent状态流（7种事件类型）
+✅ /health返回6组件状态（LLM/Embedding/Chroma/Prompts/SearchService/Reranker）
+✅ /api/model/status返回12字段详情（扩展6字段）
+✅ Java→Python通信成功（PythonAIClient + AgentClientService）
+✅ 字段转换: camelCase↔snake_case双向兼容（populate_by_name + by_alias）
+✅ 响应解析: Java正确解析Python JSON（@JsonProperty覆盖全局SNAKE_CASE）
+✅ 错误响应: 统一格式（AIServiceException→502 Bad Gateway）
+✅ 降级处理: Python不可用时Java收到降级提示（三级降级链：Python→Redis缓存→降级DTO）
+✅ SSE事件格式: event:agent_state_update + data:JSON（camelCase payload）
+✅ 超时处理: Python 30s + Java 30s 双层超时
+✅ SSE事件7种类型: agent_started/agent_state_update/agent_completed/agent_failed/analysis_completed/error/ping
+✅ SSE Keep-alive: 15s间隔ping心跳
+✅ 断线重连: Last-Event-ID Header透传（Python + Java均支持）
+✅ Java端SSE转发: GET /api/analysis/{id}/agent-stream 端点（JM3前置实现）
+✅ Java端ModelStatusDTO: 12字段对齐Python端
+✅ Java端272/272测试: BUILD SUCCESS
 ```
 
 ### AM4检查清单
@@ -1095,10 +1129,10 @@ graph TD
 |--------|---------|-----------|
 | AM1 | main.py + router.py + config.py + logging.py + events.py + llm_service.py + embedding_service.py + vector_store_service.py + schemas.py + enums.py + exception.py + Dockerfile + .env.example + 6个Prompt模板 | ~22 |
 | AM2 | search_service.py + base.py + retriever.py + analyzer.py + generator.py + graph.py + tools.py + agent.py + search.py + model.py + personalization_service.py + import_papers.py + citation_parser.py + text_processing.py | ~36 |
-| AM3 | 请求校验扩展 + 响应格式统一 + SSE推送 + 健康检查完善 + 模型状态API | ~40 |
-| AM4 | coordinator.py + comparer.py + reviewer.py + graph.py重构 + 降级逻辑 + 个性化完善 + SSE完善 | ~47 |
-| AM5 | 混合检索 + 矛盾发现 + 流式输出 + 外接Embedding + 重排序完善 | ~52 |
-| AM6 | 模型量化 + 检索优化 + 测试代码 + 部署文档 | ~60+ |
+| AM3 | Python端：orchestrator.py + enums.py + response.py + 19个集成测试。**Java端（JM3前置）**：AgentSseEvent.java + PythonAIClient.analyzeStream() + sseWebClient Bean + generateReportStream() + agentStream 端点 + validateAnalysisAccess() + ModelStatusDTO扩展6字段 + 错误码 502 + 降级缓存Key修复 | ~44 |
+| AM4 | coordinator.py + comparer.py + reviewer.py + graph.py重构 + 降级逻辑 + 个性化完善 + SSE完善 | ~52 |
+| AM5 | 混合检索 + 矛盾发现 + 流式输出 + 外接Embedding + 重排序完善 | ~58 |
+| AM6 | 模型量化 + 检索优化 + 测试代码 + 部署文档 | ~66+ |
 
 ---
 

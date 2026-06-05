@@ -2,7 +2,7 @@
 import PlainExplanation from './PlainExplanation.vue'
 import type { AnalysisResult } from '@/types/analysis'
 
-const props = withDefaults(defineProps<{
+withDefaults(defineProps<{
   analysis: AnalysisResult
   showPlainExplanation?: boolean
 }>(), {

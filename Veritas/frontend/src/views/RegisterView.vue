@@ -160,7 +160,7 @@ async function handleRegister() {
     width: 100%;
     max-width: 400px;
     padding: var(--spacing-xl);
-    background: #fff;
+    background: var(--el-bg-color);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
   }

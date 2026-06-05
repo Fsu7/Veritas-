@@ -4,6 +4,18 @@ import { paperApi } from '@/api/paper'
 import type { Paper, FilterParams } from '@/types/paper'
 
 const MAX_SELECTED_PAPERS = 5
+const MIN_SELECTED_PAPERS = 2
+
+/**
+ * 论文选择结果
+ * 告知 UI 是否成功及原因，便于 ElMessage 提示
+ */
+export interface ToggleSelectionResult {
+  success: boolean
+  reason?: string
+  current: number
+  max: number
+}
 
 export const usePaperStore = defineStore('paper', () => {
   const searchResults = ref<Paper[]>([])
@@ -25,6 +37,12 @@ export const usePaperStore = defineStore('paper', () => {
 
   const totalPages = computed(() =>
     Math.ceil(totalResults.value / pageSize.value) || 1
+  )
+
+  /** 是否满足"开始对比"的下限要求 */
+  const canCompare = computed(() =>
+    selectedPapers.value.length >= MIN_SELECTED_PAPERS &&
+    selectedPapers.value.length <= MAX_SELECTED_PAPERS
   )
 
   async function searchPapers(query: string, page: number = 1) {
@@ -49,17 +67,45 @@ export const usePaperStore = defineStore('paper', () => {
     }
   }
 
-  function togglePaperSelection(paper: Paper) {
+  /**
+   * 切换论文选择状态（加入或移除对比池）
+   * @returns ToggleSelectionResult 包含成功状态、原因、当前数量
+   */
+  function togglePaperSelection(paper: Paper): ToggleSelectionResult {
     const idx = selectedPapers.value.findIndex(p => p.paperId === paper.paperId)
     if (idx >= 0) {
       selectedPapers.value.splice(idx, 1)
-    } else if (selectedPapers.value.length < MAX_SELECTED_PAPERS) {
-      selectedPapers.value.push(paper)
+      return {
+        success: true,
+        current: selectedPapers.value.length,
+        max: MAX_SELECTED_PAPERS
+      }
+    }
+    if (selectedPapers.value.length >= MAX_SELECTED_PAPERS) {
+      return {
+        success: false,
+        reason: `最多选择 ${MAX_SELECTED_PAPERS} 篇论文，请先取消部分选择`,
+        current: selectedPapers.value.length,
+        max: MAX_SELECTED_PAPERS
+      }
+    }
+    selectedPapers.value.push(paper)
+    return {
+      success: true,
+      current: selectedPapers.value.length,
+      max: MAX_SELECTED_PAPERS
     }
   }
 
   function clearSelection() {
     selectedPapers.value = []
+  }
+
+  /**
+   * 获取论文详情（FM2 Medium 遗留修复：统一通过 Store Action）
+   */
+  async function fetchDetail(paperId: string): Promise<Paper> {
+    return await paperApi.getDetail(paperId)
   }
 
   async function toggleFavorite(paperId: string) {
@@ -86,6 +132,7 @@ export const usePaperStore = defineStore('paper', () => {
   }
 
   async function fetchFavorites() {
+    // FM5 待实现：需后端提供 GET /users/{userId}/favorites 后接入
     favorites.value = []
   }
 
@@ -109,8 +156,8 @@ export const usePaperStore = defineStore('paper', () => {
     searchResults, selectedPapers, favorites, filters,
     currentQuery, totalResults, currentPage, pageSize,
     loading, error,
-    selectedPaperIds, hasResults, totalPages,
-    searchPapers, togglePaperSelection, clearSelection,
+    selectedPaperIds, hasResults, totalPages, canCompare,
+    searchPapers, togglePaperSelection, clearSelection, fetchDetail,
     toggleFavorite, fetchFavorites, updateFilters, resetSearch
   }
 })

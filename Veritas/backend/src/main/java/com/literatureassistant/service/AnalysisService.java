@@ -300,6 +300,20 @@ public class AnalysisService {
     }
 
     /**
+     * 公开数据隔离校验：analysisId 对应的 Session.userId 必须等于 currentUserId。
+     * <p>JM4 SSE 端点 (GET /api/analysis/{analysisId}/agent-stream) 入口使用，
+     * 防止用户 A 订阅用户 B 的 analysisId。
+     *
+     * @throws ResourceNotFoundException analysisId 不存在
+     * @throws BusinessException         越权访问
+     */
+    public void validateAnalysisAccess(String userId, String analysisId) {
+        AnalysisResult entity = analysisResultRepository.findByAnalysisId(analysisId)
+                .orElseThrow(() -> new ResourceNotFoundException("AnalysisResult", analysisId));
+        validateDataIsolation(userId, entity.getSessionId());
+    }
+
+    /**
      * 数据隔离校验：sessionId 对应的 Session.userId 必须等于 currentUserId。
      */
     private void validateDataIsolation(String userId, String sessionId) {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Check } from '@element-plus/icons-vue'
 import type { Paper } from '@/types/paper'
 
 const props = withDefaults(defineProps<{
@@ -16,6 +17,7 @@ const emit = defineEmits<{
   (e: 'select', paperId: string): void
   (e: 'analyze', paperId: string): void
   (e: 'favorite', paperId: string): void
+  (e: 'toggle-select', paper: Paper): void
 }>()
 
 function truncateText(text: string, maxLength: number = 200): string {
@@ -40,12 +42,28 @@ function formatMeta(): string {
 function formatScore(score: number): string {
   return `相关度 ${Math.round(score * 100)}%`
 }
+
+function handleSelectClick() {
+  if (props.selectable) {
+    emit('toggle-select', props.paper)
+  } else {
+    emit('select', props.paper.paperId)
+  }
+}
 </script>
 
 <template>
-  <el-card class="paper-card" :class="{ 'paper-card--selected': selected }" shadow="hover">
+  <el-card
+    class="paper-card"
+    :class="{ 'paper-card--selected': selected, 'paper-card--selectable': selectable }"
+    shadow="hover"
+  >
     <div class="paper-card__header">
-      <h3 class="paper-card__title" @click="emit('select', paper.paperId)">
+      <h3
+        class="paper-card__title"
+        :class="{ 'paper-card__title--clickable': !selectable }"
+        @click="emit('select', paper.paperId)"
+      >
         {{ paper.title }}
       </h3>
       <el-tag
@@ -81,7 +99,16 @@ function formatScore(score: number): string {
     </div>
 
     <div class="paper-card__actions">
-      <el-button size="small" type="primary" @click="emit('analyze', paper.paperId)">
+      <el-button
+        v-if="selectable"
+        :type="selected ? 'primary' : 'default'"
+        size="small"
+        :icon="Check"
+        @click="handleSelectClick"
+      >
+        {{ selected ? '已选择' : '选择对比' }}
+      </el-button>
+      <el-button v-else size="small" type="primary" @click="emit('analyze', paper.paperId)">
         分析
       </el-button>
       <el-button
@@ -98,10 +125,16 @@ function formatScore(score: number): string {
 <style scoped lang="scss">
 .paper-card {
   margin-bottom: var(--spacing-md);
+  transition: all var(--transition-fast);
 }
 
 .paper-card--selected {
   border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px var(--el-color-primary-light-5);
+}
+
+.paper-card--selectable .paper-card__title {
+  cursor: default;
 }
 
 .paper-card__header {
@@ -116,13 +149,16 @@ function formatScore(score: number): string {
   font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--el-text-color-primary);
-  cursor: pointer;
   margin: 0;
   flex: 1;
   line-height: 1.4;
 }
 
-.paper-card__title:hover {
+.paper-card__title--clickable {
+  cursor: pointer;
+}
+
+.paper-card__title--clickable:hover {
   color: var(--el-color-primary);
 }
 

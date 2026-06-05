@@ -112,9 +112,10 @@ class AgentClientServiceTest {
     @DisplayName("analyzePaper - Python 抛 AIServiceException + Redis 无缓存 → 返回 degraded DTO")
     void analyzePaper_aiServiceException_triggers_fallback() {
         when(pythonAIClient.analyze(any(AgentRequest.class)))
-                .thenThrow(new AIServiceException("AI service call failed: 503", new RuntimeException()));
+                .thenThrow(new AIServiceException("AI service call failed: 502", new RuntimeException()));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.get(RedisKeyUtil.agentFallbackKey("anl_test_001"))).thenReturn(null);
+        // 修复 B-002: handleFallback 改读 analysis:result: Key
+        when(valueOperations.get(RedisKeyUtil.analysisResultKey("anl_test_001"))).thenReturn(null);
 
         AnalysisResultDTO actual = service.analyzePaper(buildRequest());
 
@@ -125,10 +126,10 @@ class AgentClientServiceTest {
     }
 
     @Test
-    @DisplayName("analyzePaper - Python 异常 + Redis 命中 fallback 缓存 → 返回 cached + degraded=true")
+    @DisplayName("analyzePaper - Python 异常 + Redis 命中缓存 → 返回 cached + degraded=true")
     void analyzePaper_cache_hit_returns_cached() throws Exception {
         when(pythonAIClient.analyze(any(AgentRequest.class)))
-                .thenThrow(new AIServiceException("AI service call failed: 503", new RuntimeException()));
+                .thenThrow(new AIServiceException("AI service call failed: 502", new RuntimeException()));
         AnalysisResultDTO cached = AnalysisResultDTO.builder()
                 .analysisId("anl_test_001")
                 .status(AnalysisStatus.COMPLETED)
@@ -136,7 +137,8 @@ class AgentClientServiceTest {
                 .build();
         String cachedJson = objectMapper.writeValueAsString(cached);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.get(RedisKeyUtil.agentFallbackKey("anl_test_001"))).thenReturn(cachedJson);
+        // 修复 B-002: handleFallback 与 cacheAnalysisResult 读写同一 Key
+        when(valueOperations.get(RedisKeyUtil.analysisResultKey("anl_test_001"))).thenReturn(cachedJson);
 
         AnalysisResultDTO actual = service.analyzePaper(buildRequest());
 

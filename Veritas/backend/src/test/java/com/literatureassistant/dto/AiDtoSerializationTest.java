@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.literatureassistant.dto.common.AgentRequest;
 import com.literatureassistant.dto.common.UserProfileDTO;
+import com.literatureassistant.dto.response.AgentSseEvent;
 import com.literatureassistant.dto.response.AgentStateResponse;
 import com.literatureassistant.dto.response.AnalysisResultDTO;
 import com.literatureassistant.dto.response.ModelStatusDTO;
@@ -27,16 +28,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * AI DTO 序列化/反序列化/校验 单元测试。
- * <p>覆盖 6 个核心场景：AgentRequest 序列化/反序列化、AnalysisResultDTO 枚举映射、
- * AgentStateResponse 字段映射、UserProfileDTO 默认值、AgentRequest 校验。
- *
- * @author XH-202630 Literature Assistant
+ * <p>覆盖 8 个核心场景：AgentRequest 序列化/反序列化、AnalysisResultDTO 枚举映射、
+ * AgentStateResponse 字段映射、UserProfileDTO 默认值、AgentRequest 校验、
+ * ModelStatusDTO 字段映射、PaperSearchResultDTO 字段映射、AgentSseEvent 字段映射。
+ * <p>Python 端 by_alias=True 输出 camelCase, Java 端全局 SNAKE_CASE 由 @JsonProperty 显式覆盖。
  */
 class AiDtoSerializationTest {
 
@@ -46,6 +48,7 @@ class AiDtoSerializationTest {
 
     @BeforeAll
     static void setUp() {
+        // 模拟 application.yml: 全局 SNAKE_CASE + JavaTimeModule + 大小写不敏感枚举
         objectMapper = new ObjectMapper()
                 .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
                 .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS)
@@ -63,7 +66,7 @@ class AiDtoSerializationTest {
     }
 
     @Test
-    @DisplayName("AgentRequest - 序列化为 snake_case JSON")
+    @DisplayName("AgentRequest - 序列化为 camelCase JSON（@JsonProperty 覆盖全局 SNAKE_CASE）")
     void agentRequest_serialization_to_python_format() throws Exception {
         AgentRequest request = AgentRequest.builder()
                 .topic("Multi-Agent协同决策")
@@ -81,33 +84,33 @@ class AiDtoSerializationTest {
 
         String json = objectMapper.writeValueAsString(request);
 
-        // 验证 snake_case 字段
-        assertThat(json).contains("\"paper_ids\":[\"arxiv_2024_001\"]");
-        assertThat(json).contains("\"user_id\":\"usr_001\"");
-        assertThat(json).contains("\"user_profile\":");
-        assertThat(json).contains("\"education_level\":\"master\"");
-        assertThat(json).contains("\"research_field\":\"NLP\"");
-        assertThat(json).contains("\"analysis_type\":\"paper_analysis\"");
-        assertThat(json).contains("\"analysis_id\":\"anl_001\"");
+        // @JsonProperty 标注字段, 全局 SNAKE_CASE 不会生效, 输出 camelCase
+        assertThat(json).contains("\"paperIds\":[\"arxiv_2024_001\"]");
+        assertThat(json).contains("\"userId\":\"usr_001\"");
+        assertThat(json).contains("\"userProfile\":");
+        assertThat(json).contains("\"educationLevel\":\"master\"");
+        assertThat(json).contains("\"researchField\":\"NLP\"");
+        assertThat(json).contains("\"analysisType\":\"paper_analysis\"");
+        assertThat(json).contains("\"analysisId\":\"anl_001\"");
     }
 
     @Test
-    @DisplayName("AgentRequest - Python JSON 反序列化正确解析（snake_case 输入）")
+    @DisplayName("AgentRequest - Python camelCase JSON 反序列化正确解析")
     void agentRequest_deserialization_from_python() throws Exception {
-        // Python 端 WebClient 用 snake_case 字段发送（依赖全局 SNAKE_CASE）
+        // Python 端 model_dump(by_alias=True) 输出 camelCase
         String pythonJson = """
                 {
                     "topic": "Multi-Agent协同决策",
-                    "paper_ids": ["arxiv_2024_001"],
-                    "user_id": "usr_001",
-                    "user_profile": {
-                        "education_level": "master",
-                        "research_field": "NLP",
-                        "knowledge_level": "intermediate",
-                        "preferred_style": "balanced"
+                    "paperIds": ["arxiv_2024_001"],
+                    "userId": "usr_001",
+                    "userProfile": {
+                        "educationLevel": "master",
+                        "researchField": "NLP",
+                        "knowledgeLevel": "intermediate",
+                        "preferredStyle": "balanced"
                     },
-                    "analysis_type": "report",
-                    "analysis_id": "anl_002"
+                    "analysisType": "report",
+                    "analysisId": "anl_002"
                 }
                 """;
 
@@ -128,7 +131,7 @@ class AiDtoSerializationTest {
     void analysisResultDTO_status_enum_mapping() throws Exception {
         for (AnalysisStatus status : AnalysisStatus.values()) {
             String json = """
-                    {"analysis_id": "anl_x", "status": "%s", "degraded": false}
+                    {"analysisId": "anl_x", "status": "%s", "degraded": false}
                     """.formatted(status.getDbValue());
             AnalysisResultDTO dto = objectMapper.readValue(json, AnalysisResultDTO.class);
             assertThat(dto.getStatus()).isEqualTo(status);
@@ -136,15 +139,16 @@ class AiDtoSerializationTest {
     }
 
     @Test
-    @DisplayName("AgentStateResponse - 5 字段正确反序列化（snake_case）")
+    @DisplayName("AgentStateResponse - 5 字段正确反序列化（camelCase）")
     void agentStateResponse_field_alias() throws Exception {
+        // Python 端 by_alias=True 输出 camelCase
         String json = """
                 {
-                    "agent_name": "retriever",
+                    "agentName": "retriever",
                     "status": "completed",
                     "progress": 1.0,
-                    "intermediate_result": "Found 10 papers",
-                    "duration_ms": 1200
+                    "intermediateResult": "Found 10 papers",
+                    "durationMs": 1200
                 }
                 """;
 
@@ -178,5 +182,87 @@ class AiDtoSerializationTest {
         Set<ConstraintViolation<AgentRequest>> violations = validator.validate(request);
         assertThat(violations).isNotEmpty();
         assertThat(violations).anyMatch(v -> v.getPropertyPath().toString().equals("topic"));
+    }
+
+    @Test
+    @DisplayName("ModelStatusDTO - 12 字段正确反序列化（camelCase）")
+    void modelStatusDTO_field_mapping() throws Exception {
+        // Python 端 ModelStatusResponse by_alias=True 输出 camelCase, 包含扩展 6 字段
+        String json = """
+                {
+                    "llm": "loaded",
+                    "embedding": "loaded_api",
+                    "chroma": "connected",
+                    "prompts": "loaded",
+                    "embeddingDimension": 1024,
+                    "activeLlmProvider": "api",
+                    "providerCandidates": ["api", "local"],
+                    "chromaPaperCount": 200,
+                    "gpuMemoryUsed": null,
+                    "llmProviderCount": 2,
+                    "searchService": "ready",
+                    "reranker": "ready"
+                }
+                """;
+
+        ModelStatusDTO dto = objectMapper.readValue(json, ModelStatusDTO.class);
+
+        assertThat(dto.getLlm()).isEqualTo("loaded");
+        assertThat(dto.getEmbedding()).isEqualTo("loaded_api");
+        assertThat(dto.getEmbeddingDimension()).isEqualTo(1024);
+        assertThat(dto.getActiveLlmProvider()).isEqualTo("api");
+        assertThat(dto.getProviderCandidates()).containsExactly("api", "local");
+        assertThat(dto.getChromaPaperCount()).isEqualTo(200);
+        assertThat(dto.getLlmProviderCount()).isEqualTo(2);
+        assertThat(dto.getSearchService()).isEqualTo("ready");
+        assertThat(dto.getReranker()).isEqualTo("ready");
+    }
+
+    @Test
+    @DisplayName("PaperSearchResultDTO - paperId/abstract 字段正确反序列化（camelCase）")
+    void paperSearchResultDTO_field_mapping() throws Exception {
+        // Python 端 SearchResultItem by_alias=True 输出 camelCase
+        String json = """
+                {
+                    "paperId": "arxiv_2024_001",
+                    "title": "Attention Is All You Need",
+                    "abstract": "We propose a new network architecture",
+                    "score": 0.95,
+                    "year": 2017,
+                    "venue": "NeurIPS"
+                }
+                """;
+
+        PaperSearchResultDTO dto = objectMapper.readValue(json, PaperSearchResultDTO.class);
+
+        assertThat(dto.getPaperId()).isEqualTo("arxiv_2024_001");
+        assertThat(dto.getTitle()).isEqualTo("Attention Is All You Need");
+        assertThat(dto.getAbstractText()).isEqualTo("We propose a new network architecture");
+        assertThat(dto.getScore()).isEqualTo(0.95);
+    }
+
+    @Test
+    @DisplayName("AgentSseEvent - id/event/data 字段正确反序列化（camelCase）")
+    void agentSseEvent_field_mapping() throws Exception {
+        String json = """
+                {
+                    "id": 5,
+                    "event": "agent_state_update",
+                    "data": {
+                        "agentName": "retriever",
+                        "status": "running",
+                        "progress": 0.5,
+                        "analysisId": "anl_001"
+                    }
+                }
+                """;
+
+        AgentSseEvent event = objectMapper.readValue(json, AgentSseEvent.class);
+
+        assertThat(event.getId()).isEqualTo(5L);
+        assertThat(event.getEvent()).isEqualTo("agent_state_update");
+        assertThat(event.getData()).isNotNull();
+        assertThat(event.getData().get("agentName")).isEqualTo("retriever");
+        assertThat(event.getData().get("progress")).isEqualTo(0.5);
     }
 }

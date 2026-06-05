@@ -25,6 +25,7 @@ export const useSessionStore = defineStore('session', () => {
   const analysisError = ref<string | null>(null)
   const pollTimer = ref<ReturnType<typeof setTimeout> | null>(null)
   const eventSource = ref<EventSource | null>(null)
+  const reconnectTimer = ref<ReturnType<typeof setTimeout> | null>(null)
   const reconnectAttempts = ref(0)
 
   const isAnalyzing = computed(() =>
@@ -149,18 +150,23 @@ export const useSessionStore = defineStore('session', () => {
     es.onerror = () => {
       es.close()
       eventSource.value = null
-      if (reconnectAttempts.value < SSE_MAX_RECONNECT) {
-        reconnectAttempts.value++
-        setTimeout(() => {
-          if (currentAnalysisId.value) {
-            connectAgentStream(currentAnalysisId.value)
-          }
-        }, SSE_RECONNECT_INTERVAL)
-      }
+      if (reconnectAttempts.value >= SSE_MAX_RECONNECT) return
+      if (!currentAnalysisId.value) return
+      reconnectAttempts.value++
+      reconnectTimer.value = setTimeout(() => {
+        // 防止 disconnectSSE() 后定时器仍触发幽灵连接
+        if (currentAnalysisId.value) {
+          connectAgentStream(currentAnalysisId.value)
+        }
+      }, SSE_RECONNECT_INTERVAL)
     }
   }
 
   function disconnectSSE() {
+    if (reconnectTimer.value) {
+      clearTimeout(reconnectTimer.value)
+      reconnectTimer.value = null
+    }
     if (eventSource.value) {
       eventSource.value.close()
       eventSource.value = null

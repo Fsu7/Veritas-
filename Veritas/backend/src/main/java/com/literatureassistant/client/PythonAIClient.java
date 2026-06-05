@@ -2,6 +2,7 @@ package com.literatureassistant.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.literatureassistant.dto.common.AgentRequest;
+import com.literatureassistant.dto.response.AgentSseEvent;
 import com.literatureassistant.dto.response.AnalysisResultDTO;
 import com.literatureassistant.dto.response.ModelStatusDTO;
 import com.literatureassistant.dto.response.PaperSearchResultDTO;
@@ -13,6 +14,7 @@ import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Flux;
 import reactor.netty.http.client.HttpClient;
 
 import java.time.Duration;
@@ -25,9 +27,9 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * 封装 Java → Python AI 服务全部 HTTP 调用的客户端。
- * <p>4 个核心端点：论文分析 / 语义搜索 / 健康检查 / 模型状态查询。
+ * <p>5 个核心端点：论文分析 / 论文分析 SSE / 语义搜索 / 健康检查 / 模型状态查询。
  * <p>具备统一超时（30s）+ 重试 1 次（间隔 3s）+ 异常转换为 {@link AIServiceException}。
- * <p>健康检查单独使用 5s 超时。
+ * <p>健康检查单独使用 5s 超时；SSE 流式调用单独使用 150s 长超时（独立 WebClient Bean）。
  *
  * @author XH-202630 Literature Assistant
  * @since 0.3
@@ -37,6 +39,7 @@ import java.util.concurrent.TimeoutException;
 public class PythonAIClient {
 
     private static final String ENDPOINT_ANALYZE = "/api/agent/analyze";
+    private static final String ENDPOINT_ANALYZE_STREAM = "/api/agent/analyze/stream";
     private static final String ENDPOINT_SEARCH = "/api/search/";
     private static final String ENDPOINT_MODEL_STATUS = "/api/model/status";
     private static final String ENDPOINT_HEALTH = "/health";
@@ -45,22 +48,28 @@ public class PythonAIClient {
     private static final int MAX_TOP_K = 50;
     private static final int HEALTH_TIMEOUT_SECONDS = 5;
     private static final int CONNECT_TIMEOUT_MILLIS = 2000;
-    private static final int RESPONSE_TIMEOUT_SECONDS = 35;
+    /** 与 WebClientConfig 的 responseTimeout 对齐 */
+    private static final int RESPONSE_TIMEOUT_SECONDS = 30;
 
     private final WebClient webClient;
+    private final WebClient sseWebClient;
     private final WebClient healthWebClient;
     private final ObjectMapper objectMapper;
     private final int retryCount;
     private final long retryIntervalMs;
 
     public PythonAIClient(@Qualifier("webClient") WebClient webClient,
+                          @Qualifier("sseWebClient") WebClient sseWebClient,
                           @Value("${ai-service.url}") String aiServiceUrl,
                           @Value("${ai-service.retry-count:1}") int retryCount,
-                          @Value("${ai-service.retry-interval:3000}") long retryIntervalMs) {
+                          @Value("${ai-service.retry-interval:3000}") long retryIntervalMs,
+                          ObjectMapper objectMapper) {
         this.webClient = webClient;
+        this.sseWebClient = sseWebClient;
         this.retryCount = retryCount;
         this.retryIntervalMs = retryIntervalMs;
-        this.objectMapper = new ObjectMapper();
+        this.objectMapper = objectMapper;
+        // 健康探测单独使用 5s 超时的客户端
         this.healthWebClient = buildHealthWebClient(aiServiceUrl);
     }
 
@@ -126,6 +135,33 @@ public class PythonAIClient {
     }
 
     /**
+     * SSE 流式调用 Python /api/agent/analyze/stream。
+     * <p>接收 SSE 事件流，转换为 Flux&lt;AgentSseEvent&gt;。
+     * <p>支持 Last-Event-ID Header 透传（断线重连）。
+     *
+     * @param request      AgentRequest 请求体
+     * @param lastEventId  SSE Last-Event-ID Header（断线重连时透传，可空）
+     * @return SSE 事件流
+     */
+    public Flux<AgentSseEvent> analyzeStream(AgentRequest request, String lastEventId) {
+        WebClient.RequestBodySpec bodySpec = sseWebClient.post()
+                .uri(ENDPOINT_ANALYZE_STREAM);
+        // Last-Event-ID Header 透传（断线重连）
+        if (lastEventId != null && !lastEventId.isBlank()) {
+            bodySpec = bodySpec.header("Last-Event-ID", lastEventId);
+        }
+        return bodySpec
+                .bodyValue(request)
+                .retrieve()
+                .bodyToFlux(AgentSseEvent.class)
+                .timeout(Duration.ofSeconds(150))
+                .doOnError(e -> log.warn("SSE stream error: analysisId={}, error={}",
+                        request.getAnalysisId(), e.getMessage()))
+                .onErrorContinue((err, item) ->
+                        log.warn("SSE event 跳过: {}", err.getMessage()));
+    }
+
+    /**
      * 同步调用 Python /api/search/ 进行语义搜索。
      *
      * @param query   检索文本
@@ -182,7 +218,16 @@ public class PythonAIClient {
             if (body == null) {
                 return false;
             }
-            return body.contains("\"status\":\"UP\"") || body.contains("UP");
+            // 严格解析 status 字段（避免误判 "UP" 出现在别的字段中）
+            try {
+                Map<?, ?> map = objectMapper.readValue(body, Map.class);
+                Object status = map.get("status");
+                return "UP".equals(status);
+            } catch (Exception parseErr) {
+                // 解析失败时回退到字符串包含
+                log.debug("Health body parse failed, fallback to contains: {}", parseErr.getMessage());
+                return body.contains("\"status\":\"UP\"");
+            }
         } catch (Exception e) {
             log.debug("AI health check failed: {}", e.getMessage());
             return false;
@@ -258,6 +303,11 @@ public class PythonAIClient {
                 .build();
     }
 
+    /**
+     * 用注入的 Spring 全局 ObjectMapper 转换 Map → PaperSearchResultDTO。
+     * <p>全局 ObjectMapper 已含 JavaTimeModule + SNAKE_CASE，PaperSearchResultDTO 显式用
+     * @JsonProperty 标注 paperId/abstract，覆盖全局 SNAKE_CASE。
+     */
     private List<PaperSearchResultDTO> mapToSearchResults(List<?> list) {
         try {
             return list.stream()

@@ -3,13 +3,12 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Star, StarFilled, Document } from '@element-plus/icons-vue'
-import { paperApi } from '@/api/paper'
 import { usePaperStore } from '@/stores/paperStore'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useUserStore } from '@/stores/userStore'
 import AnalysisCard from '@/components/analysis/AnalysisCard.vue'
+import { formatMeta } from '@/utils/format'
 import type { Paper } from '@/types/paper'
-import type { AnalysisResult } from '@/types/analysis'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,7 +19,6 @@ const userStore = useUserStore()
 const paper = ref<Paper | null>(null)
 const paperLoading = ref(true)
 const paperError = ref<string | null>(null)
-const analysisResult = ref<AnalysisResult | null>(null)
 
 const paperId = computed(() => route.params.paperId as string)
 
@@ -38,6 +36,12 @@ const analyzing = computed(() => sessionStore.isAnalyzing)
 
 const analysisError = computed(() => sessionStore.analysisError)
 
+/** 从 sessionStore 单一数据源派生当前分析结果（FM2 Medium 修复） */
+const analysisResult = computed(() => {
+  const id = sessionStore.currentAnalysisId
+  return id ? sessionStore.analysisResults.get(id) ?? null : null
+})
+
 const analysisStatusText = computed(() => {
   const statusMap: Record<string, string> = {
     creating_session: '正在创建会话...',
@@ -52,7 +56,8 @@ async function fetchPaperDetail() {
   paperLoading.value = true
   paperError.value = null
   try {
-    paper.value = await paperApi.getDetail(paperId.value)
+    // 统一通过 Store Action 调用（FM2 Medium 修复）
+    paper.value = await paperStore.fetchDetail(paperId.value)
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : '加载失败'
     paperError.value = message
@@ -72,10 +77,8 @@ async function handleFavorite() {
 
 async function handleAnalyze() {
   if (!paper.value) return
-  analysisResult.value = null
   try {
-    const result = await sessionStore.startAnalysis(paper.value.title, paperId.value)
-    analysisResult.value = result
+    await sessionStore.startAnalysis(paper.value.title, paperId.value)
   } catch (e: unknown) {
     const message = sessionStore.analysisError || (e instanceof Error ? e.message : '分析失败')
     ElMessage.error(message)
@@ -92,27 +95,6 @@ function handleSelectCompare(_analysisId: string) {
 
 function openPdf(url: string) {
   window.open(url, '_blank')
-}
-
-function formatAuthors(authors: string[]): string {
-  return authors.join(', ')
-}
-
-function formatMeta(paperData: Paper): string {
-  const parts: string[] = []
-  if (paperData.authors?.length) {
-    parts.push(formatAuthors(paperData.authors))
-  }
-  if (paperData.year) {
-    parts.push(String(paperData.year))
-  }
-  if (paperData.venue) {
-    parts.push(paperData.venue)
-  }
-  if (paperData.citationCount != null) {
-    parts.push(`引用 ${paperData.citationCount}`)
-  }
-  return parts.join(' · ')
 }
 
 onMounted(() => {

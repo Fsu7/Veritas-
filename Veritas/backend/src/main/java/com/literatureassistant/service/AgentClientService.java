@@ -3,6 +3,7 @@ package com.literatureassistant.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.literatureassistant.client.PythonAIClient;
 import com.literatureassistant.dto.common.AgentRequest;
+import com.literatureassistant.dto.response.AgentSseEvent;
 import com.literatureassistant.dto.response.AgentStateResponse;
 import com.literatureassistant.dto.response.AnalysisResultDTO;
 import com.literatureassistant.dto.response.PaperSearchResultDTO;
@@ -12,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -27,7 +29,7 @@ import java.util.Map;
  *   <li>三级降级：Python 正常 → Redis 缓存回退 → 降级提示 DTO</li>
  *   <li>维护 Agent 状态 Redis Hash（agent:state:{analysisId}, TTL=5min）</li>
  *   <li>维护分析结果 Redis String（analysis:result:{analysisId}, TTL=30min）</li>
- *   <li>异步 Mono 占位（generateReport）供 JM4 SSE 扩展</li>
+ *   <li>SSE 流式转发（generateReportStream）供 JM4 SSE 扩展</li>
  * </ul>
  *
  * @author XH-202630 Literature Assistant
@@ -74,6 +76,21 @@ public class AgentClientService {
     public Mono<AnalysisResultDTO> generateReport(AgentRequest request) {
         return Mono.fromCallable(() -> analyzePaper(request))
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * SSE 流式调用 Python 进行论文分析（JM4 主路径）。
+     * <p>同步把 SSE 事件写入 Redis Hash 供 GET /api/analysis/{id}/status 读取。
+     *
+     * @param request     AgentRequest 请求体
+     * @param lastEventId SSE Last-Event-ID Header（断线重连时透传，可空）
+     * @return SSE 事件流
+     */
+    public Flux<AgentSseEvent> generateReportStream(AgentRequest request, String lastEventId) {
+        return pythonAIClient.analyzeStream(request, lastEventId)
+                .doOnNext(event -> writeAgentStateToRedis(request.getAnalysisId(), event))
+                .onErrorContinue((err, item) ->
+                        log.warn("SSE event 解析失败: {}", err.getMessage()));
     }
 
     /**
@@ -145,6 +162,28 @@ public class AgentClientService {
         }
     }
 
+    /**
+     * 从 SSE 事件中提取 Agent 状态并写入 Redis（仅处理 agent_state_update 事件）。
+     */
+    private void writeAgentStateToRedis(String analysisId, AgentSseEvent event) {
+        if (analysisId == null || event == null) {
+            return;
+        }
+        String eventType = event.getEvent();
+        if (eventType == null || !"agent_state_update".equals(eventType)) {
+            return;
+        }
+        if (event.getData() == null || event.getData().isEmpty()) {
+            return;
+        }
+        try {
+            AgentStateResponse state = objectMapper.convertValue(event.getData(), AgentStateResponse.class);
+            updateAgentState(analysisId, List.of(state));
+        } catch (Exception e) {
+            log.warn("SSE 事件转 AgentState 失败: analysisId={}, error={}", analysisId, e.getMessage());
+        }
+    }
+
     // endregion
 
     // region 健康探测
@@ -161,21 +200,31 @@ public class AgentClientService {
     // region 私有方法
 
     /**
-     * 降级处理：先查 Redis 缓存（agent:fallback:{analysisId}），命中返回 cached+degraded=true；未命中返回 degraded DTO。
+     * 降级处理：先查 Redis 缓存（analysis:result:{analysisId}，与 cacheAnalysisResult 写入对齐），
+     * 命中返回 cached+degraded=true；未命中返回 degraded DTO。
+     * <p>修复 B-002：原代码读 agent:fallback:{analysisId}（与 cacheAnalysisResult 写入的
+     * analysis:result:{analysisId} 不匹配，导致二级降级永远不命中）。
      */
     private AnalysisResultDTO handleFallback(AgentRequest request, Exception e) {
         String analysisId = request.getAnalysisId();
         if (analysisId == null || analysisId.isBlank()) {
             analysisId = "unknown";
         }
-        String fallbackKey = RedisKeyUtil.agentFallbackKey(analysisId);
+        String fallbackKey = RedisKeyUtil.analysisResultKey(analysisId);
         try {
             String cached = redisTemplate.opsForValue().get(fallbackKey);
             if (cached != null) {
                 AnalysisResultDTO cachedDto = objectMapper.readValue(cached, AnalysisResultDTO.class);
-                cachedDto.setDegraded(true);
-                cachedDto.setDegradedReason("AI服务暂时不可用，返回缓存结果");
-                return cachedDto;
+                // 不可变副本：避免修改反序列化对象（U-002）
+                return AnalysisResultDTO.builder()
+                        .analysisId(cachedDto.getAnalysisId())
+                        .status(cachedDto.getStatus())
+                        .report(cachedDto.getReport())
+                        .citations(cachedDto.getCitations())
+                        .agentStates(cachedDto.getAgentStates())
+                        .degraded(true)
+                        .degradedReason("AI服务暂时不可用，返回缓存结果")
+                        .build();
             }
         } catch (Exception ex) {
             log.error("降级缓存反序列化失败: analysisId={}, error={}", analysisId, ex.getMessage());

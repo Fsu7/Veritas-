@@ -106,7 +106,7 @@ function handleClearRecent() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: #f5f7fa;
+  background-color: var(--el-bg-color-page);
   z-index: 1;
 }
 

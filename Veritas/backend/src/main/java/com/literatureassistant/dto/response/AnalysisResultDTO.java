@@ -1,6 +1,7 @@
 package com.literatureassistant.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.literatureassistant.enums.AnalysisStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -14,7 +15,7 @@ import java.util.Map;
 /**
  * Python → Java AnalyzeResponse 响应体。
  * <p>对齐 Python 端 {@code AnalyzeResponse} Pydantic Schema（7 字段）。
- * <p>字段命名遵循全局 Jackson SNAKE_CASE 配置。
+ * <p>Python 端 model_dump(by_alias=True) 输出 camelCase, 用 {@link JsonProperty} 覆盖全局 SNAKE_CASE。
  *
  * @author XH-202630 Literature Assistant
  * @since 0.3
@@ -31,6 +32,7 @@ public class AnalysisResultDTO implements Serializable {
     /**
      * 分析任务 ID
      */
+    @JsonProperty("analysisId")
     private String analysisId;
 
     /**
@@ -51,6 +53,7 @@ public class AnalysisResultDTO implements Serializable {
     /**
      * 各 Agent 执行状态，可空
      */
+    @JsonProperty("agentStates")
     private List<AgentStateResponse> agentStates;
 
     /**
@@ -61,6 +64,7 @@ public class AnalysisResultDTO implements Serializable {
     /**
      * 降级原因，可空
      */
+    @JsonProperty("degradedReason")
     private String degradedReason;
 
     /**

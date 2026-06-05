@@ -52,8 +52,12 @@ class PythonAIClientTest {
                 .clientConnector(new ReactorClientHttpConnector(HttpClient.create()))
                 .baseUrl(baseUrl)
                 .build();
+        WebClient sseClient = WebClient.builder()
+                .clientConnector(new ReactorClientHttpConnector(HttpClient.create()))
+                .baseUrl(baseUrl)
+                .build();
         // 重试间隔 0ms 加速测试
-        client = new PythonAIClient(mainClient, baseUrl, 1, 0);
+        client = new PythonAIClient(mainClient, sseClient, baseUrl, 1, 0, new ObjectMapper());
     }
 
     @AfterEach
@@ -164,6 +168,7 @@ class PythonAIClientTest {
     void search_passes_topK_and_filters() throws Exception {
         Map<String, Object> responseBody = new HashMap<>();
         Map<String, Object> item = new HashMap<>();
+        // Python model_dump(by_alias=True) 输出 camelCase, 与 PaperSearchResultDTO @JsonProperty 标注对齐
         item.put("paperId", "arxiv_2024_001");
         item.put("title", "Attention Is All You Need");
         item.put("abstract", "We propose Transformer");

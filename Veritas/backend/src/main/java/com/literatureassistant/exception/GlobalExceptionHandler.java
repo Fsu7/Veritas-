@@ -41,7 +41,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AIServiceException.class)
     public ResponseEntity<ApiResponse<Void>> handleAIService(AIServiceException e) {
         log.warn("AI service unavailable: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(ApiResponse.error(e.getCode(), "AI服务暂时不可用，请稍后重试"));
     }
 
