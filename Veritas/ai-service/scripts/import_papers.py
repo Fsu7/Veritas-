@@ -6,7 +6,6 @@ import sys
 import time
 from pathlib import Path
 
-import arxiv
 from loguru import logger
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -24,6 +23,7 @@ RETRY_INTERVAL = 5
 async def fetch_papers_from_arxiv(
     category: str, count: int, year_start: int | None = None
 ) -> list:
+    import arxiv
     papers = []
     for attempt in range(1, MAX_RETRIES + 1):
         try:

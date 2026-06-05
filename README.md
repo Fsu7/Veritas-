@@ -8,7 +8,7 @@
 
 </div>
 
-![Veritas 求真 — 科研文献智能助手](docs/Photo/ChatGPT%20Image%202026%E5%B9%B46%E6%9C%885%E6%97%A5%2010_28_03.png)
+![Veritas 求真 — 科研文献智能助手](docs/Photo/首页介绍.png)
 
 <br />
 
