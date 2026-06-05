@@ -218,15 +218,18 @@ public class PythonAIClient {
             if (body == null) {
                 return false;
             }
-            // 严格解析 status 字段（避免误判 "UP" 出现在别的字段中）
+            // 解析嵌套 data 层，读取 data.status（AI 服务统一用 ok(data={...}) 包装）
             try {
                 Map<?, ?> map = objectMapper.readValue(body, Map.class);
-                Object status = map.get("status");
-                return "UP".equals(status);
+                Object data = map.get("data");
+                if (data instanceof Map<?, ?> dataMap) {
+                    Object status = dataMap.get("status");
+                    return "UP".equals(status);
+                }
+                return false;
             } catch (Exception parseErr) {
-                // 解析失败时回退到字符串包含
-                log.debug("Health body parse failed, fallback to contains: {}", parseErr.getMessage());
-                return body.contains("\"status\":\"UP\"");
+                log.debug("Health body parse failed: {}", parseErr.getMessage());
+                return false;
             }
         } catch (Exception e) {
             log.debug("AI health check failed: {}", e.getMessage());

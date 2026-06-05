@@ -62,9 +62,12 @@ class EmbeddingService:
         )
 
     def _init_dashscope_client(self) -> None:
+        from httpx import Timeout
         self._api_client = AsyncOpenAI(
             api_key=self.settings.DASHSCOPE_API_KEY,
             base_url=self.settings.DASHSCOPE_EMBEDDING_BASE_URL,
+            timeout=Timeout(30.0, connect=10.0),
+            max_retries=2,
         )
 
     async def encode(self, text: Union[str, list]) -> np.ndarray:

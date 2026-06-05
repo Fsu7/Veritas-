@@ -5,7 +5,7 @@
 -- 里程碑：v0.1 M1 基础设施就绪
 -- ============================================================
 -- 注意：密码使用BCrypt哈希，禁止明文存储
--- BCrypt('password123', strength=10) = $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
+-- BCrypt('password123', strength=10) = $2b$10$ESdOqDvXtRaQmMu/nqox9uMI4lwki47zMD753.vYC3j8eOlmeBaZy
 -- ============================================================
 
 USE literature_assistant;
@@ -18,7 +18,7 @@ VALUES (
     'usr_test_001',
     'test_user',
     'test@example.com',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'
+    '$2b$10$ESdOqDvXtRaQmMu/nqox9uMI4lwki47zMD753.vYC3j8eOlmeBaZy'
 ) ON DUPLICATE KEY UPDATE username = VALUES(username);
 
 -- -----------------------------------------------------------

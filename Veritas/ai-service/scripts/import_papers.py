@@ -149,15 +149,32 @@ async def import_to_vector_db(
     vector_store_service: VectorStoreService,
     batch_size: int = 50,
 ) -> dict:
+    """增量导入：每 flush_every 篇写入一次 ChromaDB，避免断点丢失数据。"""
     total = len(papers)
     success = 0
     failed = 0
     errors = []
+    flush_every = 5
 
     all_ids = []
     all_embeddings = []
     all_metadatas = []
     all_documents = []
+
+    async def flush():
+        if all_ids:
+            await vector_store_service.add_papers_batch(
+                paper_ids=list(all_ids),
+                embeddings=list(all_embeddings),
+                metadatas=list(all_metadatas),
+                documents=list(all_documents),
+                batch_size=batch_size,
+            )
+            logger.info(f"Flushed {len(all_ids)} chunks to ChromaDB")
+            all_ids.clear()
+            all_embeddings.clear()
+            all_metadatas.clear()
+            all_documents.clear()
 
     for i, paper in enumerate(papers):
         try:
@@ -205,6 +222,12 @@ async def import_to_vector_db(
                 f"{title[:60]} ({len(chunks)} chunks)"
             )
 
+            if success % flush_every == 0:
+                await flush()
+
+            # 延时避免 DashScope API QPS 限流 (免费版 QPS ~0.5)
+            await asyncio.sleep(3.0)
+
         except Exception as e:
             failed += 1
             errors.append(
@@ -214,14 +237,8 @@ async def import_to_vector_db(
                 f"Failed to process paper {paper.get('paper_id', 'unknown')}: {e}"
             )
 
-    if all_ids:
-        await vector_store_service.add_papers_batch(
-            paper_ids=all_ids,
-            embeddings=all_embeddings,
-            metadatas=all_metadatas,
-            documents=all_documents,
-            batch_size=batch_size,
-        )
+    # 写入剩余数据
+    await flush()
 
     result = {
         "total": total,
