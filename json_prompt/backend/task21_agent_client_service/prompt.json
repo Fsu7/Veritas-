@@ -1,0 +1,280 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "M3：前后端联调成功 / JM3：AI服务调用打通 (Day 7 of 5)",
+    "requirement": "实现 AgentClientService（编排层）：基于 task19 PythonAIClient + task20 DTO，对 AnalysisService 提供业务级调用入口；实现 三级降级策略（Python 正常 → 缓存回退 → 降级提示）；同步 analyzePaper 编排；为后续 SSE 扩展（JM4）预留异步 generateReport(Mono) 接口；维护 Agent 状态 Redis Hash 缓存（agent:state:{analysisId}, TTL=5min）；提供降级响应 AnalysisResultDTO.degraded()。",
+    "requirement_ids": ["F2.5.4", "F2.5.5", "F2.4.1", "F2.4.4", "F2.4.5"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "8.4 降级策略（Level1正常/Level2超时/Level3不可用→缓存回退）+ 8.2.2 AgentClientService 完整设计" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.3 Day 7 任务：AgentClientService（调用编排+降级处理）" },
+      { "path": "json_prompt/backend/task19_python_ai_client/prompt.md", "purpose": "PythonAIClient 接口契约（analyze/search/isHealthy/getModelStatus）" },
+      { "path": "json_prompt/backend/task20_ai_dto_schemas/prompt.md", "purpose": "AgentRequest/AnalysisResultDTO/AgentStateResponse/UserProfileDTO 数据契约" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java", "purpose": "RedisKeyUtil.agentStateKey(analysisId) → 'agent:state:{analysisId}'" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/AIServiceException.java", "purpose": "503 + AI_SERVICE_ERROR，GlobalExceptionHandler 已处理" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "新增：AgentClientService — 编排 PythonAIClient，提供降级 + 缓存 + 异步扩展"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.client",
+        "description": "已有：PythonAIClient（task19）— 4 个端点同步调用 + 重试"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.util",
+        "description": "已有：RedisKeyUtil.agentStateKey(analysisId) — Redis Key 生成"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.config",
+        "description": "已有：RedisConfig.jsonRedisSerializer() — GenericJackson2JsonRedisSerializer 已配置 JavaTimeModule"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java", "description": "RedisKeyUtil.agentStateKey(analysisId) 返回 'agent:state:'+analysisId", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/client/PythonAIClient.java", "description": "task19 实现，analyze 同步调用 + 重试 + AIServiceException 转换", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResultDTO.java", "description": "task20 含 AnalysisResultDTO.degraded(analysisId, reason) 静态工厂", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AgentClientService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java",
+      "responsibility": "编排 PythonAIClient，添加降级处理 + 缓存回退 + Agent 状态 Redis Hash 维护；为 AnalysisService 提供业务级调用入口",
+      "key_interfaces": [
+        { "name": "analyzePaper", "signature": "AnalysisResultDTO analyzePaper(AgentRequest request)", "description": "同步调用 Python 论文分析；三级降级：正常→缓存回退→degraded DTO；返回 AnalysisResultDTO" },
+        { "name": "generateReport", "signature": "Mono<AnalysisResultDTO> generateReport(AgentRequest request)", "description": "异步预留接口（JM4 SSE 扩展用），本任务实现 Mono 占位" },
+        { "name": "search", "signature": "List<PaperSearchResultDTO> search(String query, int topK, Map<String,Object> filters)", "description": "语义搜索，直接委托 PythonAIClient.search" },
+        { "name": "updateAgentState", "signature": "void updateAgentState(String analysisId, List<AgentStateResponse> agentStates)", "description": "把 Agent 状态写入 Redis Hash（agent:state:{analysisId}），TTL=5min" },
+        { "name": "getAgentStates", "signature": "List<AgentStateResponse> getAgentStates(String analysisId)", "description": "从 Redis Hash 读取 Agent 状态；为空返回空 List（非 null）" },
+        { "name": "isHealthy", "signature": "boolean isHealthy()", "description": "委托 pythonAIClient.isHealthy()（供 HealthController 集成用）" },
+        { "name": "handleFallback", "signature": "private AnalysisResultDTO handleFallback(AgentRequest request, Exception e)", "description": "降级处理：1) 查 Redis 缓存 2) 缓存命中→返回 cached+degraded=true 3) 缓存未命中→返回 degraded('AI服务暂时不可用')" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java",
+      "description": "新建 AgentClientService：@Service + @Slf4j + @RequiredArgsConstructor，注入 PythonAIClient + RedisTemplate + ObjectMapper + RedisKeyUtil",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AgentClientServiceTest.java",
+      "description": "单元测试：7 个用例覆盖正常/降级/缓存回退/Agent 状态读写/Mono 异步占位",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-021-01",
+        "description": "analyzePaper(AgentRequest)：调用 pythonAIClient.analyze(request)，成功返回 AnalysisResultDTO；捕获 AIServiceException → 进入 handleFallback",
+        "priority": "P0",
+        "acceptance_condition": "Python 正常 → 返回原样 DTO；Python 抛 AIServiceException → 走降级"
+      },
+      {
+        "id": "FR-021-02",
+        "description": "handleFallback：先查 Redis Key 'agent:fallback:{analysisId}'（与 task22 AnalysisService 的缓存 key 保持一致）；命中则 cached.degraded=true + cached.degradedReason='AI服务暂时不可用，返回缓存结果'；未命中返回 AnalysisResultDTO.degraded(analysisId, 'AI服务暂时不可用，请稍后重试')",
+        "priority": "P0",
+        "acceptance_condition": "Redis 缓存命中 → 返回缓存结果 + 标记 degraded=true；Redis 未命中 → 返回 degraded DTO"
+      },
+      {
+        "id": "FR-021-03",
+        "description": "analyzePaper 成功后：1) 调用 updateAgentState(analysisId, result.agentStates) 2) 把 AnalysisResultDTO 写入 Redis Key 'analysis:result:{analysisId}'（TTL=30min, 复用 task22 缓存策略）",
+        "priority": "P0",
+        "acceptance_condition": "成功调用后 Redis 中可查到 agent:state:{id} + analysis:result:{id} 两个 key"
+      },
+      {
+        "id": "FR-021-04",
+        "description": "updateAgentState(analysisId, agentStates)：使用 Redis Hash 结构（opsForHash）；key=agent:state:{analysisId}；field=agentName；value=JSON(AgentStateResponse)；TTL=5min",
+        "priority": "P0",
+        "acceptance_condition": "HGETALL agent:state:{id} 返回所有 agent 状态"
+      },
+      {
+        "id": "FR-021-05",
+        "description": "getAgentStates(analysisId)：HGETALL agent:state:{id} → JSON 反序列化为 List<AgentStateResponse>；空时返回 new ArrayList<>()（禁止 null）",
+        "priority": "P0",
+        "acceptance_condition": "Redis 存在 → 返回 List；Redis 不存在 → 返回空 List"
+      },
+      {
+        "id": "FR-021-06",
+        "description": "generateReport(Mono 占位)：返回 Mono.fromCallable(() -> analyzePaper(request)).subscribeOn(Schedulers.boundedElastic())；为 JM4 SSE 扩展预留",
+        "priority": "P1",
+        "acceptance_condition": "Mono 可订阅；值与同步 analyzePaper 一致"
+      },
+      {
+        "id": "FR-021-07",
+        "description": "search 方法：直接委托 pythonAIClient.search(query, topK, filters)，不加缓存（由 PaperService 层控制）",
+        "priority": "P1",
+        "acceptance_condition": "返回值与 PythonAIClient.search 一致"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case（依赖全局 Jackson 配置）",
+        "mappings": [
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+          { "java": "agentStates", "python": "agent_states", "json": "agentStates" },
+          { "java": "degradedReason", "python": "degraded_reason", "json": "degradedReason" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "AnalysisService.analyzePaper → AgentClientService.analyzePaper → PythonAIClient.analyze → Python /api/agent/analyze → AnalysisResultDTO → AgentClientService 写 Redis (agent:state + analysis:result) → 返回 Service"
+    },
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          { "priority": 1, "name": "Python AI Service (正常)", "description": "直接调用 6-Agent 工作流" },
+          { "priority": 2, "name": "Redis 缓存回退", "description": "查询同 analysisId 的历史结果，标记 degraded=true" },
+          { "priority": 3, "name": "降级提示 DTO", "description": "返回 AnalysisResultDTO.degraded(analysisId, 'AI服务暂时不可用')" }
+        ],
+        "trigger_conditions": [
+          "PythonAIClient.analyze 抛 AIServiceException(503)",
+          "WebClientResponseException 5xx",
+          "TimeoutException 30s"
+        ],
+        "recovery_strategy": "下次请求自动重试 Python（无熔断器，保持简单）"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "由 Python 端处理（state['errors'].append），Java 端仅做整体降级",
+        "multi_agent_failure": "Python 返回 status=degraded，Java 端直接透传",
+        "review_retry_limit": "Python 端控制，Java 端不感知"
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "handleFallback 日志禁止输出 userProfile 完整内容"
+      },
+      {
+        "category": "data_isolation",
+        "requirement": "Redis 缓存的 analysis:result:{id} 写入时不携带 userId，但 AnalysisService 层读出时需校验 userId 一致性（task22 实现）"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "json": { "field_name": "snake_case（依赖全局 Jackson SNAKE_CASE）" },
+      "cross_system_mapping": [
+        { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+        { "java": "degradedReason", "python": "degraded_reason", "json": "degradedReason" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "AgentClientService 在 Service 层（com.literatureassistant.service），与 AnalysisService 同层；禁止放在 client 包",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest/XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "AgentClientService 内部捕获 AIServiceException → 降级；其他异常上抛给 AnalysisService"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside + 主动失效",
+      "ttl_layers": [
+        { "cache_name": "分析结果", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "降级回退缓存", "key_pattern": "agent:fallback:{analysisId}", "ttl": "30min" }
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback（@Slf4j）",
+      "prohibited": [
+        "在循环中打印 INFO 及以上级别日志",
+        "输出 AgentRequest.userProfile 完整内容"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-021-01", "action": "在降级路径中吞掉异常不记录日志（必须 WARN 记录降级触发原因）", "reason": "可观测性约束", "severity": "critical" },
+    { "id": "FA-021-02", "action": "把 Python 端原始异常信息原样抛给 Controller（必须包装为 AIServiceException）", "reason": "信息泄露 + UX 约束", "severity": "high" },
+    { "id": "FA-021-03", "action": "在降级回退中跨用户读取缓存（必须按 analysisId 严格匹配）", "reason": "数据隔离约束", "severity": "critical" },
+    { "id": "FA-021-04", "action": "在 AgentClientService 中直接调 Repository（保持编排层职责，不下沉数据访问）", "reason": "分层约束", "severity": "high" },
+    { "id": "FA-021-05", "action": "使用同步 StringRedisTemplate（必须用 RedisTemplate<String,String> + GenericJackson2JsonRedisSerializer）", "reason": "B-002 修复保持一致", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "analyzePaper_normal_returnsDTO",
+        "description": "Mock PythonAIClient.analyze 返回 AnalysisResultDTO；验证 Service 直接返回该 DTO 且调用 updateAgentState + 缓存",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "analyzePaper_aiServiceException_triggers_fallback",
+        "description": "Mock PythonAIClient.analyze 抛 AIServiceException；Mock Redis 无缓存；验证返回 degraded DTO",
+        "framework": "junit5",
+        "coverage": ["degradation", "error_flow"]
+      },
+      {
+        "test_name": "analyzePaper_cache_hit_returns_cached",
+        "description": "Mock PythonAIClient.analyze 抛 AIServiceException；Mock Redis 命中缓存；验证返回缓存内容 + degraded=true",
+        "framework": "junit5",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "updateAgentState_writes_to_redis_hash",
+        "description": "Mock RedisTemplate.opsForHash()；验证调用 putAll + expire(5min)",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "getAgentStates_empty_redis_returns_empty_list",
+        "description": "Mock RedisTemplate.entries 返回空 Map；验证返回 new ArrayList（不为 null）",
+        "framework": "junit5",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "getAgentStates_with_data_deserializes",
+        "description": "Mock RedisTemplate.entries 返回 HashMap；验证 ObjectMapper 反序列化为 List<AgentStateResponse>",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "generateReport_mono_subscribable",
+        "description": "StepVerifier 订阅 generateReport(request)，验证能取到 AnalysisResultDTO",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "analyzePaper_e2e_with_python_down",
+        "description": "停止 Python AI 服务，Java 端调用 analyzePaper，验证返回 degraded DTO + 状态码 200（不抛 500）",
+        "layers_involved": ["java_backend", "python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest=AgentClientServiceTest test", "expected_result": "7/7 通过" },
+      { "layer": "java", "command": "cd Veritas/backend && mvn compile", "expected_result": "编译成功" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-021-01", "criterion": "AgentClientService 编译通过，含 analyzePaper/search/updateAgentState/getAgentStates/isHealthy/generateReport 6 个 public 方法", "verified_by": "code_review" },
+    { "id": "AC-021-02", "criterion": "analyzePaper 失败时走降级：先查 Redis → 命中返回缓存+degraded=true → 未命中返回 AnalysisResultDTO.degraded()", "verified_by": "automated_test" },
+    { "id": "AC-021-03", "criterion": "Agent 状态用 Hash 结构（opsForHash）存储，TTL=5min", "verified_by": "automated_test" },
+    { "id": "AC-021-04", "criterion": "getAgentStates Redis 为空时返回空 List（不返回 null）", "verified_by": "automated_test" },
+    { "id": "AC-021-05", "criterion": "generateReport 返回 Mono，JM4 SSE 扩展可直接接入", "verified_by": "code_review" },
+    { "id": "AC-021-06", "criterion": "AgentClientServiceTest 7/7 通过", "verified_by": "automated_test" },
+    { "id": "AC-021-07", "criterion": "未修改 PythonAIClient / Python 端代码", "verified_by": "code_review" }
+  ]
+}

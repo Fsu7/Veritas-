@@ -1,0 +1,141 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析与对比页面完成",
+    "requirement": "实现 PlainExplanation 通俗解释组件：在 analysis/AnalysisCard 内根据用户知识水平（beginner/intermediate 自动展示；advanced/expert 隐藏）显示由 AI 后端生成的 plain_explanation 字段，支持无该字段时优雅降级（不渲染卡片），含加载/为空/错误状态，受控展示，保持单文件 ≤ 300 行。",
+    "requirement_ids": ["F1.3.3"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "PlainExplanation 组件规范（6.4 节）、5 维度分析卡规范（6.3 节）" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM3 验收检查点（5.4）关于 PlainExplanation 行为" },
+      { "path": "AGENTS.md", "purpose": "用户画像与知识水平（knowledgeLevel）影响前端展示" },
+      { "path": "docs/开发规范文档.md", "purpose": "组件命名/BEM/TypeScript/scoped 规范" },
+      { "path": "json_prompt/Coding.md", "purpose": "Prompt 模板与字段格式" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue", "description": "已通过 :show-plain-explanation 控制 PlainExplanation 渲染" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/analysis/PlainExplanation.vue", "description": "现仅有最小骨架，content 透传到 el-alert 文本" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/userStore.ts", "description": "profile.knowledgeLevel 决定是否显示" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/analysis.ts", "description": "StructuredAnalysis.plainExplanation 可选字段" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/components/analysis/PlainExplanation.vue", "description": "当前组件接收 content: string，单卡片用 el-alert 包裹，无 loading/empty/可控展开能力", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue", "description": "已用 v-if='showPlainExplanation && analysis.result?.analysis?.plainExplanation' 控制渲染，传递 :content='analysis.result.analysis.plainExplanation'", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PlainExplanation",
+      "path": "Veritas/frontend/src/components/analysis/PlainExplanation.vue",
+      "responsibility": "渲染 AI 通俗解释内容，提供空态/错误态与可访问性",
+      "key_interfaces": [
+        { "name": "props.content", "signature": "content: string", "description": "通俗解释文本" },
+        { "name": "props.loading", "signature": "loading?: boolean", "description": "加载占位，默认 false" },
+        { "name": "props.error", "signature": "error?: string | null", "description": "错误信息，非空时渲染 el-alert error" }
+      ]
+    },
+    {
+      "name": "AnalysisCard",
+      "path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue",
+      "responsibility": "5 维度分析容器，受 showPlainExplanation 与后端 plainExplanation 字段共同控制",
+      "key_interfaces": [
+        { "name": "props.showPlainExplanation", "signature": "showPlainExplanation?: boolean", "description": "默认 false，由调用方根据画像决定" }
+      ]
+    },
+    {
+      "name": "userStore.profile.knowledgeLevel",
+      "path": "Veritas/frontend/src/stores/userStore.ts",
+      "responsibility": "知识水平枚举 'beginner' | 'intermediate' | 'advanced' | 'expert'",
+      "key_interfaces": [
+        { "name": "knowledgeLevel", "signature": "'beginner' | 'intermediate' | 'advanced' | 'expert'", "description": "低于 intermediate 视为需要通俗解释" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/analysis/PlainExplanation.vue", "description": "实现完整 PlainExplanation 组件（已存在则覆盖），含 loading/error/empty 三态 + 可选折叠 + 可访问性", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "Props 定义：content: string（必填）、loading?: boolean（默认 false）、error?: string | null（默认 null）、collapsible?: boolean（默认 false）、defaultCollapsed?: boolean（默认 false）、maxLength?: number（默认 600）。使用 withDefaults + defineProps 强类型",
+        "priority": "P0",
+        "acceptance_condition": "TypeScript 类型完整，withDefaults 默认值正确"
+      },
+      {
+        "id": "FR-002",
+        "description": "渲染规则：(1)loading=true 时显示 el-skeleton 3 行占位；(2)error 非空时显示 el-alert type=error 提示；(3)content 截取空白后为空时显示 el-empty description='暂无通俗解释'；(4)正常态显示 el-alert type=info + 标题'💡 通俗理解' + 内容（超过 maxLength 时省略号 + el-link '展开/收起'，collapsible=true 才显示）",
+        "priority": "P0",
+        "acceptance_condition": "四种状态切换无报错：loading → error → empty → normal；超长可折叠"
+      },
+      {
+        "id": "FR-003",
+        "description": "响应外部：父组件（AnalysisCard）已通过 v-if='showPlainExplanation && analysis.result?.analysis?.plainExplanation' 控制渲染。本组件内部不再读取 userStore，仅接收父级决策的 props 透传，保持组件纯净",
+        "priority": "P1",
+        "acceptance_condition": "组件不依赖 userStore；展示/隐藏完全由父级控制"
+      },
+      {
+        "id": "FR-004",
+        "description": "样式：scoped + BEM 命名（plain-explanation__title / plain-explanation__content / plain-explanation__skeleton）。所有间距使用 CSS 变量（--spacing-*），颜色取 --el-color-info / --el-text-color-regular，遵循 8px 间距体系",
+        "priority": "P1",
+        "acceptance_condition": "使用 CSS 变量、无硬编码颜色、scoped 样式生效"
+      },
+      {
+        "id": "FR-005",
+        "description": "可访问性：el-alert 使用 role='note'；骨架屏加 aria-label='正在生成通俗解释'；空态容器加 aria-live='polite'；图标按钮带 aria-label",
+        "priority": "P2",
+        "acceptance_condition": "关键节点具备 ARIA 属性；键盘 Tab 可达"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "TypeScript camelCase，JSON snake_case",
+        "mappings": [
+          { "java": "plainExplanation", "python": "plain_explanation", "json": "plain_explanation" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "StructuredAnalysis.plainExplanation (snake_case) 经 Axios snake→camel 拦截器转为 plainExplanation 字段 → AnalysisCard props → PlainExplanation content"
+    },
+    "security_requirements": [
+      { "category": "xss", "requirement": "禁止使用 v-html 渲染 content；使用纯文本/Mustache 插值" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" },
+      "json": { "field_name": "snake_case" }
+    },
+    "layering": { "frontend": { "rule": "Component 接受 props，不直接读 Store" } },
+    "error_handling": { "frontend": { "approach": "组件不抛异常；error/empty/loading 由 props 驱动" } },
+    "caching": { "pattern": "无独立缓存，依赖父组件 analysis.result" },
+    "logging": { "prohibited": ["console.log 通俗解释内容"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "在 PlainExplanation 中直接读取 userStore", "reason": "保持组件职责单一，由父级根据画像决策展示", "severity": "medium" },
+    { "id": "FA-002", "action": "使用 v-html 渲染 content", "reason": "XSS 风险", "severity": "critical" },
+    { "id": "FA-003", "action": "硬编码颜色/间距", "reason": "必须使用 CSS 变量", "severity": "medium" },
+    { "id": "FA-004", "action": "组件超过 300 行", "reason": "可维护性约束", "severity": "medium" },
+    { "id": "FA-005", "action": "未声明 ARIA 的可交互元素", "reason": "无障碍要求", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "PlainExplanation_states", "description": "渲染 4 种状态：loading / error / empty / normal", "framework": "vitest", "coverage": ["normal_flow", "error_flow", "boundary_condition"] },
+      { "test_name": "PlainExplanation_collapse", "description": "collapsible=true 时超过 maxLength 出现展开/收起", "framework": "vitest", "coverage": ["normal_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无 TypeScript 错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/__tests__/components/analysis/PlainExplanation.spec.ts", "expected_result": "PlainExplanation 单元测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "组件接收 props 后可正常渲染 4 种状态：loading/error/empty/normal", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "AnalysisCard 中 showPlainExplanation=false 时不渲染，true 且 plainExplanation 存在时渲染", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "组件代码行数 ≤ 300（不含样式）", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "样式全部使用 CSS 变量，无硬编码颜色或奇数 px", "verified_by": "code_review" },
+    { "id": "AC-005", "criterion": "TypeScript strict 模式无错误", "verified_by": "automated_test" }
+  ]
+}

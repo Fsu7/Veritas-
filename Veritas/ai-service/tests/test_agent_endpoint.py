@@ -87,7 +87,8 @@ class TestAnalyzeSuccess:
             response = client.post("/api/agent/analyze", json=VALID_REQUEST_BODY)
 
         assert response.status_code == 200
-        data = response.json()
+        body = response.json()
+        data = body["data"]
         assert data["analysisId"] == "anl_test_001"
         assert data["status"] == "completed"
         assert data["report"] is not None
@@ -139,7 +140,8 @@ class TestAnalyzeDegraded:
             response = client.post("/api/agent/analyze", json=VALID_REQUEST_BODY)
 
         assert response.status_code == 200
-        data = response.json()
+        body = response.json()
+        data = body["data"]
         assert data["degraded"] is True
         assert data["degradedReason"] is not None
 
@@ -167,7 +169,8 @@ class TestAnalyzeDegraded:
             response = client.post("/api/agent/analyze", json=VALID_REQUEST_BODY)
 
         assert response.status_code == 200
-        data = response.json()
+        body = response.json()
+        data = body["data"]
         assert data["degraded"] is True
         assert "retriever" in data["degradedReason"] or "analyzer" in data["degradedReason"]
 
@@ -195,7 +198,8 @@ class TestAnalyzeResponseCamelCase:
         with patch("app.api.endpoints.agent.run_workflow", new_callable=AsyncMock, return_value=mock_workflow_result):
             response = client.post("/api/agent/analyze", json=VALID_REQUEST_BODY)
 
-        data = response.json()
+        body = response.json()
+        data = body["data"]
         assert "analysisId" in data
         assert "agentStates" in data
         if data["agentStates"]:
@@ -214,6 +218,11 @@ class TestAnalyzeServiceNotInitialized:
         _clear_app_state()
         response = client.post("/api/agent/analyze", json=VALID_REQUEST_BODY)
         assert response.status_code == 503
+        body = response.json()
+        assert body["code"] == 503
+        assert "未就绪" in body["message"]
+        assert body["data"] is None
+        assert "timestamp" in body
 
 
 class TestBuildAgentInstances:

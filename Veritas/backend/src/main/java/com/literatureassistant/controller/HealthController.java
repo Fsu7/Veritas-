@@ -1,6 +1,7 @@
 package com.literatureassistant.controller;
 
 import com.literatureassistant.dto.common.ApiResponse;
+import com.literatureassistant.service.AgentClientService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -20,10 +21,14 @@ public class HealthController {
 
     private final DataSource dataSource;
     private final RedisTemplate<String, String> redisTemplate;
+    private final AgentClientService agentClientService;
 
-    public HealthController(DataSource dataSource, RedisTemplate<String, String> redisTemplate) {
+    public HealthController(DataSource dataSource,
+                            RedisTemplate<String, String> redisTemplate,
+                            AgentClientService agentClientService) {
         this.dataSource = dataSource;
         this.redisTemplate = redisTemplate;
+        this.agentClientService = agentClientService;
     }
 
     @GetMapping("/health")
@@ -32,12 +37,15 @@ public class HealthController {
 
         String mysqlStatus = checkMySQL();
         String redisStatus = checkRedis();
+        String aiServiceStatus = checkAIService();
 
-        String overallStatus = "UP".equals(mysqlStatus) && "UP".equals(redisStatus) ? "UP" : "DOWN";
+        String overallStatus = "UP".equals(mysqlStatus) && "UP".equals(redisStatus) && "UP".equals(aiServiceStatus)
+                ? "UP" : "DOWN";
 
         healthData.put("status", overallStatus);
         healthData.put("mysql", mysqlStatus);
         healthData.put("redis", redisStatus);
+        healthData.put("aiService", aiServiceStatus);
 
         return ApiResponse.success(healthData);
     }
@@ -68,6 +76,15 @@ public class HealthController {
             return "DOWN";
         } catch (Exception e) {
             log.warn("Redis health check failed: {}", e.getMessage());
+            return "DOWN";
+        }
+    }
+
+    private String checkAIService() {
+        try {
+            return agentClientService.isHealthy() ? "UP" : "DOWN";
+        } catch (Exception e) {
+            log.warn("AI service health check failed: {}", e.getMessage());
             return "DOWN";
         }
     }

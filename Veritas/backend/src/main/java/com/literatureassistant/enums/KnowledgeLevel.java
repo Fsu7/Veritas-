@@ -29,4 +29,9 @@ public enum KnowledgeLevel implements DbValueEnum {
         }
         return null;
     }
+
+    @Override
+    public String toString() {
+        return dbValue;
+    }
 }

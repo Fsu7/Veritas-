@@ -28,4 +28,9 @@ public enum PreferredStyle implements DbValueEnum {
         }
         return null;
     }
+
+    @Override
+    public String toString() {
+        return dbValue;
+    }
 }

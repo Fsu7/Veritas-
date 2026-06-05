@@ -1,0 +1,328 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "M3：前后端联调成功 / JM3：AI服务调用打通 (Week 6 Day 2 of 5)",
+    "requirement": "在 task22 基础上扩展分析服务查询能力：1) AnalysisService.getAnalysisResult 通过 analysisId 查 AnalysisResult + 反序列化 result JSON 为 AnalysisResponse；2) AnalysisService.getAnalysisStatus 聚合 AnalysisResult.status + Agent 实时状态（Redis Hash）+ 进度信息返回 AnalysisStatusResponse；3) AnalysisController 暴露 GET /api/analysis/{id} + GET /api/analysis/{id}/status 端点；4) HealthController 集成 agentClientService.isHealthy() 探测 AI 服务状态；5) 所有读操作走 Redis 缓存（Cache-Aside）。",
+    "requirement_ids": ["F2.4.4", "F2.4.5", "F2.5.5"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "7.2.2 AnalysisService.getAnalysisResult/getAnalysisStatus + 7.4 综述时序 + 7.5 API清单" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.3 Week 6 Day 2 任务：分析结果查询 + 状态查询 + 5.4 验收检查点（/health 包含aiService）" },
+      { "path": "json_prompt/backend/task21_agent_client_service/prompt.md", "purpose": "AgentClientService.getAgentStates(analysisId) + isHealthy() 方法" },
+      { "path": "json_prompt/backend/task22_analysis_controller_service/prompt.md", "purpose": "AnalysisService/AnalysisController 既有结构与数据隔离模式" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/HealthController.java", "purpose": "现有 /health 仅检测 MySQL/Redis；本任务扩展 aiService 字段" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "修改：AnalysisService — 新增 getAnalysisResult + getAnalysisStatus 方法（@Cacheable 缓存）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.controller",
+        "description": "修改：AnalysisController — 新增 2 个 GET 端点；HealthController — 集成 AI 服务状态"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.response",
+        "description": "新增：AnalysisResponse + AnalysisStatusResponse DTO"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "task22 实现，含 analyzePaper(userId, request)；本任务扩展 2 个查询方法", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "description": "task22 实现，POST /api/analysis/paper；本任务新增 2 个 GET 端点", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "description": "task21 实现，getAgentStates(analysisId) + isHealthy()", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/HealthController.java", "description": "现有 /health 仅检查 MySQL/Redis；本任务注入 AgentClientService", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/AnalysisResultRepository.java", "description": "findByAnalysisId(String) 方法", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AnalysisService (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "responsibility": "新增 2 个查询方法：getAnalysisResult（缓存分析结果）+ getAnalysisStatus（聚合状态+Agent实时状态）",
+      "key_interfaces": [
+        { "name": "getAnalysisResult", "signature": "@Cacheable(value=\"analysisResult\", key=\"#analysisId\") AnalysisResponse getAnalysisResult(String userId, String analysisId)", "description": "查 AnalysisResult 表 + 反序列化 result JSON；校验数据隔离" },
+        { "name": "getAnalysisStatus", "signature": "AnalysisStatusResponse getAnalysisStatus(String userId, String analysisId)", "description": "聚合 AnalysisResult.status + Agent Redis Hash 状态 + 进度（计算）" }
+      ]
+    },
+    {
+      "name": "AnalysisController (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "responsibility": "新增 2 个 GET 端点",
+      "key_interfaces": [
+        { "name": "getAnalysisResult", "signature": "ApiResponse<AnalysisResponse> getAnalysisResult(@PathVariable String analysisId, @AuthenticationPrincipal String userId)", "description": "GET /api/analysis/{analysisId}" },
+        { "name": "getAnalysisStatus", "signature": "ApiResponse<AnalysisStatusResponse> getAnalysisStatus(@PathVariable String analysisId, @AuthenticationPrincipal String userId)", "description": "GET /api/analysis/{analysisId}/status" }
+      ]
+    },
+    {
+      "name": "HealthController (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/HealthController.java",
+      "responsibility": "注入 AgentClientService，扩展 /health 响应 aiService 字段",
+      "key_interfaces": [
+        { "name": "health", "signature": "ApiResponse<Map<String,Object>> health()", "description": "GET /health 返回 {status, mysql, redis, aiService}" }
+      ]
+    },
+    {
+      "name": "AnalysisResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResponse.java",
+      "responsibility": "分析结果查询响应 DTO（analysisId/sessionId/status/type/result/createdAt）",
+      "key_interfaces": [
+        { "name": "analysisId", "signature": "String analysisId", "description": "分析任务ID" },
+        { "name": "sessionId", "signature": "String sessionId", "description": "所属会话ID" },
+        { "name": "status", "signature": "AnalysisStatus status", "description": "状态枚举" },
+        { "name": "type", "signature": "AnalysisType type", "description": "分析类型" },
+        { "name": "result", "signature": "AnalysisResultDTO result", "description": "反序列化后的 result JSON 嵌套对象" },
+        { "name": "createdAt", "signature": "LocalDateTime createdAt", "description": "创建时间" }
+      ]
+    },
+    {
+      "name": "AnalysisStatusResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisStatusResponse.java",
+      "responsibility": "分析状态查询响应（status/progress/currentAgent/agentStates）",
+      "key_interfaces": [
+        { "name": "analysisId", "signature": "String analysisId", "description": "分析任务ID" },
+        { "name": "status", "signature": "AnalysisStatus status", "description": "AnalysisResult.status" },
+        { "name": "progress", "signature": "Double progress", "description": "整体进度 0.0-1.0（由 agentStates 计算平均）" },
+        { "name": "currentAgent", "signature": "String currentAgent", "description": "当前正在执行的 Agent 名称（status=running）" },
+        { "name": "agentStates", "signature": "List<AgentStateResponse> agentStates", "description": "所有 Agent 状态" }
+      ]
+    }
+  },
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "description": "新增 getAnalysisResult + getAnalysisStatus 方法；注入 ObjectMapper + AgentClientService",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "description": "新增 2 个 GET 端点；@AuthenticationPrincipal 取 userId",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/HealthController.java",
+      "description": "注入 AgentClientService；/health 响应增加 aiService 字段（UP/DOWN）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResponse.java",
+      "description": "新建 AnalysisResponse DTO（6 字段，含 result 嵌套）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisStatusResponse.java",
+      "description": "新建 AnalysisStatusResponse DTO（5 字段）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/controller/HealthControllerTest.java",
+      "description": "扩展测试：Mock AgentClientService.isHealthy() 验证 aiService 字段",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AnalysisServiceQueryTest.java",
+      "description": "新建 5 个 Service 查询测试（getAnalysisResult/getAnalysisStatus 缓存命中/数据隔离）",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-023-01",
+        "description": "GET /api/analysis/{analysisId}：AnalysisService.getAnalysisResult(userId, analysisId) → AnalysisResponse",
+        "priority": "P0",
+        "acceptance_condition": "MockMvc 200 + ApiResponse {code:200, data:{analysisId, status, result: {report, citations, agentStates, ...}}}"
+      },
+      {
+        "id": "FR-023-02",
+        "description": "getAnalysisResult 走 @Cacheable(\"analysisResult\", key=\"#analysisId\", unless=\"#result == null\") 缓存，TTL 30min",
+        "priority": "P0",
+        "acceptance_condition": "第二次查询直接返回缓存；@CacheEvict 在 updateAnalysisResult 时触发失效"
+      },
+      {
+        "id": "FR-023-03",
+        "description": "GET /api/analysis/{analysisId}/status：聚合 AnalysisResult.status + Agent 实时状态",
+        "priority": "P0",
+        "acceptance_condition": "响应 {analysisId, status, progress, currentAgent, agentStates}；progress 由 agentStates 中 progress 字段平均值计算（无 agentStates 时为 null）"
+      },
+      {
+        "id": "FR-023-04",
+        "description": "getAnalysisStatus 必须实时从 Redis Hash 读 Agent 状态（不缓存），保证 SSE 一致性",
+        "priority": "P0",
+        "acceptance_condition": "Agent 状态更新后 1s 内 getAnalysisStatus 可见"
+      },
+      {
+        "id": "FR-023-05",
+        "description": "数据隔离：两个查询方法都需校验 AnalysisResult.sessionId 对应的 Session.userId == currentUserId，否则 403",
+        "priority": "P0",
+        "acceptance_condition": "他人 analysisId → 403"
+      },
+      {
+        "id": "FR-023-06",
+        "description": "HealthController 注入 AgentClientService；/health 响应增加 aiService 字段（UP/DOWN）",
+        "priority": "P0",
+        "acceptance_condition": "GET /health 返回 {status, mysql, redis, aiService}；aiService UP/DOWN 来自 agentClientService.isHealthy()"
+      },
+      {
+        "id": "FR-023-07",
+        "description": "整体 status 计算：mysql/redis/aiService 三者全 UP → UP；任一 DOWN → DOWN",
+        "priority": "P0",
+        "acceptance_condition": "Python 停止 → status=DOWN, aiService=DOWN"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case（依赖全局 Jackson SNAKE_CASE）",
+        "mappings": [
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+          { "java": "sessionId", "python": "session_id", "json": "sessionId" },
+          { "java": "currentAgent", "python": "current_agent", "json": "currentAgent" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "GET /api/analysis/{analysisId}",
+          "method": "GET",
+          "request_format": null,
+          "response_format": { "code": 200, "data": { "analysisId": "string", "sessionId": "string", "status": "AnalysisStatus", "type": "AnalysisType", "result": { "report": "string", "citations": [], "agentStates": [] }, "createdAt": "ISO8601" } }
+        },
+        {
+          "endpoint": "GET /api/analysis/{analysisId}/status",
+          "method": "GET",
+          "request_format": null,
+          "response_format": { "code": 200, "data": { "analysisId": "string", "status": "AnalysisStatus", "progress": "number (0-1)", "currentAgent": "string (null if all completed)", "agentStates": [{ "agentName": "string", "status": "string", "progress": "number", "intermediateResult": "string", "durationMs": "number" }] } }
+        },
+        {
+          "endpoint": "GET /health",
+          "method": "GET",
+          "request_format": null,
+          "response_format": { "code": 200, "data": { "status": "UP|DOWN", "mysql": "UP|DOWN", "redis": "UP|DOWN", "aiService": "UP|DOWN" } }
+        }
+      ],
+      "data_flow": "前端 → Controller → AnalysisService.getAnalysisResult → 1) @Cacheable 命中？→ 返回 2) 未命中 → DB findByAnalysisId → 反序列化 result JSON → 回填缓存 → 返回 AnalysisResponse"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "GET 端点必须 @AuthenticationPrincipal 取 userId；未登录返回 401" },
+      { "category": "data_isolation", "requirement": "他人 analysisId 返回 403" },
+      { "category": "sensitive_info", "requirement": "HealthController 不暴露 AI 服务 URL / 连接细节" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "json": { "field_name": "snake_case（依赖全局 Jackson SNAKE_CASE）" }
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → (Repository + AgentClientService)；禁止 Controller 直接调 Repository 或 AgentClientService",
+        "entity_dto_separation": true
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "Service 内部异常 → BusinessException/AuthenticationException/ResourceNotFoundException；GlobalExceptionHandler 统一处理"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside + @Cacheable",
+      "ttl_layers": [
+        { "cache_name": "analysisResult", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" }
+      ],
+      "note": "getAnalysisStatus 不缓存（实时性要求）"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["输出 result.report 完整内容", "在循环中打印 INFO"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-023-01", "action": "getAnalysisStatus 使用 @Cacheable 缓存 Agent 状态", "reason": "实时性要求 + SSE 同步约束", "severity": "critical" },
+    { "id": "FA-023-02", "action": "暴露他人 analysisId 的数据（必须 403）", "reason": "数据隔离约束", "severity": "critical" },
+    { "id": "FA-023-03", "action": "HealthController 直接构造 WebClient（必须通过 AgentClientService）", "reason": "分层约束", "severity": "high" },
+    { "id": "FA-023-04", "action": "/health 在 AI 服务 5s 超时时阻塞响应线程", "reason": "性能约束（isHealthy 内部已 5s 超时）", "severity": "high" },
+    { "id": "FA-023-05", "action": "在 getAnalysisResult 中返回 Entity（必须 DTO 转换）", "reason": "Entity/DTO 分离", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "getAnalysisResult_returns_dto_with_deserialized_result",
+        "description": "Mock Repository 返回 AnalysisResult(result=JSON 字符串)，验证 result 字段反序列化为 AnalysisResultDTO",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "getAnalysisResult_uses_cache_second_call",
+        "description": "第一次调用走 Repository；第二次调用 @Cacheable 命中（不调 Repository）",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "getAnalysisResult_other_user_returns403",
+        "description": "他人 analysisId → 抛 BusinessException(403)",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "getAnalysisStatus_aggregates_agent_states",
+        "description": "Mock AgentClientService.getAgentStates 返回 3 个 Agent 状态，验证 progress=平均值 + currentAgent=首个 running 的 agent",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "getAnalysisStatus_empty_agents_progress_null",
+        "description": "Redis 无 Agent 状态 → progress=null + agentStates=[] + currentAgent=null",
+        "framework": "junit5",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "healthController_includes_aiService_field",
+        "description": "Mock AgentClientService.isHealthy=true → /health 响应 aiService=UP, status=UP",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "healthController_python_down_returns_DOWN",
+        "description": "Mock AgentClientService.isHealthy=false → /health 响应 aiService=DOWN, status=DOWN",
+        "framework": "junit5",
+        "coverage": ["degradation"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "getAnalysisResult_e2e_returns_nested_report",
+        "description": "TestRestTemplate 创建分析任务 → 查结果 → 验证 report/citations/agentStates 嵌套结构",
+        "layers_involved": ["java_backend", "python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='AnalysisServiceQueryTest,HealthControllerTest' test", "expected_result": "7+ 测试通过" },
+      { "layer": "java", "command": "curl -s http://localhost:8080/health | jq .", "expected_result": "返回 {code:200, data:{status:UP, mysql:UP, redis:UP, aiService:UP}}" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-023-01", "criterion": "GET /api/analysis/{id} 返回 AnalysisResponse，result 字段正确反序列化", "verified_by": "automated_test" },
+    { "id": "AC-023-02", "criterion": "getAnalysisResult 走 @Cacheable 缓存（30min TTL）", "verified_by": "automated_test" },
+    { "id": "AC-023-03", "criterion": "GET /api/analysis/{id}/status 返回聚合状态 + 实时 Agent 状态（不缓存）", "verified_by": "automated_test" },
+    { "id": "AC-023-04", "criterion": "数据隔离：他人 analysisId → 403", "verified_by": "automated_test" },
+    { "id": "AC-023-05", "criterion": "/health 响应增加 aiService 字段（UP/DOWN）", "verified_by": "automated_test" },
+    { "id": "AC-023-06", "criterion": "Python 停止时 /health 整体 DOWN", "verified_by": "manual_test" },
+    { "id": "AC-023-07", "criterion": "7+ 个查询测试全部通过", "verified_by": "automated_test" }
+  ]
+}

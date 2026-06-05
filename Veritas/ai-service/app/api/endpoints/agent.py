@@ -1,15 +1,19 @@
 from datetime import datetime
+from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 from loguru import logger
+from sse_starlette.sse import EventSourceResponse
 
 from app.agents.analyzer import AnalyzerAgent
 from app.agents.generator import GeneratorAgent
 from app.agents.graph import run_workflow
+from app.agents.orchestrator import AgentOrchestrator
 from app.agents.retriever import RetrieverAgent
 from app.core import events
 from app.exception import AIServiceException, ModelNotLoadedException
 from app.models.schemas import AgentStateResponse, AnalyzeRequest, AnalyzeResponse
+from app.utils.response import fail_response, ok
 
 router = APIRouter()
 
@@ -63,12 +67,13 @@ def _convert_agent_states(agent_states: dict) -> list[AgentStateResponse]:
     return result
 
 
-@router.post("/analyze", response_model=AnalyzeResponse, response_model_by_alias=True)
-async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
+@router.post("/analyze")
+async def analyze(request: AnalyzeRequest):
+    """POST /api/agent/analyze — task24 改用统一响应 ok() 包装"""
     try:
         agent_instances = _build_agent_instances()
     except ModelNotLoadedException as e:
-        raise AIServiceException(code=503, message=e.message)
+        return fail_response(message=e.message, code=503)
 
     logger.info(
         f"Analysis started: analysis_id={request.analysis_id}, "
@@ -79,11 +84,11 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         result = await run_workflow(request, agent_instances)
     except Exception as e:
         logger.error(f"Workflow execution failed: {e}")
-        raise AIServiceException(code=500, message="分析任务执行失败，请稍后重试")
+        return fail_response(message="分析任务执行失败，请稍后重试", code=500)
 
     agent_state_list = _convert_agent_states(result.get("agent_states", {}))
 
-    return AnalyzeResponse(
+    response_data = AnalyzeResponse(
         analysis_id=result.get("analysis_id", request.analysis_id or ""),
         status=result.get("status", "completed"),
         report=result.get("report"),
@@ -92,3 +97,61 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         degraded=result.get("degraded"),
         degraded_reason=result.get("degraded_reason"),
     )
+
+    # model_dump(by_alias=True) 输出 camelCase
+    return ok(data=response_data.model_dump(by_alias=True, exclude_none=False))
+
+
+@router.post("/analyze/stream")
+async def analyze_stream(
+    request: AnalyzeRequest,
+    last_event_id: Optional[str] = Header(None, alias="Last-Event-ID"),
+):
+    """POST /api/agent/analyze/stream — task25 SSE 流式推送，task30 增强
+
+    使用 sse-starlette EventSourceResponse 返回 SSE 流。
+    事件类型：agent_started / agent_state_update / agent_completed /
+              agent_failed / analysis_completed / error / ping
+
+    task30: 支持 Last-Event-ID Header 实现断线重连。
+    """
+    try:
+        agent_instances = _build_agent_instances()
+    except ModelNotLoadedException as e:
+        # 服务未就绪时无法启动流，返回统一错误
+        return fail_response(message=e.message, code=503)
+
+    analysis_id = request.analysis_id or f"ana_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    # task30: 解析 Last-Event-ID（仅接受正整数）
+    parsed_last_event_id = None
+    if last_event_id is not None:
+        try:
+            parsed_last_event_id = int(last_event_id)
+            if parsed_last_event_id <= 0:
+                parsed_last_event_id = None
+        except (ValueError, TypeError):
+            parsed_last_event_id = None
+
+    logger.info(
+        f"SSE Analysis started: analysis_id={analysis_id}, "
+        f"topic={request.topic}, user_id={request.user_id}, "
+        f"last_event_id={parsed_last_event_id}"
+    )
+
+    orchestrator = AgentOrchestrator(
+        agent_instances=agent_instances,
+        analysis_id=analysis_id,
+        last_event_id=parsed_last_event_id,
+    )
+
+    async def event_generator():
+        """SSE 事件生成器"""
+        async for sse_event in orchestrator.run_workflow_stream(request):
+            yield {
+                "id": sse_event["id"],
+                "event": sse_event["event"],
+                "data": sse_event["data"],
+            }
+
+    return EventSourceResponse(event_generator())

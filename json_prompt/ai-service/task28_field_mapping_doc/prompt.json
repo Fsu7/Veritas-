@@ -1,0 +1,188 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XH-202630 Coding Task Prompt — AM3-5: 请求/响应格式兼容性验证 + 字段映射文档",
+  "task_id": "task28_field_mapping_doc",
+  "milestone": "AM3：API完善与Java对接",
+  "version": "v0.3",
+  "type": "object",
+  "required": [
+    "context",
+    "current_architecture",
+    "relevant_modules",
+    "files_to_modify",
+    "implementation_requirements",
+    "constraints",
+    "forbidden_actions",
+    "test_requirements",
+    "acceptance_criteria"
+  ],
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "AM3：API完善与Java对接（Week 5-6）",
+    "requirement": "基于 task27 联调测试结果，产出 1 份《Java↔Python AI服务字段映射与契约文档》，放在 Veritas/ai-service/docs/FIELD_MAPPING.md，供前端 / Java / Python 三端共同查阅。文档必须含：所有端点 URL/方法/请求/响应、字段命名映射（Java camelCase ↔ Python snake_case ↔ JSON camelCase）、枚举值映射、状态码映射、错误码体系、5 个端点完整 curl 示例、SSE 事件类型清单、ChromaDB 字段映射。",
+    "requirement_ids": ["F3.5.1", "F3.5.2", "F3.5.3", "F3.5.4", "F3.5.5", "F2.5"],
+    "reference_docs": [
+      { "path": "Veritas/ai-service/docs/FIELD_MAPPING.md", "purpose": "本任务产出（新建）" },
+      { "path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "API契约来源 §4.4 + §14 + §附录B" },
+      { "path": "json_prompt/backend/task19_python_ai_client/prompt.md", "purpose": "Java 端 5 个方法签名 + DTO 字段" },
+      { "path": "json_prompt/ai-service/task27_java_python_link/prompt.md", "purpose": "联调测试中已验证的字段映射" },
+      { "path": "docs/信息架构文档(IA).md", "purpose": "项目级跨系统字段映射总表" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service", "java_backend", "frontend", "data_layer"],
+    "related_modules": [
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/models/schemas.py", "description": "Pydantic 模型定义（camelCase alias）" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/models/enums.py", "description": "StrEnum 定义（4 个枚举）" },
+      { "layer": "java_backend", "module_path": "Veritas/backend/src/main/java/com/literatureassistant/client/PythonAIClient.java", "description": "Java 端 WebClient 调用" },
+      { "layer": "java_backend", "module_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/", "description": "Java 端 DTO（含 @JsonProperty）" },
+      { "layer": "data_layer", "module_path": "Veritas/ai-service/data/vector_db/", "description": "ChromaDB papers collection" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/ai-service/app/models/schemas.py", "description": "已含 alias，schema 完整", "reuse_type": "reference" },
+      { "file_path": "Veritas/ai-service/app/api/endpoints/agent.py", "description": "/analyze 端点结构", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "FIELD_MAPPING.md",
+      "path": "Veritas/ai-service/docs/FIELD_MAPPING.md",
+      "responsibility": "Java↔Python 字段映射与契约文档",
+      "key_interfaces": [
+        { "name": "5 个端点清单", "description": "URL/方法/请求/响应/状态码/错误码" },
+        { "name": "字段映射表", "description": "Java camelCase ↔ Python snake_case ↔ JSON camelCase" },
+        { "name": "枚举映射表", "description": "EducationLevel/KnowledgeLevel/PreferredStyle/AnalysisType" },
+        { "name": "SSE 事件清单", "description": "event name + data payload" },
+        { "name": "ChromaDB 字段映射", "description": "papers collection metadata 字段" },
+        { "name": "完整 curl 示例", "description": "5 个端点 × Java 风格 camelCase 请求" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/ai-service/docs/FIELD_MAPPING.md", "description": "字段映射与契约文档", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/tests/test_field_mapping_consistency.py", "description": "字段映射一致性自动验证（用真实 HTTP 请求验证 JSON schema）", "layer": "python_ai_service" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "FIELD_MAPPING.md 必须含 5 个端点的完整契约：POST /api/agent/analyze、POST /api/agent/analyze/stream (SSE)、POST /api/search、POST /api/search/hybrid、GET /api/search/suggest、GET /api/model/status、GET /health。每个端点含 URL/方法/请求示例（camelCase）/响应示例（camelCase JSON）/状态码/错误码/Headers。",
+        "priority": "P0",
+        "acceptance_condition": "文档含 7 个端点章节，每个章节有完整的 Request Example 和 Response Example"
+      },
+      {
+        "id": "FR-002",
+        "description": "字段命名映射表：列出所有跨系统字段（≥30 个），含 Java camelCase / Python snake_case / JSON camelCase 三列。包含但不限：educationLevel/education_level/educationLevel、knowledgeLevel/knowledge_level/knowledgeLevel、preferredStyle/preferred_style/preferredStyle、paperIds/paper_ids/paperIds、analysisType/analysis_type/analysisType、analysisId/analysis_id/analysisId、userId/user_id/userId、agentName/agent_name/agentName、intermediateResult/intermediate_result/intermediateResult、durationMs/duration_ms/durationMs、embeddingDimension/embedding_dimension/embeddingDimension、activeLlmProvider/active_llm_provider/activeLlmProvider、degradedReason/degraded_reason/degradedReason、providerCandidates/provider_candidates/providerCandidates、chromaPaperCount/chroma_paper_count/chromaPaperCount、gpuMemoryUsed/gpu_memory_used/gpuMemoryUsed、llmProviderCount/llm_provider_count/llmProviderCount、errorCode/error_code/errorCode、errorMessage/error_message/errorMessage。",
+        "priority": "P0",
+        "acceptance_condition": "字段映射表 ≥ 30 行，每行 Java/Python/JSON 三列对齐"
+      },
+      {
+        "id": "FR-003",
+        "description": "枚举映射表：4 个 StrEnum（EducationLevel/KnowledgeLevel/PreferredStyle/AnalysisType），每个枚举值列 Java / Python / JSON 三端的字符串值。",
+        "priority": "P0",
+        "acceptance_condition": "枚举表含 4 个枚举，每个枚举值一致（均为 lowercase 字符串）"
+      },
+      {
+        "id": "FR-004",
+        "description": "SSE 事件清单：6 个事件类型（agent_started/agent_state_update/agent_completed/agent_failed/analysis_completed/error），每个事件含 event name + data JSON payload 结构 + 触发时机。",
+        "priority": "P0",
+        "acceptance_condition": "SSE 清单含 6 个事件，每个事件有 data 字段示例"
+      },
+      {
+        "id": "FR-005",
+        "description": "ChromaDB 字段映射：列出 papers collection 的 metadata 字段（paper_id/title/year/venue/citation_count/chunk_index/chunk_type），说明 Python 端存储格式与 Java 端读取方式（通过 MySQL 中转）。",
+        "priority": "P1",
+        "acceptance_condition": "Chroma 章节含 7 个 metadata 字段，附 vector store service 写入代码片段"
+      },
+      {
+        "id": "FR-006",
+        "description": "错误码体系：列出 AIServiceException / LLMException / VectorStoreException / AgentTimeoutException / ModelNotLoadedException / ValidationException 的 code 值（503/503/503/408/503/422）及触发场景。",
+        "priority": "P0",
+        "acceptance_condition": "错误码表 ≥ 6 行，含 code/异常类/触发场景/前端处理建议"
+      },
+      {
+        "id": "FR-007",
+        "description": "完整 curl 示例：每个端点提供一个 Java 风格 camelCase 的 curl 命令（含 Content-Type/Accept 头），可直接复制运行。",
+        "priority": "P0",
+        "acceptance_condition": "≥ 5 个 curl 示例，可直接复制执行"
+      },
+      {
+        "id": "FR-008",
+        "description": "test_field_mapping_consistency.py 自动验证脚本：使用 requests 库对 5 个端点发送 camelCase 请求，验证响应 JSON 的字段名与文档声明一致。如果发现不一致则 fail。",
+        "priority": "P0",
+        "acceptance_condition": "测试脚本对 5 个端点共 20+ 字段名做断言，运行时 100% 一致"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case（内部） ↔ JSON camelCase（输出）",
+        "mappings": []
+      },
+      "api_contracts": [],
+      "data_flow": "本任务为文档产出，不涉及运行时数据流"
+    },
+    "degradation_requirements": null,
+    "security_requirements": [
+      { "category": "sensitive_info", "requirement": "文档不暴露 API Key / 内部 IP" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "json": { "field_name": "snake_case" },
+      "markdown": { "table_format": "GitHub-flavored Markdown" }
+    },
+    "layering": { "rule": "本任务为文档产出任务，不涉及代码分层" },
+    "error_handling": { "rule": "N/A" },
+    "caching": { "pattern": "N/A" },
+    "logging": { "python": { "default": "N/A" } }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出 TODO 或占位符", "reason": "文档必须完整可查阅", "severity": "critical" },
+    { "id": "FA-002", "action": "修改 schemas.py / endpoints 任何代码", "reason": "本任务只产出文档和测试", "severity": "high" },
+    { "id": "FA-006", "action": "在文档示例中暴露真实 API Key", "reason": "用占位符 <YOUR_API_KEY>", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_field_mapping_consistency_analyze",
+        "description": "POST /api/agent/analyze 响应所有字段名与文档一致",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_field_mapping_consistency_search",
+        "description": "POST /api/search 响应字段名一致",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_field_mapping_consistency_model_status",
+        "description": "GET /api/model/status 响应字段名一致",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_camelcase_alias_round_trip",
+        "description": "请求用 camelCase 发送，响应也用 camelCase 返回",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      { "layer": "python", "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && pytest tests/test_field_mapping_consistency.py -v", "expected_result": "全部用例 PASS，证明字段映射与文档一致" },
+      { "layer": "other", "command": "wc -l Veritas/ai-service/docs/FIELD_MAPPING.md", "expected_result": "文档行数 ≥ 300" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "FIELD_MAPPING.md 文档行数 ≥ 300，含 7 个端点章节 + 字段表 + 枚举表 + SSE 清单 + Chroma 字段 + 错误码 + curl 示例", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "字段映射表 ≥ 30 行（Java/Python/JSON 三列对齐）", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "枚举映射表 4 个枚举（EducationLevel/KnowledgeLevel/PreferredStyle/AnalysisType）", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "SSE 事件清单 6 个事件 + 完整 data 字段示例", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "错误码表 ≥ 6 行（code/异常类/场景/处理建议）", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "≥ 5 个 curl 示例可复制执行", "verified_by": "manual_test" },
+    { "id": "AC-007", "criterion": "test_field_mapping_consistency.py 对 20+ 字段名断言全部通过", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "文档不暴露 API Key / 内部 IP", "verified_by": "code_review" }
+  ]
+}

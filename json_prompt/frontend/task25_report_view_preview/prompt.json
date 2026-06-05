@@ -1,0 +1,137 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析与对比页面完成",
+    "requirement": "实现 ReportView 综述报告页基础与 ReportPreview 组件：(1) ReportView 接收 analysisId 路由参数 → 调 sessionStore.fetchAnalysisResult；(2) 顶部元信息：主题/论文范围/生成时间/用户画像摘要；(3) ReportPreview 接收 content (markdown) + citations，markdown-it 渲染 + 引用 [Author, Year] 渲染为可点击链接（emit 'citation-click'）；(4) utils/markdown.ts 封装 md 实例，html:false + 引用链接自定义渲染规则；(5) 加载/空/错误态完整；单文件 ≤ 300 行。",
+    "requirement_ids": ["F1.4.1", "F1.4.2", "F1.4.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "ReportView/ReportPreview 模板（7.2/7.3 节）、Citation 类型" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM3 验收：综述内容 + 画像信息 + 生成时间" },
+      { "path": "AGENTS.md", "purpose": "markdown-it 配置规范" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/ReportView.vue", "description": "占位页面，需完整实现" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "fetchAnalysisResult 已实现，可复用" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/userStore.ts", "description": "profile 画像信息展示" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/analysis.ts", "description": "AnalysisResult.result.report / citations" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/views/ReportView.vue", "description": "占位组件，需完整实现", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "ReportView",
+      "path": "Veritas/frontend/src/views/ReportView.vue",
+      "responsibility": "综述页容器，路由 /report/:analysisId 解析、获取结果、渲染元信息与预览",
+      "key_interfaces": [
+        { "name": "route.params.analysisId", "signature": "string", "description": "分析任务 ID" }
+      ]
+    },
+    {
+      "name": "ReportPreview",
+      "path": "Veritas/frontend/src/components/report/ReportPreview.vue",
+      "responsibility": "Markdown 渲染 + 引用链接自定义",
+      "key_interfaces": [
+        { "name": "props.content", "signature": "content: string", "description": "Markdown 文本" },
+        { "name": "props.citations", "signature": "citations?: Citation[]", "description": "可选引用列表" }
+      ]
+    },
+    {
+      "name": "utils/markdown",
+      "path": "Veritas/frontend/src/utils/markdown.ts",
+      "responsibility": "markdown-it 实例 + 引用链接规则",
+      "key_interfaces": [
+        { "name": "renderMarkdown", "signature": "(content: string) => string", "description": "同步渲染 HTML" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/utils/markdown.ts", "description": "封装 markdown-it 实例 + 引用规则（html:false linkify typographer + 引用 [Author, Year] 自定义 token）" },
+    { "operation": "create", "path": "Veritas/frontend/src/components/report/ReportPreview.vue", "description": "Markdown 渲染 + 引用链接（emit citation-click paperId）" },
+    { "operation": "modify", "path": "Veritas/frontend/src/views/ReportView.vue", "description": "完整综述页：路由分析 ID → fetchAnalysisResult → 顶部元信息 + ReportPreview + AI 标注 + 重试/返回" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "utils/markdown.ts：export function createMarkdownRenderer()，内部 new MarkdownIt({ html: false, linkify: true, typographer: true, breaks: false })；定义引用规则 renderer.rules.citation_open = (tokens, idx, options, env, self) => `<a class=\"citation-link\" data-paper-id=\"${env.paperId ?? ''}\" href=\"#\" role=\"button\" aria-label=\"引用溯源\">`；renderMarkdown(content, paperIdMap?) → string；支持 XSS 防护（html:false）",
+        "priority": "P0",
+        "acceptance_condition": "html:false 生效；引用 token 转链接；XSS 测试通过"
+      },
+      {
+        "id": "FR-002",
+        "description": "ReportPreview：Props content: string、citations?: Citation[]。结构：(1) el-skeleton 3 行 when loading；(2) el-empty description='暂无综述内容' when content 为空；(3) v-html='renderedHtml' 渲染（内部已净化）；(4) onMounted/onUpdated 用 addEventListener('click') 委托 .citation-link 事件 → 读取 data-paper-id → emit('citation-click', paperId)；(5) scoped 样式 .citation-link 颜色 --el-color-primary，cursor pointer",
+        "priority": "P0",
+        "acceptance_condition": "4 状态切换；引用点击 emit；样式作用域"
+      },
+      {
+        "id": "FR-003",
+        "description": "ReportView：onMounted 解析 route.params.analysisId → sessionStore.fetchAnalysisResult(analysisId)；loading 状态 v-loading；error 时 el-result 错误页 + 重试按钮；result.result.report 为空时 el-empty；元信息区 el-card：主题（result.topic 或 userStore.profile.researchField）、论文范围（paperIds.length）、生成时间（result.updatedAt ?? new Date().toLocaleString()）、画像摘要（userStore.profile 拼接：学历·研究方向·知识水平·偏好风格）；AI 标注「AI生成，仅供参考」；底部按钮区「返回」「查看 Agent 流程」（router.push AgentFlow）",
+        "priority": "P0",
+        "acceptance_condition": "元信息完整；CTA 跳转；loading/empty/error 完整"
+      },
+      {
+        "id": "FR-004",
+        "description": "报告样式：行高 1.8，标题层级 h1/h2/h3 字号严格符合 Typography 规范（32/24/20）；代码块 el-card 包裹；引用块 blockquote 左侧 4px 蓝色边",
+        "priority": "P1",
+        "acceptance_condition": "标题层级、代码块、引用块符合设计"
+      },
+      {
+        "id": "FR-005",
+        "description": "可访问性：v-html 渲染时容器加 role='article'；引用链接 role='button' + aria-label='引用溯源'；加载态 aria-label",
+        "priority": "P2",
+        "acceptance_condition": "关键节点具备 ARIA"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "TypeScript camelCase，JSON snake_case",
+        "mappings": [
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" },
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" },
+          { "java": "updatedAt", "python": "updated_at", "json": "updated_at" }
+        ]
+      },
+      "api_contracts": [
+        { "endpoint": "/api/analysis/{analysisId}", "method": "GET", "request_format": {}, "response_format": { "code": 200, "data": "AnalysisResult(result.report, result.citations, result.topic, updatedAt)" } }
+      ],
+      "data_flow": "route.params.analysisId → fetchAnalysisResult → result → ReportView 渲染元信息 → ReportPreview 渲染 markdown"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue / camelCase.ts" } },
+    "layering": { "frontend": { "rule": "View → Store → API；组件不直接调 API" } },
+    "error_handling": { "frontend": { "approach": "markdown-it html:false 防 XSS；fetchAnalysisResult 失败时 el-result 错误页" } },
+    "caching": { "pattern": "result 经 sessionStore.analysisResults Map 缓存" },
+    "logging": { "prohibited": ["console.log 综述内容"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "markdown-it 配置 html:true", "reason": "XSS 风险", "severity": "critical" },
+    { "id": "FA-002", "action": "ReportPreview 在 onMounted 时同步阻塞渲染", "reason": "renderMarkdown 同步即可，不需异步", "severity": "low" },
+    { "id": "FA-003", "action": "组件超过 300 行", "reason": "可维护性", "severity": "medium" },
+    { "id": "FA-004", "action": "硬编码 16px/1.8", "reason": "使用 CSS 变量", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "renderMarkdown_xss", "description": "传入 <script> 标签应原样转义不执行", "framework": "vitest", "coverage": ["security"] },
+      { "test_name": "renderMarkdown_citation", "description": "[Author, 2024] 转换为 citation-link 标签", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "ReportPreview_emit", "description": "点击 .citation-link 触发 citation-click 事件并传递 paperId", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "ReportView_states", "description": "loading/empty/error 三态切换", "framework": "vitest", "coverage": ["normal_flow", "error_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无 TS 错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/__tests__/utils/markdown.spec.ts", "expected_result": "markdown 工具测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "markdown-it html:false 防 XSS", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "[Author, Year] 渲染为 .citation-link 标签并 emit citation-click", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "ReportView 元信息 4 维度（主题/范围/时间/画像）正确", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "组件代码 ≤ 300 行", "verified_by": "code_review" }
+  ]
+}

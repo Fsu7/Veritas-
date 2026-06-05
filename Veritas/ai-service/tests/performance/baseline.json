@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-06-04T17:14:58.310767",
+  "metrics": {
+    "health_p95_ms": 0.72,
+    "health_mean_ms": 0.47,
+    "health_target_p95_ms": 100,
+    "search_p95_ms": 0.56,
+    "search_mean_ms": 0.47,
+    "search_target_p95_ms": 3000,
+    "analyze_p95_ms": 0.18,
+    "analyze_mean_ms": 0.12,
+    "analyze_target_p95_ms": 60000,
+    "stream_first_event_p95_ms": 0.01,
+    "stream_first_event_mean_ms": 0.01,
+    "stream_first_event_target_ms": 2000
+  },
+  "targets": {
+    "health_p95_ms": 100,
+    "search_p95_ms": 3000,
+    "analyze_p95_ms": 60000,
+    "stream_first_event_ms": 2000
+  }
+}

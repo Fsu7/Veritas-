@@ -1,0 +1,241 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XH-202630 Coding Task Prompt — AM3-3: 健康检查完善 + 模型状态API",
+  "task_id": "task26_health_model_status",
+  "milestone": "AM3：API完善与Java对接",
+  "version": "v0.3",
+  "type": "object",
+  "required": [
+    "context",
+    "current_architecture",
+    "relevant_modules",
+    "files_to_modify",
+    "implementation_requirements",
+    "constraints",
+    "forbidden_actions",
+    "test_requirements",
+    "acceptance_criteria"
+  ],
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "AM3：API完善与Java对接（Week 5-6）",
+    "requirement": "完善 /health 健康检查（按架构文档 4.4.4 节 critical_ok 规则，组件不健康时返回 503）和 GET /api/model/status 模型状态 API（返回 LLM/Embedding/Chroma/Prompts 详细状态，含 activeLlmProvider / embeddingDimension / chromaPaperCount / providerCandidates）。",
+    "requirement_ids": ["F3.5.3", "F3.5.4", "F3.3.5"],
+    "reference_docs": [
+      { "path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "健康检查规则（§4.4.4 critical_ok）+ ModelStatusResponse 定义（§14.1）" },
+      { "path": "docs/ai-service/AI服务模块项目里程碑文档.md", "purpose": "AM3 任务（§5.3 Day 3）" },
+      { "path": "Veritas/ai-service/app/main.py", "purpose": "现有 /health 永远 200，需改造为 503" },
+      { "path": "Veritas/ai-service/app/api/endpoints/model.py", "purpose": "现有 /status endpoint 字段不全" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service", "infra"],
+    "related_modules": [
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/main.py", "description": "现有 /health 返回 status:'UP' 无条件 200" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/api/endpoints/model.py", "description": "现有 /status 缺 providerCandidates / chromaPaperCount / gpuMemoryUsed" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/core/events.py", "description": "app_state 单例存储所有 Service 实例" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/services/llm_service.py", "description": "LLMService.providers 字典含 builtin/api/local provider" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/ai-service/app/main.py", "description": "/health 端点，结构基本到位，需 critical_ok 规则 + 503", "reuse_type": "modify" },
+      { "file_path": "Veritas/ai-service/app/models/schemas.py", "description": "ModelStatusResponse 已定义 llm/embedding/chroma/prompts/embeddingDimension/activeLlmProvider 字段", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "/health endpoint",
+      "path": "Veritas/ai-service/app/main.py",
+      "responsibility": "健康检查",
+      "key_interfaces": [
+        { "name": "health_check", "signature": "GET /health -> JSONResponse (200 或 503)", "description": "critical_ok 规则决定状态码" }
+      ]
+    },
+    {
+      "name": "ModelStatusResponse",
+      "path": "Veritas/ai-service/app/models/schemas.py",
+      "responsibility": "模型状态响应模型",
+      "key_interfaces": [
+        { "name": "ModelStatusResponse", "signature": "Pydantic BaseModel", "description": "需扩展 providerCandidates/chromaPaperCount/gpuMemoryUsed/llmProviderCount" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/ai-service/app/main.py", "description": "实现 critical_ok 规则，组件不全时返回 503，统一响应格式", "layer": "python_ai_service" },
+    { "operation": "modify", "path": "Veritas/ai-service/app/models/schemas.py", "description": "扩展 ModelStatusResponse 字段：providerCandidates/chromaPaperCount/gpuMemoryUsed/llmProviderCount", "layer": "python_ai_service" },
+    { "operation": "modify", "path": "Veritas/ai-service/app/api/endpoints/model.py", "description": "完整填充 ModelStatusResponse 字段，包含所有 provider 候选", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/tests/test_health_model_status.py", "description": "健康检查 503 + 模型状态测试", "layer": "python_ai_service" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "/health 端点实现 critical_ok 规则：当 llm.status == 'loaded' AND embedding.status in ('loaded', 'loaded_api', 'loaded_local') AND chroma.status == 'connected' 时返回 200 + status:UP；否则返回 503 + status:DEGRADED。",
+        "priority": "P0",
+        "acceptance_condition": "模拟 embedding.status='error'，GET /health 返回 503 + {code:503, message:'DEGRADED', data:{status:'DEGRADED', llm:'loaded', embedding:'error', chroma:'connected', ...}, timestamp:...}"
+      },
+      {
+        "id": "FR-002",
+        "description": "/health data 字段必须含 llm/embedding/chroma/prompts/searchService/reranker 6 个组件状态。",
+        "priority": "P0",
+        "acceptance_condition": "正常 200 响应 data 含 6 个键，值分别为对应服务的 status 字符串"
+      },
+      {
+        "id": "FR-003",
+        "description": "ModelStatusResponse 扩展字段：providerCandidates(List[str])：所有加载的 LLM provider mode 列表（['builtin','api','local']）；chromaPaperCount(int?)：ChromaDB 中论文数量；gpuMemoryUsed(str?)：GPU 显存使用（仅当本地模型加载时）；llmProviderCount(int)：加载的 provider 数量。",
+        "priority": "P0",
+        "acceptance_condition": "GET /api/model/status 返回 data 含 providerCandidates（至少一个元素）、chromaPaperCount（>=0）、llmProviderCount（>=1）"
+      },
+      {
+        "id": "FR-004",
+        "description": "model_status endpoint 从 app_state.llm_service.providers.keys() 提取 providerCandidates；从 vector_store_service.collection.count() 提取 chromaPaperCount；从 settings.LLM_BUILTIN_URL 是否配置判断 builtin 是否可用。",
+        "priority": "P0",
+        "acceptance_condition": "DeepSeek V4 Flash 配置下，返回 data.activeLlmProvider='api', providerCandidates=['api'], llmProviderCount=1"
+      },
+      {
+        "id": "FR-005",
+        "description": "GPU 显存查询：使用 try-except 包装 torch.cuda.memory_allocated() / memory_reserved()，异常时返回 None（不抛错）。仅当 LocalLLMProvider 加载时才显示。",
+        "priority": "P1",
+        "acceptance_condition": "本地模型未加载时，gpuMemoryUsed=None；本地模型加载后，gpuMemoryUsed='4.2GB / 16GB'"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON camelCase",
+        "mappings": [
+          { "java": "activeLlmProvider", "python": "active_llm_provider", "json": "activeLlmProvider" },
+          { "java": "embeddingDimension", "python": "embedding_dimension", "json": "embeddingDimension" },
+          { "java": "providerCandidates", "python": "provider_candidates", "json": "providerCandidates" },
+          { "java": "chromaPaperCount", "python": "chroma_paper_count", "json": "chromaPaperCount" },
+          { "java": "gpuMemoryUsed", "python": "gpu_memory_used", "json": "gpuMemoryUsed" },
+          { "java": "llmProviderCount", "python": "llm_provider_count", "json": "llmProviderCount" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "GET /health",
+          "method": "GET",
+          "request_format": null,
+          "response_format": {
+            "code": 200,
+            "message": "success",
+            "data": {
+              "status": "UP|DEGRADED",
+              "llm": "loaded|not_loaded|error",
+              "embedding": "loaded|loaded_api|loaded_local|error",
+              "chroma": "connected|disconnected|not_connected",
+              "prompts": "loaded|not_loaded",
+              "searchService": "ready|not_initialized",
+              "reranker": "ready|not_initialized"
+            },
+            "timestamp": 1700000000000
+          }
+        },
+        {
+          "endpoint": "GET /api/model/status",
+          "method": "GET",
+          "request_format": null,
+          "response_format": {
+            "code": 200,
+            "message": "success",
+            "data": {
+              "llm": "loaded",
+              "embedding": "loaded_api",
+              "chroma": "connected",
+              "prompts": "loaded",
+              "embeddingDimension": 1024,
+              "activeLlmProvider": "api",
+              "providerCandidates": ["api"],
+              "chromaPaperCount": 200,
+              "gpuMemoryUsed": null,
+              "llmProviderCount": 1
+            },
+            "timestamp": 1700000000000
+          }
+        }
+      ]
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "N/A（本任务不涉及 Agent）",
+        "multi_agent_failure": "N/A"
+      }
+    },
+    "security_requirements": [
+      { "category": "sensitive_info", "requirement": "不暴露 API Key / 数据库密码 / 内部 IP" }
+    ]
+  },
+  "constraints": {
+    "naming": { "python": { "class_name": "PascalCase", "function_variable": "snake_case", "file_name": "snake_case.py" } },
+    "layering": { "python": { "rule": "endpoint 函数只调用 Service，状态聚合不写复杂逻辑" } },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，状态查询失败时返回 status='error' 不抛 500"
+      }
+    },
+    "caching": { "pattern": "本任务不涉及" },
+    "logging": {
+      "python": { "default": "Loguru" },
+      "prohibited": ["在状态查询路径中打印 INFO 日志（DEBUG 即可）"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或 TODO", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改 LLM/Embedding/VectorStore 内部逻辑", "reason": "只新增状态查询方法", "severity": "high" },
+    { "id": "FA-006", "action": "在状态响应中暴露敏感配置", "reason": "安全约束", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_health_all_components_ok",
+        "description": "所有组件 loaded 时 /health 返回 200 + status:UP",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_health_embedding_error_returns_503",
+        "description": "embedding.status='error' 时返回 503 + status:DEGRADED",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "test_health_chroma_disconnected_returns_503",
+        "description": "chroma.status='disconnected' 时返回 503",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "test_model_status_fields_complete",
+        "description": "/api/model/status 响应含 providerCandidates/chromaPaperCount/llmProviderCount/embeddingDimension",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_model_status_active_provider",
+        "description": "activeLlmProvider 与实际加载的 provider 一致",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_k8s_liveness_probe",
+        "description": "K8s 探针模拟：/health 返回 200 时容器保持运行",
+        "layers_involved": ["python_ai_service", "infra"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "python", "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && pytest tests/test_health_model_status.py -v", "expected_result": "全部用例 PASS" },
+      { "layer": "python", "command": "curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/health", "expected_result": "组件全 OK 时 200；Embedding 加载失败时 503" },
+      { "layer": "python", "command": "curl -s http://localhost:8000/api/model/status | python -m json.tool", "expected_result": "data 含 providerCandidates/chromaPaperCount/activeLlmProvider 等字段" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "/health 端点按 critical_ok 规则返回 200 或 503", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "/health 响应含 6 个组件状态（llm/embedding/chroma/prompts/searchService/reranker）", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "ModelStatusResponse 扩展字段完整（providerCandidates/chromaPaperCount/gpuMemoryUsed/llmProviderCount）", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "model_status 从 app_state 实时读取状态，不缓存过期数据", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "GPU 显存查询异常时返回 None，不抛 500", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "不暴露 API Key/密码/内部 IP", "verified_by": "code_review" }
+  ]
+}

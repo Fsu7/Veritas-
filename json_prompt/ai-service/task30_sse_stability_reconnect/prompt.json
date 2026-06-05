@@ -1,0 +1,211 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XH-202630 Coding Task Prompt — AM3-7: SSE推送稳定性测试 + 断线重连",
+  "task_id": "task30_sse_stability_reconnect",
+  "milestone": "AM3：API完善与Java对接",
+  "version": "v0.3",
+  "type": "object",
+  "required": [
+    "context",
+    "current_architecture",
+    "relevant_modules",
+    "files_to_modify",
+    "implementation_requirements",
+    "constraints",
+    "forbidden_actions",
+    "test_requirements",
+    "acceptance_criteria"
+  ],
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "AM3：API完善与Java对接（Week 5-6）",
+    "requirement": "SSE 推送稳定性增强：1) AI 端实现 keep-alive ping 事件（15s 间隔），2) 异常时 yield error 事件而非断开连接，3) 支持 Last-Event-ID 头断点续传；4) 与前端 useSSE 协同重连（前端 3s 间隔最多 5 次）做联调测试。测试覆盖：长流程（>60s）心跳正常、客户端中途断开服务器优雅处理、Last-Event-ID 续传、高并发（10 个并发 SSE 连接）。",
+    "requirement_ids": ["F3.5.1", "F3.1.7"],
+    "reference_docs": [
+      { "path": "json_prompt/ai-service/task25_sse_basic_push/prompt.md", "purpose": "task25 已实现的 SSE 基础推送" },
+      { "path": "json_prompt/frontend/task28_use_sse_composable/prompt.md", "purpose": "前端 useSSE 重连机制（3s 间隔最多 5 次）" },
+      { "path": "json_prompt/frontend/task29_sse_event_parsing/prompt.md", "purpose": "前端 SSE 事件解析（含 Last-Event-ID）" },
+      { "path": "Veritas/ai-service/app/agents/orchestrator.py", "purpose": "task25 产出的 AgentOrchestrator" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service", "frontend"],
+    "related_modules": [
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/agents/orchestrator.py", "description": "AgentOrchestrator.run_workflow_stream()，task25 产出，需扩展 keep-alive" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/api/endpoints/agent.py", "description": "/analyze/stream 端点" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/composables/useSSE.ts", "description": "前端 useSSE 自动重连" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/ai-service/app/agents/orchestrator.py", "description": "task25 产出的流式执行器，yield 6 种事件", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AgentOrchestrator (扩展)",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "responsibility": "SSE 流式编排 + keep-alive + Last-Event-ID 支持",
+      "key_interfaces": [
+        { "name": "run_workflow_stream", "signature": "async def run_workflow_stream(request, agent_instances, last_event_id: int = 0) -> AsyncIterator[dict]", "description": "支持 Last-Event-ID 续传" },
+        { "name": "_keepalive_task", "description": "后台 asyncio.Task 每 15s yield ping 事件" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/ai-service/app/agents/orchestrator.py", "description": "新增 keep-alive ping 机制 + Last-Event-ID 支持", "layer": "python_ai_service" },
+    { "operation": "modify", "path": "Veritas/ai-service/app/api/endpoints/agent.py", "description": "/analyze/stream 接收 Last-Event-ID Header，传给 orchestrator", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/tests/test_sse_stability.py", "description": "SSE 稳定性 + 断线重连测试", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/tests/test_sse_reconnect_frontend.py", "description": "模拟前端 useSSE 断线重连行为联调测试", "layer": "python_ai_service" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "Orchestrator 每 15s yield 一个 ping 事件，event='ping'，data='{}'。仅当工作流总耗时 > 15s 时才发 ping；< 15s 流程不发。",
+        "priority": "P0",
+        "acceptance_condition": "模拟 60s 长流程，事件流中含至少 3 个 ping 事件（间隔 ~15s）"
+      },
+      {
+        "id": "FR-002",
+        "description": "异常处理：节点异常 yield agent_failed + error 事件，不中断整个 SSE 流（除非全局崩溃）。客户端可通过 error 事件感知错误并显示降级信息。",
+        "priority": "P0",
+        "acceptance_condition": "模拟 AnalyzerAgent 抛异常，SSE 流继续 yield generator 节点事件，最终 analysis_completed 事件 status='degraded'"
+      },
+      {
+        "id": "FR-003",
+        "description": "支持 Last-Event-ID 头断点续传：客户端重连时发送 Last-Event-ID: <event_id>，服务端从该事件 ID 之后继续推送。事件 ID 是单调递增整数，每个事件都有 id 字段。",
+        "priority": "P1",
+        "acceptance_condition": "客户端断开前收到事件 id=5，重连时 Last-Event-ID: 5，服务器从 id=6 开始继续推送"
+      },
+      {
+        "id": "FR-004",
+        "description": "客户端断开连接时服务端优雅处理：asyncio.CancelledError 捕获后 yield final 事件 + 关闭流，不抛 5xx。",
+        "priority": "P0",
+        "acceptance_condition": "客户端在收到第 3 个事件后断开连接，服务器在 1s 内检测到断开并关闭流，无未捕获异常"
+      },
+      {
+        "id": "FR-005",
+        "description": "高并发：10 个并发 SSE 连接同时执行工作流，服务器无 OOM，无事件错乱。",
+        "priority": "P1",
+        "acceptance_condition": "pytest asyncio.gather() 启动 10 个并发 /analyze/stream 请求，全部成功完成，无内存泄漏"
+      },
+      {
+        "id": "FR-006",
+        "description": "与前端 useSSE 联调测试：使用 httpx.AsyncClient 流式请求，模拟前端 useSSE 行为：3s 间隔重试 5 次。验证断线后重连可成功。",
+        "priority": "P1",
+        "acceptance_condition": "模拟客户端在第 2 个事件后断开，等待 3s 后重连，服务端从 id=3 继续，事件完整不丢"
+      },
+      {
+        "id": "FR-007",
+        "description": "SSE 端点 /analyze/stream 接收 Last-Event-ID Header（HTTP 标准头），传递给 run_workflow_stream 作为续传起点。",
+        "priority": "P0",
+        "acceptance_condition": "客户端请求 Header 含 'Last-Event-ID: 3'，服务端的 run_workflow_stream(request, agents, last_event_id=3) 被调用"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "事件 data 字段 camelCase",
+        "mappings": [
+          { "java": "agentName", "python": "agent_name", "json": "agentName" },
+          { "java": "eventId", "python": "event_id", "json": "eventId" },
+          { "java": "lastEventId", "python": "last_event_id", "json": "lastEventId" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/agent/analyze/stream",
+          "method": "POST",
+          "request_format": { "headers": { "Content-Type": "application/json", "Last-Event-ID": "int (可选，断点续传)" }, "body": { "topic": "string", "userId": "string", "...": "省略其他字段" } },
+          "response_format": "SSE stream with id field per event: id: 5\nevent: agent_state_update\ndata: {agentName, status, ...}\n\n"
+        }
+      ]
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "yield agent_failed 事件，继续后续节点",
+        "multi_agent_failure": "最终 status='degraded'"
+      }
+    },
+    "security_requirements": [
+      { "category": "data_isolation", "requirement": "SSE 事件不含 userId/email 等 PII" },
+      { "category": "other", "requirement": "Last-Event-ID 仅接受正整数（防止负数攻击）" }
+    ]
+  },
+  "constraints": {
+    "naming": { "python": { "class_name": "PascalCase", "function_variable": "snake_case", "file_name": "snake_case.py" } },
+    "layering": { "python": { "rule": "Orchestrator → Agent，ping 事件由 Orchestrator 而非 Agent 产生" } },
+    "error_handling": {
+      "python": {
+        "approach": "节点异常 yield error 事件不中断流；客户端断开 yield final 事件 + 关闭流"
+      }
+    },
+    "caching": { "pattern": "Last-Event-ID 续传：使用 Redis 缓存事件流（TTL=120s，key='sse:analysis:{analysisId}:{eventId}'）" },
+    "logging": { "python": { "default": "Loguru, ping 事件 DEBUG 级别" } }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或 TODO", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改 sse-starlette 框架本身", "reason": "框架约束", "severity": "critical" },
+    { "id": "FA-008", "action": "在 ping 事件循环中打印 INFO 日志", "reason": "性能约束（DEBUG 即可）", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_sse_keepalive_ping",
+        "description": "长流程每 15s 收到 ping 事件",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_sse_short_workflow_no_ping",
+        "description": "< 15s 流程不发 ping 事件",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_sse_event_id_monotonic",
+        "description": "事件 id 单调递增",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_sse_last_event_id_resume",
+        "description": "Last-Event-ID: 5 续传，从 id=6 开始",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "test_sse_client_disconnect_graceful",
+        "description": "客户端中途断开，服务器优雅关闭",
+        "framework": "pytest",
+        "coverage": ["degradation", "error_flow"]
+      },
+      {
+        "test_name": "test_sse_concurrent_10_streams",
+        "description": "10 并发 SSE 流无 OOM 无错乱",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_sse_reconnect_with_frontend_simulator",
+        "description": "模拟前端 useSSE 断线重连（3s 间隔）",
+        "layers_involved": ["python_ai_service", "frontend"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "python", "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && pytest tests/test_sse_stability.py -v", "expected_result": "6/6 测试 PASS" },
+      { "layer": "python", "command": "pytest tests/test_sse_reconnect_frontend.py -v", "expected_result": "重连联调测试 PASS" },
+      { "layer": "python", "command": "curl -N -X POST http://localhost:8000/api/agent/analyze/stream -H 'Content-Type: application/json' -H 'Last-Event-ID: 0' -d '{\"topic\":\"long\",\"userId\":\"u1\"}' 2>&1 | head -100", "expected_result": "SSE 流含 id 字段 + ping 事件" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "长流程每 15s yield ping 事件", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "节点异常 yield agent_failed + error 事件，不中断流", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "Last-Event-ID Header 支持断点续传", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "客户端断开服务器优雅关闭，无未捕获异常", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "10 并发 SSE 流无 OOM 无事件错乱", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "与前端 useSSE 联调：3s 间隔重连可成功，事件不丢", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "Last-Event-ID 仅接受正整数", "verified_by": "automated_test" }
+  ]
+}

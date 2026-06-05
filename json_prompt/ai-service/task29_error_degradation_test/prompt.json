@@ -1,0 +1,251 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XH-202630 Coding Task Prompt — AM3-6: 错误处理联调 + 降级机制验证",
+  "task_id": "task29_error_degradation_test",
+  "milestone": "AM3：API完善与Java对接",
+  "version": "v0.3",
+  "type": "object",
+  "required": [
+    "context",
+    "current_architecture",
+    "relevant_modules",
+    "files_to_modify",
+    "implementation_requirements",
+    "constraints",
+    "forbidden_actions",
+    "test_requirements",
+    "acceptance_criteria"
+  ],
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "AM3：API完善与Java对接（Week 5-6）",
+    "requirement": "验证 Python AI 服务三级降级机制：1) LLM Provider 级降级（builtin→api→local）；2) Agent 级降级（单 Agent 超时/失败跳过）；3) Workflow 级降级（多 Agent 失败降级为单 Agent 模式）。同时验证错误响应（422/500/503/408）与 Java 端 AIServiceException 的正确转换。降级机制验证报告放在 Veritas/ai-service/docs/DEGRADATION_TEST_REPORT.md。",
+    "requirement_ids": ["F3.1.8", "F3.3.5", "F3.5"],
+    "reference_docs": [
+      { "path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "降级策略 §5.7 + LLM §7.5" },
+      { "path": "Veritas/ai-service/app/agents/graph.py", "purpose": "现有 run_workflow 降级逻辑（error_count >= 2 标记 degraded）" },
+      { "path": "Veritas/ai-service/app/services/llm_service.py", "purpose": "LLM 三路降级实现" },
+      { "path": "Veritas/ai-service/app/exception.py", "purpose": "异常体系" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service", "java_backend"],
+    "related_modules": [
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/agents/graph.py", "description": "现有 run_workflow 降级判定（error_count >= 2 → status='degraded'）" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/services/llm_service.py", "description": "LLMService._fallback() 降级到下一个 provider" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/main.py", "description": "全局异常处理器" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/agents/base.py", "description": "BaseAgent.execute() 超时 30s 后返回 _fallback_result" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/ai-service/app/agents/graph.py", "description": "workflow 级降级判定：error_count >= 2 → degraded, error_count == 1 → 单 agent degraded", "reuse_type": "extend" },
+      { "file_path": "Veritas/ai-service/app/services/llm_service.py", "description": "LLMProvider._fallback() 按 priority 顺序降级", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "降级测试套件",
+      "path": "Veritas/ai-service/tests/test_degradation.py",
+      "responsibility": "三级降级机制自动验证",
+      "key_interfaces": [
+        { "name": "test_llm_provider_fallback", "description": "LLM builtin 失败 → 降级到 api" },
+        { "name": "test_agent_timeout_fallback", "description": "单 Agent 超时 30s → 跳过继续" },
+        { "name": "test_workflow_degraded_status", "description": "多 Agent 失败 → status='degraded'" },
+        { "name": "test_error_code_422_validation", "description": "请求参数错误 → 422" },
+        { "name": "test_error_code_503_service_unavailable", "description": "服务未就绪 → 503" },
+        { "name": "test_error_code_408_timeout", "description": "Agent 超时 → 408" }
+      ]
+    },
+    {
+      "name": "降级测试报告",
+      "path": "Veritas/ai-service/docs/DEGRADATION_TEST_REPORT.md",
+      "responsibility": "降级机制验证报告",
+      "key_interfaces": [
+        { "name": "9 个降级场景", "description": "每场景含触发条件/预期行为/实测结果/降级时长" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/ai-service/tests/test_degradation.py", "description": "降级机制验证测试（pytest）", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/tests/fixtures/mock_failing_providers.py", "description": "Mock 失败 LLM Provider fixture", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/docs/DEGRADATION_TEST_REPORT.md", "description": "降级测试报告", "layer": "python_ai_service" },
+    { "operation": "modify", "path": "Veritas/ai-service/app/services/llm_service.py", "description": "可能需要在 LLMService 添加 _test_all_providers() 方法用于降级测试", "layer": "python_ai_service" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "LLM Provider 级降级测试：使用 mock_failing_providers 让 builtin provider 抛 ConnectionError，验证 LLMService 自动切换到 api provider，active_provider.mode 从 'builtin' 变为 'api'。",
+        "priority": "P0",
+        "acceptance_condition": "测试 1：builtin 失败 → api 成功，active_provider.mode == 'api'，日志含 'LLM fallback: builtin → api'"
+      },
+      {
+        "id": "FR-002",
+        "description": "LLM 三路全失败测试：mock builtin/api/local 均抛异常，验证 LLMService.generate() 抛 LLMException(503)，错误信息含 'All LLM providers failed'。",
+        "priority": "P0",
+        "acceptance_condition": "测试 2：LLMException.code=503, message='All LLM providers failed'"
+      },
+      {
+        "id": "FR-003",
+        "description": "Agent 级降级测试：mock AnalyzerAgent 强制超时 30s（使用 asyncio.sleep(31)），验证工作流继续执行 GeneratorAgent，最终 status='degraded'，degraded_reason 含 'analyzer 失败'。",
+        "priority": "P0",
+        "acceptance_condition": "测试 3：analyzer 节点超时后，generator 仍执行，response.status='degraded'"
+      },
+      {
+        "id": "FR-004",
+        "description": "Workflow 级降级测试：mock RetrieverAgent 和 AnalyzerAgent 都失败，验证 GeneratorAgent 在缺失分析结果时仍能生成简化版报告（基于 topic 直接生成），状态 degraded。",
+        "priority": "P0",
+        "acceptance_condition": "测试 4：retriever+analyzer 失败 → generator 仍输出 report（基于 topic 的简化版）"
+      },
+      {
+        "id": "FR-005",
+        "description": "完全失败降级：所有 Agent 全部失败时，返回 500 + degraded_reason='所有 Agent 均失败'，不抛 5xx 给前端崩溃式错误。",
+        "priority": "P0",
+        "acceptance_condition": "测试 5：3 个 Agent 全失败 → response.code=500, data.degradedReason='所有 Agent 均失败'"
+      },
+      {
+        "id": "FR-006",
+        "description": "错误码 422 验证：缺 userId / topic 为空字符串 / 非法枚举值 → 422 + 统一格式，message 含字段名。",
+        "priority": "P0",
+        "acceptance_condition": "测试 6：3 种异常请求 → 422 + {code:422, message:含'userId'或'topic'或'analysisType', data:null, timestamp:int}"
+      },
+      {
+        "id": "FR-007",
+        "description": "错误码 503 验证：模拟 LLMService 未加载（app_state.llm_service=None），调用 /analyze 返回 503 + ModelNotLoadedException('LLM服务未就绪')。",
+        "priority": "P0",
+        "acceptance_condition": "测试 7：模型未就绪 → 503 + 统一格式"
+      },
+      {
+        "id": "FR-008",
+        "description": "错误码 408 验证：Agent 超时 30s 触发 AgentTimeoutException，返回 408 + 统一格式。",
+        "priority": "P0",
+        "acceptance_condition": "测试 8：agent.execute() 抛 asyncio.TimeoutError → 408"
+      },
+      {
+        "id": "FR-009",
+        "description": "DEGRADATION_TEST_REPORT.md 报告：含 9 个降级场景的测试结果（3 个 LLM 级 + 3 个 Agent/Workflow 级 + 3 个错误码），每场景含：触发条件、预期降级行为、实测结果、降级响应时长（ms）、日志摘录。",
+        "priority": "P0",
+        "acceptance_condition": "报告含 9 个场景表格，每个场景 PASS/FAIL 状态、降级时长（实测数据）"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case，错误响应统一格式",
+        "mappings": [
+          { "java": "errorCode", "python": "code", "json": "code" },
+          { "java": "errorMessage", "python": "message", "json": "message" },
+          { "java": "degradedReason", "python": "degraded_reason", "json": "degradedReason" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/agent/analyze (degraded)",
+          "method": "POST",
+          "request_format": null,
+          "response_format": { "code": 200, "message": "success", "data": { "status": "degraded", "degraded": true, "degradedReason": "Analyzer 失败，已降级处理", "report": "string", "agentStates": "list of {name,status,durationMs,intermediateResult}" }, "timestamp": 1700000000000 }
+        }
+      ]
+    },
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          { "priority": 1, "name": "builtin", "description": "软件方模型（最高优先级）" },
+          { "priority": 2, "name": "api", "description": "外接 API（中等优先级）" },
+          { "priority": 3, "name": "local", "description": "本地模型（最低优先级）" }
+        ],
+        "trigger_conditions": ["连续 3 次调用失败", "响应超时 30s", "HTTP 5xx"],
+        "recovery_strategy": "每 5 分钟尝试恢复到更高级别 Provider"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "超时 30s 后跳过该 Agent，继续后续流程",
+        "multi_agent_failure": "降级为单 Agent 模式（仅 retrieve+generate）",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      { "category": "data_isolation", "requirement": "降级响应不暴露内部堆栈（仅暴露 errorMessage）" }
+    ]
+  },
+  "constraints": {
+    "naming": { "python": { "class_name": "PascalCase", "function_variable": "snake_case", "file_name": "snake_case.py" } },
+    "layering": { "python": { "rule": "tests/fixtures 放测试 fixtures，tests/test_*.py 放测试用例" } },
+    "error_handling": {
+      "python": {
+        "approach": "降级响应与正常响应同走 ok() 包装（仅 status='degraded'）",
+        "agent_error_handling": "单 Agent 失败 append 到 state['errors']，不抛异常"
+      }
+    },
+    "caching": { "pattern": "本任务不涉及" },
+    "logging": { "python": { "default": "Loguru, 降级 WARNING 级别" } }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或 TODO", "reason": "必须输出完整可执行测试", "severity": "critical" },
+    { "id": "FA-002", "action": "修改 graph.py 主流程逻辑（只新增降级测试用例）", "reason": "AM2 已审阅通过", "severity": "high" },
+    { "id": "FA-006", "action": "在测试 fixture 中硬编码 API Key", "reason": "使用环境变量占位符", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_llm_provider_fallback_builtin_to_api",
+        "description": "LLM builtin 失败自动降级到 api",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "test_llm_all_providers_failed_throws_503",
+        "description": "三路 LLM 全失败抛 LLMException(503)",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_agent_timeout_skip_continue",
+        "description": "AnalyzerAgent 超时 30s 后跳过，GeneratorAgent 继续",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "test_workflow_multi_agent_failure_degraded",
+        "description": "多 Agent 失败时 status='degraded'",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "test_workflow_all_agents_failed_returns_500",
+        "description": "所有 Agent 失败返回 500",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_validation_error_422",
+        "description": "422 错误码 + 字段名提示",
+        "framework": "pytest",
+        "coverage": ["error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_model_not_loaded_503",
+        "description": "模型未就绪返回 503",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_agent_timeout_408",
+        "description": "Agent 超时返回 408",
+        "framework": "pytest",
+        "coverage": ["error_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      { "layer": "python", "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && pytest tests/test_degradation.py -v --tb=short", "expected_result": "8/8 测试 PASS" },
+      { "layer": "python", "command": "pytest tests/test_degradation.py -v --durations=0", "expected_result": "输出每个测试的耗时，可用于报告" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "LLM Provider 三路降级（builtin→api→local）正常工作", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "单 Agent 超时/失败不阻塞后续 Agent", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "多 Agent 失败时 status='degraded'，不返回 5xx", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "所有 Agent 失败时返回 500 + 降级信息", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "错误码 422（参数校验）/408（超时）/503（服务未就绪）正确返回", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "DEGRADATION_TEST_REPORT.md 报告含 9 个场景实测结果与降级时长", "verified_by": "manual_test" }
+  ]
+}

@@ -29,4 +29,9 @@ public enum EducationLevel implements DbValueEnum {
         }
         return null;
     }
+
+    @Override
+    public String toString() {
+        return dbValue;
+    }
 }

@@ -1,0 +1,205 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XH-202630 Coding Task Prompt — AM3-8: 集成测试 + Bug修复",
+  "task_id": "task31_integration_test_bugfix",
+  "milestone": "AM3：API完善与Java对接",
+  "version": "v0.3",
+  "type": "object",
+  "required": [
+    "context",
+    "current_architecture",
+    "relevant_modules",
+    "files_to_modify",
+    "implementation_requirements",
+    "constraints",
+    "forbidden_actions",
+    "test_requirements",
+    "acceptance_criteria"
+  ],
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "AM3：API完善与Java对接（Week 5-6）",
+    "requirement": "AM3 阶段集成测试：执行 task24~task30 全部测试，修复发现的所有 Bug，产出 AM3 阶段测试报告。报告含：执行结果总览、模块覆盖度、性能基线（响应时间/并发/降级时长）、已知问题清单、AM4 任务建议。",
+    "requirement_ids": ["F3.5", "F3.1", "F3.3"],
+    "reference_docs": [
+      { "path": "json_prompt/ai-service/task24_api_request_validation_response/", "purpose": "任务1-8 全部 prompt" },
+      { "path": "json_prompt/ai-service/task25_sse_basic_push/", "purpose": "任务1-8 全部 prompt" },
+      { "path": "json_prompt/ai-service/task26_health_model_status/", "purpose": "任务1-8 全部 prompt" },
+      { "path": "json_prompt/ai-service/task27_java_python_link/", "purpose": "任务1-8 全部 prompt" },
+      { "path": "json_prompt/ai-service/task28_field_mapping_doc/", "purpose": "任务1-8 全部 prompt" },
+      { "path": "json_prompt/ai-service/task29_error_degradation_test/", "purpose": "任务1-8 全部 prompt" },
+      { "path": "json_prompt/ai-service/task30_sse_stability_reconnect/", "purpose": "任务1-8 全部 prompt" },
+      { "path": "docs/ai-service/AI服务模块项目里程碑文档.md", "purpose": "AM3 检查清单" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service", "java_backend", "frontend", "data_layer", "infra"],
+    "related_modules": [
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/tests/", "description": "task24~task30 产出的全部测试文件" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/", "description": "被测代码" },
+      { "layer": "java_backend", "module_path": "Veritas/backend/src/test/java/com/literatureassistant/client/", "description": "Java 端联调测试" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/ai-service/tests/test_request_validation_response.py", "description": "task24 产出", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/ai-service/tests/test_sse_basic_push.py", "description": "task25 产出", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/ai-service/tests/test_health_model_status.py", "description": "task26 产出", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/ai-service/tests/integration/", "description": "task27 产出", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/ai-service/tests/test_field_mapping_consistency.py", "description": "task28 产出", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/ai-service/tests/test_degradation.py", "description": "task29 产出", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/ai-service/tests/test_sse_stability.py", "description": "task30 产出", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AM3 集成测试套件",
+      "path": "Veritas/ai-service/tests/test_integration_am3.py",
+      "responsibility": "一键执行 task24~task30 全部测试 + 性能基线 + Bug 收集",
+      "key_interfaces": [
+        { "name": "test_all_p0_features", "description": "执行全部 P0 测试" },
+        { "name": "test_performance_baseline", "description": "性能基线（响应时间/并发/降级时长）" },
+        { "name": "test_bug_collection", "description": "失败用例 Bug 收集与严重程度分级" }
+      ]
+    },
+    {
+      "name": "AM3 测试报告",
+      "path": "Veritas/ai-service/docs/AM3_TEST_REPORT.md",
+      "responsibility": "AM3 阶段测试报告",
+      "key_interfaces": [
+        { "name": "12 项 AM3 检查点结果", "description": "对应里程碑文档 §5.4" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/ai-service/tests/test_integration_am3.py", "description": "AM3 集成测试主类（pytest 集合）", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/tests/performance/test_perf_baseline.py", "description": "性能基线测试（响应时间/并发）", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/docs/AM3_TEST_REPORT.md", "description": "AM3 阶段测试报告", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/docs/AM3_BUGFIX_LOG.md", "description": "AM3 阶段 Bug 修复日志", "layer": "python_ai_service" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "test_integration_am3.py 一键执行 task24~task30 全部测试（共约 40+ 用例），使用 pytest.mark.parametrize 或 pytest_collection_modifyitems 标记 @am3_marker，所有用例按 P0/P1/P2 分组输出结果。",
+        "priority": "P0",
+        "acceptance_condition": "执行 `pytest tests/ -m am3` 输出全部 40+ 用例的结果（PASS/FAIL/SKIP），总耗时 < 5min"
+      },
+      {
+        "id": "FR-002",
+        "description": "性能基线测试：使用 pytest-benchmark 测量 4 项关键指标：1) /health 响应时间（<100ms P95）；2) /api/search 响应时间（<3s P95）；3) /api/agent/analyze 响应时间（<60s P95）；4) /api/agent/analyze/stream 首事件响应时间（<2s）。",
+        "priority": "P0",
+        "acceptance_condition": "性能基线报告 4 项指标的 P50/P95/P99 实测值，附回归基线 JSON 文件 baseline_2026-06-03.json"
+      },
+      {
+        "id": "FR-003",
+        "description": "并发测试：使用 asyncio.gather 启动 10 个并发 /api/agent/analyze 请求，测量总吞吐（req/s）和平均响应时间。",
+        "priority": "P1",
+        "acceptance_condition": "10 并发下吞吐 ≥ 0.2 req/s，平均响应 < 120s"
+      },
+      {
+        "id": "FR-004",
+        "description": "降级时长基线：测量 3 类降级响应时间：1) LLM Provider 降级（<2s）；2) 单 Agent 超时降级（<35s）；3) 多 Agent 降级为单 Agent 模式（<60s）。",
+        "priority": "P1",
+        "acceptance_condition": "3 类降级时长实测值，附降级日志路径"
+      },
+      {
+        "id": "FR-005",
+        "description": "Bug 收集：执行全部测试后，收集失败用例的 traceback 和 pytest 报告，输出到 AM3_BUGFIX_LOG.md。Bug 按严重程度分级：P0-致命（系统不可用）、P1-严重（核心功能异常）、P2-一般（非核心功能异常）、P3-轻微（UI/日志/性能小瑕疵）。",
+        "priority": "P0",
+        "acceptance_condition": "Bugfix 日志含 Bug ID/Bug 描述/严重程度/触发条件/修复状态/修复 PR"
+      },
+      {
+        "id": "FR-006",
+        "description": "AM3_TEST_REPORT.md 报告含 8 个章节：1) 概述（测试时间/环境/总用例数）；2) 测试结果总览（PASS/FAIL/SKIP 统计 + 折线图）；3) 模块覆盖度（按 F3.5.1~F3.5.5/F3.1.7/F3.3.5 统计）；4) 性能基线（4 项指标实测值 + 基线 JSON）；5) 错误码验证（422/408/500/503 实测）；6) Bug 清单（按严重程度排序）；7) 12 项 AM3 检查点（对应里程碑文档 §5.4 表格）；8) AM4 任务建议。",
+        "priority": "P0",
+        "acceptance_condition": "报告含 8 章节 + 12 项 AM3 检查点对应结果（PASS/FAIL 状态 + 实测证据）"
+      },
+      {
+        "id": "FR-007",
+        "description": "Bug 修复：本阶段发现的 P0/P1 Bug 必须在测试报告前完成修复，每个 Bug 修复后增加回归测试用例（确保不再复发）。P2/P3 Bug 记录到 backlog 留给 AM4 修复。",
+        "priority": "P0",
+        "acceptance_condition": "执行 `pytest tests/ -m am3` 第二次执行 P0 Bug 全部修复为 PASS"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "测试结果报告中字段名 snake_case（与 Python 端一致）",
+        "mappings": []
+      },
+      "api_contracts": [],
+      "data_flow": "N/A（本任务为测试任务）"
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "已在 task29 验证",
+        "multi_agent_failure": "已在 task29 验证"
+      }
+    },
+    "security_requirements": [
+      { "category": "sensitive_info", "requirement": "测试报告不暴露 API Key / 内部 IP / 用户 PII" }
+    ]
+  },
+  "constraints": {
+    "naming": { "python": { "class_name": "PascalCase", "function_variable": "snake_case", "file_name": "snake_case.py" } },
+    "layering": { "python": { "rule": "tests/ 目录按 task 分子目录，performance/ 子目录放性能测试" } },
+    "error_handling": { "python": { "approach": "测试失败时收集 traceback 不中断后续测试" } },
+    "caching": { "pattern": "性能基线结果缓存到 baseline_*.json，避免每次重新测量" },
+    "logging": { "python": { "default": "Loguru, 测试报告 DEBUG 级别" } }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或 TODO", "reason": "必须输出完整可执行测试与报告", "severity": "critical" },
+    { "id": "FA-002", "action": "修改 AM1/AM2 已审阅通过的代码（仅修复 AM3 引入的 Bug）", "reason": "范围控制", "severity": "high" },
+    { "id": "FA-006", "action": "在测试报告中暴露真实 API Key", "reason": "用占位符 <YOUR_API_KEY>", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_run_all_am3_tests",
+        "description": "一键执行 task24~task30 全部测试",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow", "boundary_condition", "degradation"]
+      },
+      {
+        "test_name": "test_perf_health_p95",
+        "description": "/health 响应时间 P95 < 100ms",
+        "framework": "pytest-benchmark",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_perf_search_p95",
+        "description": "/api/search 响应时间 P95 < 3s",
+        "framework": "pytest-benchmark",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_perf_analyze_p95",
+        "description": "/api/agent/analyze 响应时间 P95 < 60s",
+        "framework": "pytest-benchmark",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_concurrent_10_analyze",
+        "description": "10 并发 /analyze 吞吐 ≥ 0.2 req/s",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      { "layer": "python", "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && pytest tests/ -m am3 -v --tb=short 2>&1 | tee test_results_am3.log", "expected_result": "全部 40+ 用例 PASS，输出测试结果日志" },
+      { "layer": "python", "command": "pytest tests/performance/ -v --benchmark-only", "expected_result": "4 项性能基线输出" },
+      { "layer": "python", "command": "pytest tests/ -m am3 -v 2>&1 | tail -20", "expected_result": "===== 40+ passed in 300s =====" },
+      { "layer": "java", "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/backend && mvn test -Dtest=PythonAIClientIntegrationTest", "expected_result": "Java 联调测试 7/7 PASS" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "task24~task30 全部测试 40+ 用例 PASS", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "4 项性能基线达标（health <100ms / search <3s / analyze <60s / stream 首事件 <2s）", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "10 并发 /analyze 吞吐 ≥ 0.2 req/s", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "3 类降级时长基线测量完成", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "AM3_BUGFIX_LOG.md 记录所有 Bug + 修复状态，P0/P1 全部修复", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "AM3_TEST_REPORT.md 含 8 章节 + 12 项 AM3 检查点对应结果", "verified_by": "manual_test" },
+    { "id": "AC-007", "criterion": "Java 联调测试 7/7 PASS", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "测试报告不含 API Key / 内部 IP", "verified_by": "code_review" }
+  ]
+}

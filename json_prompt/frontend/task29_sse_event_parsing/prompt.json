@@ -1,0 +1,113 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析与对比页面完成",
+    "requirement": "SSE 事件解析 + agentStore 更新 + 状态接收：(1) 在 sessionStore 中替换内嵌 EventSource 为 useSSE composable，注入 onAgentUpdate/onCompleted 回调；(2) onAgentUpdate 中调用 agentStore.bulkSetStates 或 updateAgentState（含错误聚合 + durationMs 累加）；(3) 事件 payload 字段名/类型严格按 AgentStateUpdate；(4) 错误处理：onError 回调时 ElMessage.error + 记录到 analysisError；(5) 替代 sessionStore.connectAgentStream 旧实现（保留为兼容包装）。",
+    "requirement_ids": ["F1.5.2"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "SSE 事件格式（13 节）" },
+      { "path": "AGENTS.md", "purpose": "6 Agent 状态机" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "当前内嵌 EventSource 实现于 connectAgentStream/disconnectSSE；需替换为 useSSE" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/composables/useSSE.ts", "description": "新实现（task28）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "updateAgentState/bulkSetStates 已实现（task27）" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "内嵌 connectAgentStream：new EventSource → 监听 agent_state_update/analysis_completed/onerror 重连", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "sessionStore",
+      "path": "Veritas/frontend/src/stores/sessionStore.ts",
+      "responsibility": "编排分析流程，集成 useSSE",
+      "key_interfaces": [
+        { "name": "connectAgentStream", "signature": "(analysisId: string) => void", "description": "启动 SSE" },
+        { "name": "disconnectSSE", "signature": "() => void", "description": "断开 SSE" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "connectAgentStream 内部用 useSSE 替代内嵌 EventSource；onAgentUpdate 调 agentStore.bulkSetStates；onCompleted 关闭 + completed；onError ElMessage + analysisError" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "sessionStore.connectAgentStream(analysisId)：(1) 调用 agentStore.initStates(analysisId) 初始化 6 Agent waiting；(2) 调用 useSSE({ analysisId: ref(analysisId), autoConnect: true, onAgentUpdate: (data) => { agentStore.bulkSetStates([{ name: data.agentName, partial: { status: data.status, progress: data.progress, intermediateResult: data.intermediateResult, durationMs: data.durationMs, error: data.error } }]) }, onCompleted: () => { disconnectSSE(); analysisStatus = 'completed'; }, onError: () => { analysisError.value = 'SSE 连接失败' } })",
+        "priority": "P0",
+        "acceptance_condition": "SSE 通过 useSSE 接入；agentStore 正确更新"
+      },
+      {
+        "id": "FR-002",
+        "description": "disconnectSSE 改为调用 useSSE 暴露的 disconnect 方法；eventSource/refs 改由 useSSE 内部管理，sessionStore 不再持有 EventSource 实例",
+        "priority": "P0",
+        "acceptance_condition": "sessionStore 不再 new EventSource"
+      },
+      {
+        "id": "FR-003",
+        "description": "错误处理：onError 回调中 analysisError.value = 'SSE 连接异常，已尝试自动重连'；不修改 analysisStatus（让用户可继续重试）；ElMessage 不在 onError 中弹出（避免重连 5 次刷屏，改为在 useSSE 内部累计 attempts 达到 max 时 sessionStore 统一 ElMessage.error）",
+        "priority": "P1",
+        "acceptance_condition": "错误不刷屏；累计后一次性提示"
+      },
+      {
+        "id": "FR-004",
+        "description": "保留 connectAgentStream/disconnectSSE 签名；内部 useSSE 实例化在 setup 函数顶层（Pinia 不支持 onUnmounted，使用 onScopeDispose 类似机制 — 因 Pinia store 生命周期跟随应用，无需 scope 清理，但 useSSE 调用方需传入 ref analysisId 让 useSSE 内部 onScopeDispose 工作）",
+        "priority": "P1",
+        "acceptance_condition": "对外签名不变；内部迁移到 useSSE"
+      },
+      {
+        "id": "FR-005",
+        "description": "cleanup 完善：cleanup 调 disconnectSSE + agentStore.resetStates；analysisStatus='idle'；不调 ElMessage（避免误提示）",
+        "priority": "P1",
+        "acceptance_condition": "cleanup 静默"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "SSE payload 字段为 camelCase；agentStore 同步 camelCase",
+        "mappings": [
+          { "java": "agentName", "python": "agent_name", "json": "agent_name" },
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediate_result" }
+        ]
+      },
+      "api_contracts": [
+        { "endpoint": "/api/analysis/{analysisId}/agent-stream", "method": "GET(SSE)", "response_format": "event:agent_state_update / analysis_completed" }
+      ],
+      "data_flow": "EventSource → useSSE 解析 → onAgentUpdate → sessionStore 调 agentStore.bulkSetStates → agentStates 响应式更新 → 组件渲染"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "camelCase.ts" } },
+    "layering": { "frontend": { "rule": "sessionStore 调用 useSSE；不直接 new EventSource" } },
+    "error_handling": { "frontend": { "approach": "重连 5 次后 ElMessage.error 一次性提示" } },
+    "caching": { "pattern": "无" },
+    "logging": { "prohibited": ["console.log SSE data"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "在 sessionStore 中直接 new EventSource", "reason": "应通过 useSSE composable", "severity": "critical" },
+    { "id": "FA-002", "action": "修改 connectAgentStream/disconnectSSE 签名", "reason": "外部调用方已依赖", "severity": "high" },
+    { "id": "FA-003", "action": "在 onError 中反复 ElMessage.error", "reason": "5 次重连会刷屏", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "sessionStore_sse_via_useSSE", "description": "connectAgentStream 内部 useSSE 接入；onAgentUpdate 触发 agentStore.bulkSetStates", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "sessionStore_sse_error_aggregation", "description": "5 次重连失败后 analysisError 设置；ElMessage 仅 1 次", "framework": "vitest", "coverage": ["error_flow", "boundary_condition"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无 TS 错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/__tests__/stores/sessionStore.spec.ts", "expected_result": "sessionStore 测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "sessionStore 通过 useSSE 接入 SSE，无内嵌 EventSource", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "agent_state_update 正确更新 agentStore（含 errors 聚合）", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "analysis_completed 触发 completed 状态", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "5 次重连失败后 ElMessage.error 仅 1 次", "verified_by": "automated_test" }
+  ]
+}

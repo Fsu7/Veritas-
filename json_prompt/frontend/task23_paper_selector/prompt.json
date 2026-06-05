@@ -1,0 +1,116 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析与对比页面完成",
+    "requirement": "实现 PaperSelector 论文选择器组件：嵌入 SearchView 列表中，提供多选 checkbox + 已选标签条（最多 5 篇，超限 toast 提示）+ 跨页保留 paperStore.selectedPapers；同时扩展 paperStore 增加 selectionCount 派生、maxSelected 提示、clearSelection；与 PaperCard 联动 checkbox。",
+    "requirement_ids": ["F1.3.4", "F1.2.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "PaperSelector 组件规范（3.1）、paperStore 选论文逻辑（9.1.2）" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM3 验收：勾选 2-5 篇论文，已选标签展示，超限提示" },
+      { "path": "AGENTS.md", "purpose": "Pinia setup store 风格规范" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "已实现 selectedPapers 数组、togglePaperSelection、MAX_SELECTED_PAPERS=5、clearSelection、selectedPaperIds" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/paper/PaperCard.vue", "description": "已具备 selectable/selected props 与 @select 事件，需扩展为 checkbox 模式" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/SearchView.vue", "description": "嵌入 PaperCard，未启用多选" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "selectedPapers: Paper[]、selectedPaperIds computed、togglePaperSelection、clearSelection；MAX_SELECTED_PAPERS=5 但未导出", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/components/paper/PaperCard.vue", "description": "selectable/selected props、@select 事件已存在", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "paperStore",
+      "path": "Veritas/frontend/src/stores/paperStore.ts",
+      "responsibility": "论文数据与选择状态",
+      "key_interfaces": [
+        { "name": "selectedPapers", "signature": "selectedPapers: Ref<Paper[]>", "description": "已选论文（最多 5 篇）" },
+        { "name": "togglePaperSelection", "signature": "togglePaperSelection(paper: Paper): void", "description": "切换选中；超限静默忽略" },
+        { "name": "clearSelection", "signature": "clearSelection(): void", "description": "清空选择" },
+        { "name": "MAX_SELECTED_PAPERS", "signature": "5", "description": "上限常量" }
+      ]
+    },
+    {
+      "name": "PaperSelector",
+      "path": "Veritas/frontend/src/components/paper/PaperSelector.vue",
+      "responsibility": "已选论文标签条 + 跨页保留 + 超限提示 + 清空 + 去对比按钮",
+      "key_interfaces": [
+        { "name": "props.disabled", "signature": "disabled?: boolean", "description": "禁用（少于 2 篇时禁用「去对比」按钮）" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/frontend/src/stores/paperStore.ts", "description": "导出 MAX_SELECTED_PAPERS；新增 isMaxSelected computed、canSelectMore computed、selectionCount computed；togglePaperSelection 超限时 ElMessage 警告" },
+    { "operation": "create", "path": "Veritas/frontend/src/components/paper/PaperSelector.vue", "description": "实现 PaperSelector：顶部固定已选标签条（el-tag closable + 标题 + 跳转 PaperDetail），底部「去对比」「清空」按钮" },
+    { "operation": "modify", "path": "Veritas/frontend/src/components/paper/PaperCard.vue", "description": "selectable=true 时显示 el-checkbox 替代 / 叠加「选择」按钮；点击 checkbox 触发 @select" },
+    { "operation": "modify", "path": "Veritas/frontend/src/views/SearchView.vue", "description": "在 header 下、列表上嵌入 PaperSelector；PaperCard 传入 :selectable='true' 与 :selected 状态" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "paperStore 扩展：导出 MAX_SELECTED_PAPERS=5；新增 isMaxSelected = computed(() => selectedPapers.length >= MAX)；canSelectMore = computed(() => selectedPapers.length < MAX)；selectionCount = computed(() => selectedPapers.length)；togglePaperSelection 超限分支 ElMessage.warning('最多选择 5 篇论文')",
+        "priority": "P0",
+        "acceptance_condition": "三个 computed 正确；超限提示触发"
+      },
+      {
+        "id": "FR-002",
+        "description": "PaperSelector 组件：Props: disabled?: boolean。结构：(1) 仅在 selectionCount>0 时渲染（v-if 包装容器）；(2) 顶部 el-card 展示「已选 N/5」+ 横向 el-tag 列表（closable，移除触发 togglePaperSelection，hover 显示作者/年份）；(3) 底部 el-button-group：「清空选择」「去对比」（disabled when selectionCount<2）；(4) 触发 'go-compare' 事件，父级路由跳 /compare",
+        "priority": "P0",
+        "acceptance_condition": "选择 0 条时不渲染；2 条以下禁用「去对比」"
+      },
+      {
+        "id": "FR-003",
+        "description": "PaperCard 改造：selectable=true 时在 header 右上角加 el-checkbox（v-model='selected'），点击 checkbox 阻止冒泡并 emit('select', paperId)；保留原有「选择」tag 隐藏以避免重复；保留 PaperDetailView 中的可选模式",
+        "priority": "P0",
+        "acceptance_condition": "selectable=true 时显示 checkbox；状态与 store.selectedPapers 同步"
+      },
+      {
+        "id": "FR-004",
+        "description": "SearchView 嵌入：header 区下方加 <PaperSelector @go-compare='handleGoCompare' />；PaperCard :selectable='true' :selected='paperStore.selectedPaperIds.includes(paper.paperId)'；handleGoCompare 跳 /compare 并在 URL query 携带 paperIds",
+        "priority": "P0",
+        "acceptance_condition": "SearchView 集成 PaperSelector；checkbox 联动 store；点击去对比跳转"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": { "rule": "TypeScript camelCase", "mappings": [] },
+      "api_contracts": [],
+      "data_flow": "PaperCard checkbox click → emit('select') → SearchView handler → paperStore.togglePaperSelection → PaperSelector 响应式更新"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" } },
+    "layering": { "frontend": { "rule": "View → Store；组件不直接路由" } },
+    "error_handling": { "frontend": { "approach": "超限使用 ElMessage.warning 提示" } },
+    "caching": { "pattern": "selectedPapers 不持久化（用户级会话状态）" },
+    "logging": { "prohibited": ["console.log selectedPapers"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "把 MAX_SELECTED_PAPERS 写在组件内", "reason": "常量集中在 Store；便于调整", "severity": "medium" },
+    { "id": "FA-002", "action": "PaperCard 使用 v-model 直接绑定 store", "reason": "应通过事件 + 父级调用 store，保持单向数据流", "severity": "high" },
+    { "id": "FA-003", "action": "PaperSelector 中超过 300 行", "reason": "可维护性", "severity": "medium" },
+    { "id": "FA-004", "action": "硬编码 5", "reason": "必须引用 store 常量", "severity": "low" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "paperStore_selection_limit", "description": "选择 5 篇后第 6 次触发 ElMessage.warning，selectedPapers 仍为 5", "framework": "vitest", "coverage": ["boundary_condition"] },
+      { "test_name": "PaperSelector_visibility", "description": "selectedPapers 为空时不渲染；≥2 篇时「去对比」启用", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition"] },
+      { "test_name": "PaperCard_checkbox", "description": "selectable=true 时 checkbox 显示，状态与 store 同步", "framework": "vitest", "coverage": ["normal_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无 TS 错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/__tests__/stores/paperStore.spec.ts", "expected_result": "paperStore 测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "MAX 5 限制 + 超限提示正确", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "PaperSelector 仅在 selectionCount>0 渲染，<2 篇禁用「去对比」", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "SearchView 集成 PaperSelector + PaperCard checkbox 状态正确", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "组件代码 ≤ 300 行", "verified_by": "code_review" }
+  ]
+}

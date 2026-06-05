@@ -1,0 +1,127 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析与对比页面完成",
+    "requirement": "实现 useSSE 组合函数（连接/断开/重连）：(1) 接收 analysisId Ref；(2) connect() 创建 EventSource(url) 并监听 agent_state_update / analysis_completed；(3) onerror 自动重连 3s 间隔，最多 5 次；(4) disconnect() 主动关闭；(5) onUnmounted 自动 disconnect；(6) 状态 isConnected/reconnectAttempts/lastEventTime；(7) 显式传入 onAgentUpdate 与 onCompleted 回调以便与 store 解耦；(8) TypeScript 严格类型。",
+    "requirement_ids": ["F1.5.2"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "useSSE 规范（13.1 节）、SSE 事件格式" },
+      { "path": "AGENTS.md", "purpose": "SSE 事件契约" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/composables/useSSE.ts", "description": "该文件当前不存在（FM1 阶段未实施），需新建" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/analysis.ts", "description": "getAgentStreamUrl 已存在" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "updateAgentState 已有；可由回调触发" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "已内嵌 EventSource 连接实现（FM2 阶段过渡方案），应迁移到 useSSE", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "useSSE",
+      "path": "Veritas/frontend/src/composables/useSSE.ts",
+      "responsibility": "SSE 连接封装（连接/断开/重连）",
+      "key_interfaces": [
+        { "name": "useSSE", "signature": "(options: { analysisId: Ref<string|null>, onAgentUpdate?: (state: AgentStateUpdate) => void, onCompleted?: (payload: {analysisId: string}) => void, onError?: (err: unknown) => void }) => { isConnected, reconnectAttempts, lastEventTime, connect, disconnect, reconnect }", "description": "主 composable" }
+      ]
+    },
+    {
+      "name": "AgentStateUpdate",
+      "path": "Veritas/frontend/src/types/agent.ts",
+      "responsibility": "SSE agent_state_update 事件 payload 类型（应新增）"
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/composables/useSSE.ts", "description": "实现 useSSE composable，封装 EventSource 生命周期 + 重连逻辑" },
+    { "operation": "modify", "path": "Veritas/frontend/src/types/agent.ts", "description": "新增 AgentStateUpdate SSE 事件 payload 类型" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "useSSE options: { analysisId: Ref<string|null>, onAgentUpdate?: (data: AgentStateUpdate) => void, onCompleted?: (data: { analysisId: string }) => void, onError?: (err: unknown) => void, autoConnect?: boolean, reconnectInterval?: number (默认 3000), maxReconnect?: number (默认 5) }",
+        "priority": "P0",
+        "acceptance_condition": "options 类型完整；默认参数正确"
+      },
+      {
+        "id": "FR-002",
+        "description": "返回 refs: isConnected = ref(false)、reconnectAttempts = ref(0)、lastEventTime = ref<number|null>(null)。返回方法: connect()、disconnect()、reconnect()（强制立即重置 attempts 后重连）",
+        "priority": "P0",
+        "acceptance_condition": "3 个 ref + 3 个方法签名正确"
+      },
+      {
+        "id": "FR-003",
+        "description": "connect()：(1) 若 analysisId.value 为 null 返回；(2) disconnect 旧连接；(3) url = analysisApi.getAgentStreamUrl(analysisId.value)；(4) new EventSource(url)；(5) addEventListener('agent_state_update', e => { lastEventTime = Date.now(); try { onAgentUpdate?.(JSON.parse(e.data)) } catch {} })；(6) addEventListener('analysis_completed', e => { lastEventTime = Date.now(); onCompleted?.(JSON.parse(e.data)); disconnect() })；(7) onerror = () => { isConnected = false; eventSource.close(); if (reconnectAttempts < maxReconnect) { reconnectAttempts++; setTimeout(connect, reconnectInterval) } else { onError?.(...) } }；(8) onopen = () => { isConnected = true; reconnectAttempts = 0 }",
+        "priority": "P0",
+        "acceptance_condition": "EventSource 完整生命周期；onerror 重连"
+      },
+      {
+        "id": "FR-004",
+        "description": "disconnect()：eventSource?.close()、eventSource=null、isConnected=false、reconnectAttempts=0",
+        "priority": "P0",
+        "acceptance_condition": "disconnect 后 isConnected=false"
+      },
+      {
+        "id": "FR-005",
+        "description": "onUnmounted(自动调用 disconnect)；onScopeDispose(setup scope 失效时也调用 disconnect)；autoConnect=true 时在 onMounted 调用 connect",
+        "priority": "P0",
+        "acceptance_condition": "组件卸载时自动断开"
+      },
+      {
+        "id": "FR-006",
+        "description": "AgentStateUpdate 类型：{ agentName: AgentName; status: AgentStatus; progress?: number; intermediateResult?: string; durationMs?: number; error?: string; timestamp?: number }",
+        "priority": "P0",
+        "acceptance_condition": "类型完整；6 字段"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "TypeScript camelCase；SSE JSON 字段直接解析为 AgentStateUpdate 类型（camelCase）",
+        "mappings": [
+          { "java": "agentName", "python": "agent_name", "json": "agent_name" },
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediate_result" },
+          { "java": "durationMs", "python": "duration_ms", "json": "duration_ms" }
+        ]
+      },
+      "api_contracts": [
+        { "endpoint": "/api/analysis/{analysisId}/agent-stream", "method": "GET(SSE)", "request_format": {}, "response_format": "event:agent_state_update data:{agentName,status,progress,intermediateResult,durationMs,error,timestamp}; event:analysis_completed data:{analysisId}" }
+      ],
+      "data_flow": "EventSource → onmessage → JSON.parse → onAgentUpdate → agentStore.updateAgentState"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "camelCase.ts" } },
+    "layering": { "frontend": { "rule": "composable 不直接调用 Store；通过回调解耦" } },
+    "error_handling": { "frontend": { "approach": "JSON.parse 失败静默忽略；onerror 调用 onError 回调；超过 maxReconnect 不再重试" } },
+    "caching": { "pattern": "无" },
+    "logging": { "prohibited": ["console.log SSE 事件 data"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "在 useSSE 中直接调用 agentStore.updateAgentState", "reason": "composable 应与 Store 解耦，通过回调注入", "severity": "high" },
+    { "id": "FA-002", "action": "在 onUnmounted 之外不调用 disconnect", "reason": "内存泄漏风险", "severity": "critical" },
+    { "id": "FA-003", "action": "无限重连", "reason": "必须 maxReconnect 限制", "severity": "critical" },
+    { "id": "FA-004", "action": "在 URL 中暴露 Token", "reason": "SSE 认证应通过 Cookie 或后端 Token 解析", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "useSSE_connect_disconnect", "description": "connect 后 isConnected=true；disconnect 后 false；onUnmounted 自动 disconnect", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "useSSE_reconnect", "description": "onerror 触发后 reconnectAttempts++；3s 后重连；超过 maxReconnect 停止", "framework": "vitest", "coverage": ["normal_flow", "error_flow", "boundary_condition"] },
+      { "test_name": "useSSE_event_handlers", "description": "agent_state_update 触发 onAgentUpdate；analysis_completed 触发 onCompleted+disconnect", "framework": "vitest", "coverage": ["normal_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无 TS 错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/__tests__/composables/useSSE.spec.ts", "expected_result": "useSSE 测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "connect/disconnect 行为正确", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "重连 3s 间隔、最多 5 次", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "组件卸载时 disconnect", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "AgentStateUpdate 类型 6 字段", "verified_by": "code_review" }
+  ]
+}

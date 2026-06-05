@@ -1,0 +1,475 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析与对比页面完成（验收里程碑）",
+    "requirement": "FM3 综合验收：编写端到端测试覆盖 FM3 全部 16 项验收检查点（前端模块项目里程碑文档 5.4 节），含：通俗解释 4 知识水平 + 论文选择 2-5 篇 + 对比表格 + 矛盾告警 + 综述页面 + Markdown 渲染 + 引用链接 + 个性化 + 降级标签 + SSE 连接 + 重连 + Agent 状态 + 组件卸载 + 全流程。验证命令：npx vue-tsc --noEmit / npx vitest run / 手动浏览器端到端验证（含 DevTools Network SSE EventStream 观察）。",
+    "requirement_ids": [
+      "F1.3.1",
+      "F1.3.2",
+      "F1.3.3",
+      "F1.3.4",
+      "F1.3.5",
+      "F1.3.6",
+      "F1.4.1",
+      "F1.4.2",
+      "F1.4.5",
+      "F1.5.2"
+    ],
+    "reference_docs": [
+      {
+        "path": "docs/frontend/前端模块项目里程碑文档.md",
+        "purpose": "FM3 验收检查点（5.4 节）、演示场景（5.5）、风险（5.6）"
+      },
+      {
+        "path": "docs/frontend/前端模块系统架构文档.md",
+        "purpose": "组件 + Store + SSE 规范"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "跨系统一致性 + 安全 + 降级"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": [
+      "frontend"
+    ],
+    "related_modules": [
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/views/CompareView.vue",
+        "description": "已实现"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/views/ReportView.vue",
+        "description": "已实现"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue",
+        "description": "已扩展"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/components/analysis/PlainExplanation.vue",
+        "description": "已实现"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/components/paper/PaperSelector.vue",
+        "description": "已实现"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/components/common/DegradationBadge.vue",
+        "description": "已实现"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/composables/useSSE.ts",
+        "description": "已实现"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/stores/sessionStore.ts",
+        "description": "已实现"
+      },
+      {
+        "layer": "frontend",
+        "module_path": "Veritas/frontend/src/stores/agentStore.ts",
+        "description": "已扩展"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/frontend/src/components/analysis/PlainExplanation.vue",
+        "description": "task21 完成",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue",
+        "description": "task22 完成",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/components/paper/PaperSelector.vue",
+        "description": "task23 完成",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/views/CompareView.vue",
+        "description": "task24 完成",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/views/ReportView.vue",
+        "description": "task25 完成",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/components/common/DegradationBadge.vue",
+        "description": "task26 完成",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/composables/useSSE.ts",
+        "description": "task28 完成",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/frontend/src/stores/sessionStore.ts",
+        "description": "task29 完成",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "FM3 Verification",
+      "path": "Veritas/frontend/src/__tests__/integration/fm3.spec.ts",
+      "responsibility": "FM3 里程碑验收测试套件",
+      "key_interfaces": []
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/frontend/src/__tests__/integration/fm3.spec.ts",
+      "description": "FM3 端到端验收测试套件（覆盖 16 项检查点）"
+    },
+    {
+      "operation": "create",
+      "path": "docs/frontend/FM3-验收清单.md",
+      "description": "FM3 验收清单与人工检查脚本（DevTools 步骤、关键截图点）"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "测试 1：通俗解释 4 知识水平。profile.knowledgeLevel='beginner'/'intermediate' 时 PaperDetailView AnalysisCard 含 PlainExplanation；'advanced'/'expert' 时不渲染；profile=null 时不渲染",
+        "priority": "P0",
+        "acceptance_condition": "4 知识水平 + null 兜底"
+      },
+      {
+        "id": "FR-002",
+        "description": "测试 2：论文选择 2-5 篇。SearchView 选择 2/3/5 篇时 PaperSelector 渲染且「去对比」启用；选第 6 篇时 ElMessage.warning；selectedPapers 仍为 5 篇",
+        "priority": "P0",
+        "acceptance_condition": "上限 5 篇保护 + 超限提示"
+      },
+      {
+        "id": "FR-003",
+        "description": "测试 3：对比表格列数=论文数。CompareView URL `?paperIds=a,b,c` 时渲染 3 列 + 1 维度列 + 矛盾告警（mock conflicts）",
+        "priority": "P0",
+        "acceptance_condition": "表格列数正确；矛盾告警展示"
+      },
+      {
+        "id": "FR-004",
+        "description": "测试 4：综述页面 4 维度元信息。ReportView mock AnalysisResult 验证主题/论文范围/生成时间/画像摘要正确",
+        "priority": "P0",
+        "acceptance_condition": "4 维度齐全"
+      },
+      {
+        "id": "FR-005",
+        "description": "测试 5：Markdown 渲染 XSS 安全。`renderMarkdown('<script>alert(1)</script>')` 返回转义字符串不执行；`renderMarkdown('# Title')` 返回 h1；`renderMarkdown('[Zhang, 2024]')` 包含 citation-link",
+        "priority": "P0",
+        "acceptance_condition": "XSS 测试 + 标题 + 引用"
+      },
+      {
+        "id": "FR-006",
+        "description": "测试 6：引用链接可点击。ReportPreview 渲染 [Zhang, 2024] 后点击 .citation-link 触发 emit('citation-click', paperId)",
+        "priority": "P0",
+        "acceptance_condition": "点击 emit 携带 paperId"
+      },
+      {
+        "id": "FR-007",
+        "description": "测试 7：个性化。ReportView 4 种 knowledgeLevel 渲染对应徽章；AnalysisCard 个性化提示按 4 维度切换",
+        "priority": "P0",
+        "acceptance_condition": "4 知识水平渲染"
+      },
+      {
+        "id": "FR-008",
+        "description": "测试 8：降级标签。AnalysisResult.degraded=true 时 DegradationBadge 渲染；degradedReason 触发 tooltip",
+        "priority": "P0",
+        "acceptance_condition": "降级展示完整"
+      },
+      {
+        "id": "FR-009",
+        "description": "测试 9：SSE 连接。useSSE.connect() 后 isConnected=true；EventSource mock 触发 agent_state_update 后 agentStore.agentStates 对应 Agent 状态更新",
+        "priority": "P0",
+        "acceptance_condition": "SSE 推送正确更新 agentStore"
+      },
+      {
+        "id": "FR-010",
+        "description": "测试 10：SSE 重连。EventSource mock onerror 连续触发 5 次 → reconnectAttempts=5 → 第 6 次不再重连 → sessionStore.analysisError='SSE 连接失败'",
+        "priority": "P0",
+        "acceptance_condition": "重连 3s×5 次后停止"
+      },
+      {
+        "id": "FR-011",
+        "description": "测试 11：组件卸载。ReportView 卸载后 sessionStore.eventSource=null；PaperDetailView 卸载后 cleanup 触发 disconnectSSE",
+        "priority": "P0",
+        "acceptance_condition": "无内存泄漏"
+      },
+      {
+        "id": "FR-012",
+        "description": "测试 12：全流程。注册→登录→搜索→选 3 篇→对比→生成综述→completed（mock SSE）→ReportView 渲染（合并复用 task30 测试）",
+        "priority": "P0",
+        "acceptance_condition": "端到端通过"
+      },
+      {
+        "id": "FR-013",
+        "description": "手动验收脚本 docs/frontend/FM3-验收清单.md：列出 16 项检查点 + 浏览器 DevTools Network → EventStream 观察 SSE 事件 + 关键截图点（4 知识水平对比 + 对比页 + 综述页 + Agent 状态变化）",
+        "priority": "P1",
+        "acceptance_condition": "人工可对照清单逐项打勾"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "TypeScript camelCase，JSON snake_case",
+        "mappings": [
+          {
+            "java": "analysisId",
+            "python": "analysis_id",
+            "json": "analysis_id"
+          },
+          {
+            "java": "agentName",
+            "python": "agent_name",
+            "json": "agent_name"
+          },
+          {
+            "java": "intermediateResult",
+            "python": "intermediate_result",
+            "json": "intermediate_result"
+          },
+          {
+            "java": "durationMs",
+            "python": "duration_ms",
+            "json": "duration_ms"
+          },
+          {
+            "java": "degradedReason",
+            "python": "degraded_reason",
+            "json": "degraded_reason"
+          }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/analysis/{analysisId}/agent-stream",
+          "method": "GET(SSE)",
+          "response_format": "agent_state_update / analysis_completed"
+        }
+      ],
+      "data_flow": "全链路：注册→登录→paperStore.searchPapers→selectedPapers→CompareView/ReportView→sessionStore.startCompare/startGenerateReport→useSSE→agentStore.bulkSetStates→DegradationBadge/PaperSelector/PlainExplanation/CompareTable/ReportPreview 响应式更新"
+    }
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "file_name": "PascalCase.vue / camelCase.ts"
+      }
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → Store → API；测试只通过公共 API 触发"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "降级/重试/mock 失败响应"
+      }
+    },
+    "caching": {
+      "pattern": "无"
+    },
+    "logging": {
+      "prohibited": [
+        "console.log 真实论文数据",
+        "console.log 真实 Token"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    {
+      "id": "FA-001",
+      "action": "测试中调用真实后端",
+      "reason": "全链路 mock",
+      "severity": "high"
+    },
+    {
+      "id": "FA-002",
+      "action": "跳过 SSE mock",
+      "reason": "必须验证 agent_state_update 6 Agent 推送",
+      "severity": "high"
+    },
+    {
+      "id": "FA-003",
+      "action": "在 docs 中暴露真实 API Key / Token",
+      "reason": "安全",
+      "severity": "critical"
+    }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "fm3_plain_explanation_by_level",
+        "description": "FR-001 4 知识水平展示",
+        "framework": "vitest",
+        "coverage": [
+          "normal_flow",
+          "boundary_condition"
+        ]
+      },
+      {
+        "test_name": "fm3_paper_selector_limit",
+        "description": "FR-002 2-5 篇 + 超限提示",
+        "framework": "vitest",
+        "coverage": [
+          "boundary_condition"
+        ]
+      },
+      {
+        "test_name": "fm3_compare_table",
+        "description": "FR-003 表格 + 矛盾告警",
+        "framework": "vitest",
+        "coverage": [
+          "normal_flow"
+        ]
+      },
+      {
+        "test_name": "fm3_report_meta",
+        "description": "FR-004 4 维度元信息",
+        "framework": "vitest",
+        "coverage": [
+          "normal_flow"
+        ]
+      },
+      {
+        "test_name": "fm3_markdown_xss",
+        "description": "FR-005 XSS 安全",
+        "framework": "vitest",
+        "coverage": [
+          "security"
+        ]
+      },
+      {
+        "test_name": "fm3_citation_click",
+        "description": "FR-006 引用点击 emit",
+        "framework": "vitest",
+        "coverage": [
+          "normal_flow"
+        ]
+      },
+      {
+        "test_name": "fm3_personalization",
+        "description": "FR-007 4 知识水平",
+        "framework": "vitest",
+        "coverage": [
+          "normal_flow"
+        ]
+      },
+      {
+        "test_name": "fm3_degradation",
+        "description": "FR-008 降级标签",
+        "framework": "vitest",
+        "coverage": [
+          "degradation"
+        ]
+      },
+      {
+        "test_name": "fm3_sse_agent_update",
+        "description": "FR-009 Agent 状态更新",
+        "framework": "vitest",
+        "coverage": [
+          "normal_flow"
+        ]
+      },
+      {
+        "test_name": "fm3_sse_reconnect",
+        "description": "FR-010 5 次重连",
+        "framework": "vitest",
+        "coverage": [
+          "error_flow",
+          "boundary_condition"
+        ]
+      },
+      {
+        "test_name": "fm3_unmount_cleanup",
+        "description": "FR-011 组件卸载无泄漏",
+        "framework": "vitest",
+        "coverage": [
+          "normal_flow"
+        ]
+      },
+      {
+        "test_name": "fm3_full_chain",
+        "description": "FR-012 端到端",
+        "framework": "vitest",
+        "coverage": [
+          "normal_flow",
+          "degradation"
+        ]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "frontend",
+        "command": "cd Veritas/frontend && npx vue-tsc --noEmit",
+        "expected_result": "无 TS 错误"
+      },
+      {
+        "layer": "frontend",
+        "command": "cd Veritas/frontend && npx vitest run",
+        "expected_result": "所有单元 + 集成测试通过"
+      },
+      {
+        "layer": "frontend",
+        "command": "cd Veritas/frontend && npm run build",
+        "expected_result": "构建成功，无打包错误"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "FM3 16 项验收检查点全部通过（自动 + 手动）",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "XSS 防护：<script> 不执行",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "SSE 重连 5 次后停止",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "组件卸载 EventSource.close 必被调用",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "TypeScript strict + vitest + build 全通过",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "4 知识水平个性化输出差异化",
+      "verified_by": "manual_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "降级场景下 DegradationBadge + reason tooltip 展示",
+      "verified_by": "automated_test"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 package com.literatureassistant.enums;
 
+import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.Getter;
 
 @Getter
@@ -10,6 +11,7 @@ public enum AnalysisStatus implements DbValueEnum {
     COMPLETED("completed"),
     FAILED("failed");
 
+    @JsonValue
     private final String dbValue;
 
     AnalysisStatus(String dbValue) {
@@ -26,5 +28,10 @@ public enum AnalysisStatus implements DbValueEnum {
             }
         }
         return null;
+    }
+
+    @Override
+    public String toString() {
+        return dbValue;
     }
 }

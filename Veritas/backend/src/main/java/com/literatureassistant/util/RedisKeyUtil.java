@@ -37,6 +37,10 @@ public final class RedisKeyUtil {
         return "agent:state:" + analysisId;
     }
 
+    public static String agentFallbackKey(String analysisId) {
+        return "agent:fallback:" + analysisId;
+    }
+
     public static String authBlacklistKey(String tokenHash) {
         return "auth:blacklist:" + tokenHash;
     }

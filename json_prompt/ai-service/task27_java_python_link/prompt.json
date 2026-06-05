@@ -1,0 +1,232 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XH-202630 Coding Task Prompt — AM3-4: Java→Python 通信联调",
+  "task_id": "task27_java_python_link",
+  "milestone": "AM3：API完善与Java对接",
+  "version": "v0.3",
+  "type": "object",
+  "required": [
+    "context",
+    "current_architecture",
+    "relevant_modules",
+    "files_to_modify",
+    "implementation_requirements",
+    "constraints",
+    "forbidden_actions",
+    "test_requirements",
+    "acceptance_criteria"
+  ],
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "AM3：API完善与Java对接（Week 5-6）",
+    "requirement": "提供 Java→Python 端到端联调测试代码，使用 Java WebClient 真实调用 Python FastAPI 服务，验证请求/响应格式、超时、重试、5xx 错误处理、X-Request-Id 透传、isHealthy 短超时。联调代码放在 Veritas/ai-service/tests/integration/ 目录，作为 Java 端 PythonAIClient 验收的桥梁。",
+    "requirement_ids": ["F3.5.1", "F3.5.2", "F3.5.3", "F3.5.4", "F2.5.1", "F2.5.2", "F2.5.5"],
+    "reference_docs": [
+      { "path": "json_prompt/backend/task19_python_ai_client/prompt.md", "purpose": "Java 端 PythonAIClient 契约（已确认 7 个方法）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/client/PythonAIClient.java", "purpose": "Java 端 WebClient 真实实现（联调目标）" },
+      { "path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "API契约 §4.4 + §附录B" },
+      { "path": "Veritas/ai-service/app/main.py", "purpose": "现有 FastAPI 入口" },
+      { "path": "Veritas/ai-service/tests/test_request_validation_response.py", "purpose": "task24 已实现的统一响应测试" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service", "java_backend"],
+    "related_modules": [
+      { "layer": "java_backend", "module_path": "Veritas/backend/src/main/java/com/literatureassistant/client/PythonAIClient.java", "description": "Java 端 WebClient 客户端，含 5 个方法" },
+      { "layer": "java_backend", "module_path": "Veritas/backend/src/main/resources/application.yml", "purpose": "ai-service.url=http://localhost:8000" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/main.py", "description": "Python FastAPI 服务入口" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/api/endpoints/agent.py", "description": "/api/agent/analyze + /analyze/stream" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/api/endpoints/search.py", "description": "/api/search + /api/search/hybrid + /api/search/suggest" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/client/PythonAIClient.java", "description": "analyzePaper/comparePapers/search/isHealthy/getModelStatus 5 个方法 + 30s 超时 + 1 次重试 + X-Request-Id 透传", "reuse_type": "reference" },
+      { "file_path": "Veritas/ai-service/app/main.py", "description": "/health (200/503) + /api/agent/analyze + /api/search + /api/model/status 端点就绪", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "Java↔Python 联调测试",
+      "path": "Veritas/ai-service/tests/integration/java_python_link/",
+      "responsibility": "模拟 Java 端 WebClient 真实调用 Python 服务",
+      "key_interfaces": [
+        { "name": "test_java_analyzePaper", "signature": "JUnit5 + WebClient 真实调用", "description": "调用 POST /api/agent/analyze，验证 200 + 结构" },
+        { "name": "test_java_comparePapers", "signature": "JUnit5", "description": "调用 POST /api/agent/analyze analysisType=compare" },
+        { "name": "test_java_search", "signature": "JUnit5", "description": "调用 POST /api/search" },
+        { "name": "test_java_isHealthy", "signature": "JUnit5 + 5s 超时", "description": "调用 GET /health" },
+        { "name": "test_java_getModelStatus", "signature": "JUnit5", "description": "调用 GET /api/model/status" },
+        { "name": "test_retry_on_5xx", "signature": "JUnit5 + MockWebServer", "description": "Python 返回 5xx，Java 端应重试 1 次后抛 503" },
+        { "name": "test_timeout_30s", "signature": "JUnit5", "description": "Python 30s 未响应，Java 抛 503" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/ai-service/tests/integration/java_python_link/PythonAIClientIntegrationTest.java", "description": "Java 端联调测试主类（JUnit5 + WebClient）", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/tests/integration/java_python_link/README.md", "description": "联调测试运行说明（如何启动 Python 服务、运行 Java 测试）", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/scripts/start_test_server.sh", "description": "启动测试用 Python 服务的 shell 脚本（带 mock 数据）", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/tests/integration/python_side/conftest.py", "description": "pytest conftest，提供 mock LLM/Chroma fixture", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/tests/integration/test_java_calls_python.py", "description": "Python 侧配套测试：模拟 Java 端发起的请求，验证 Python 接收格式", "layer": "python_ai_service" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "Java 端联调测试主类 PythonAIClientIntegrationTest 含 7 个测试方法：test_java_analyzePaper / test_java_comparePapers / test_java_search / test_java_isHealthy / test_java_getModelStatus / test_retry_on_5xx / test_timeout_30s。直接调用 PythonAIClient 真实方法（不是 mock），连接到 localhost:8000。",
+        "priority": "P0",
+        "acceptance_condition": "7 个测试方法签名与 task19 prompt.md FR-001~FR-007 完全对应"
+      },
+      {
+        "id": "FR-002",
+        "description": "测试前置条件：Java 端使用 @BeforeAll 启动 Python 服务（用 ProcessBuilder 调用 start_test_server.sh），@AfterAll 停止服务。Python 服务在 8000 端口运行。",
+        "priority": "P0",
+        "acceptance_condition": "mvn test -Dtest=PythonAIClientIntegrationTest 启动后自动拉起 Python 服务"
+      },
+      {
+        "id": "FR-003",
+        "description": "start_test_server.sh 脚本：cd 到 Veritas/ai-service/ 目录，使用 uvicorn 启动，注入 mock 模式环境变量（USE_MOCK_LLM=1 + USE_MOCK_CHROMA=1），输出 PID 到 .test_server.pid。",
+        "priority": "P0",
+        "acceptance_condition": "脚本执行后 sleep 5 + curl /health 返回 200"
+      },
+      {
+        "id": "FR-004",
+        "description": "Python 侧 conftest.py 提供 fixture：mock_llm_service（替换为预定义响应）、mock_chroma（返回 5 篇假论文）、mock_embedding。conftest 在 USE_MOCK_LLM=1 时自动激活。",
+        "priority": "P0",
+        "acceptance_condition": "pytest tests/integration/test_java_calls_python.py 使用 conftest 提供的 mock，无需真实 LLM/Embedding API"
+      },
+      {
+        "id": "FR-005",
+        "description": "Python 侧 test_java_calls_python.py 模拟 Java 端 5 种典型请求：合法 analyze、合法 search、缺 userId、空 topic、非法枚举、合法 hybrid search。验证 Python 接收字段名 camelCase、响应字段名 camelCase。",
+        "priority": "P0",
+        "acceptance_condition": "5+ 个测试用例全部 PASS，且日志显示 Java 端 X-Request-Id 已被 Python 端 loguru 接收"
+      },
+      {
+        "id": "FR-006",
+        "description": "测试重试机制：使用 MockWebServer 模拟 Python 第一次返回 503，第二次返回 200。验证 Java 端 PythonAIClient.analyzePaper 重试 1 次后成功。",
+        "priority": "P0",
+        "acceptance_condition": "test_retry_on_5xx PASS，且 WebClient.exchange() 被调用 2 次"
+      },
+      {
+        "id": "FR-007",
+        "description": "测试超时：MockWebServer 延迟 31s 返回，验证 Java 端 30s 超时后抛 AIServiceException(503)。",
+        "priority": "P0",
+        "acceptance_condition": "test_timeout_30s 在 30s 内结束（不真等 31s），使用 StepVerifier.verifyTimeout(Duration.ofSeconds(32)) 验证"
+      },
+      {
+        "id": "FR-008",
+        "description": "X-Request-Id 透传：测试中在 MDC 设置 requestId='test-req-001'，验证 Python 端日志包含该 ID（在 conftest.py 中添加 loguru 过滤器记录 MDC）。",
+        "priority": "P1",
+        "acceptance_condition": "Python 端日志中可见 'requestId=test-req-001'"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase → Python alias snake_case 转换。Python 端响应通过 response_model_by_alias=True 输出 camelCase。",
+        "mappings": [
+          { "java": "educationLevel", "python": "education_level", "json": "educationLevel" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferredStyle" },
+          { "java": "userProfile", "python": "user_profile", "json": "userProfile" },
+          { "java": "analysisType", "python": "analysis_type", "json": "analysisType" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/agent/analyze",
+          "method": "POST",
+          "request_format": { "topic": "string", "paperIds": ["string"], "userId": "string", "userProfile": { "educationLevel": "master", "knowledgeLevel": "intermediate", "preferredStyle": "balanced", "researchField": "NLP" }, "analysisType": "report", "analysisId": "string" },
+          "response_format": { "code": 200, "message": "success", "data": { "analysisId": "string", "status": "completed", "report": "string", "citations": "list of {paperId,text,location}", "agentStates": "list of {name,status,durationMs,intermediateResult}", "degraded": false, "degradedReason": null }, "timestamp": 1700000000000 }
+        }
+      ],
+      "data_flow": "Java WebClient (POST /api/agent/analyze) → Python FastAPI (Pydantic 校验 alias) → Service → LangGraph → ok() 包装响应 → JSON camelCase → Java 反序列化为 ApiResponse<AnalysisResultDTO>"
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "Python 端处理，返回 degraded=true",
+        "multi_agent_failure": "Python 端处理，Java 端仅需识别 status='degraded'"
+      }
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "Java→Python 调用不需要 JWT（内网调用，K8s NetworkPolicy 保护）" },
+      { "category": "sensitive_info", "requirement": "Python 端日志不输出 Request Body（避免泄露研究主题）" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.java" },
+      "python": { "class_name": "PascalCase", "function_variable": "snake_case", "file_name": "snake_case.py" }
+    },
+    "layering": {
+      "java": { "rule": "Test → Client（PythonAIClient）→ WebClient" },
+      "python": { "rule": "conftest → fixtures → tests" }
+    },
+    "error_handling": {
+      "java": { "approach": "WebClient 异常 → AIServiceException(503)" },
+      "python": { "approach": "RequestValidationError → 422 + 统一格式" }
+    },
+    "caching": { "pattern": "本任务不涉及" },
+    "logging": {
+      "python": { "default": "Loguru, 集成 MDC requestId" },
+      "prohibited": ["日志输出完整 Request/Response Body"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或 TODO", "reason": "必须输出完整可执行测试代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改 PythonAIClient.java 自身", "reason": "已由 backend task19 实施", "severity": "high" },
+    { "id": "FA-006", "action": "硬编码 localhost:8000 到多处", "reason": "应使用配置/环境变量", "severity": "medium" },
+    { "id": "FA-008", "action": "在测试中真等 31s 验证超时", "reason": "应使用虚拟时间或 StepVerifier", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_java_analyzePaper_returns_analysisResult",
+        "description": "Java 端调用 Python /api/agent/analyze，验证 AnalysisResultDTO 字段",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_java_isHealthy_5s_timeout",
+        "description": "isHealthy 5s 短超时独立验证",
+        "framework": "junit5",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_retry_on_5xx",
+        "description": "Python 第一次 503 第二次 200，Java 端重试 1 次成功",
+        "framework": "junit5",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_timeout_30s_no_real_wait",
+        "description": "30s 超时不真等，使用虚拟时间",
+        "framework": "junit5",
+        "coverage": ["boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_java_calls_python_end_to_end",
+        "description": "Java 端到 Python 真实调用 5 个方法全通过",
+        "layers_involved": ["java_backend", "python_ai_service"]
+      },
+      {
+        "test_name": "test_python_receives_camelcase_request",
+        "description": "Python 端 conftest 验证接收字段为 camelCase",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "python", "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && USE_MOCK_LLM=1 USE_MOCK_CHROMA=1 uvicorn app.main:app --port 8000 & sleep 5 && curl -s http://localhost:8000/health | python -m json.tool", "expected_result": "/health 返回 200 + components 字段" },
+      { "layer": "python", "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && pytest tests/integration/test_java_calls_python.py -v", "expected_result": "全部用例 PASS" },
+      { "layer": "java", "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/backend && mvn test -Dtest=PythonAIClientIntegrationTest", "expected_result": "7/7 测试 PASS，Python 服务自动启动/停止" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "Java 联调测试类 7 个方法与 task19 PythonAIClient 7 个 FR 完全对应", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "start_test_server.sh 正确启动 Python mock 服务", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "Python 侧 conftest 提供 mock LLM/Chroma/Embedding", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "重试测试：Python 5xx → Java 端重试 1 次后成功", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "超时测试：30s 超时验证通过，不真等 31s", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "X-Request-Id 透传：Java MDC → Python 端日志可见", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "字段名 camelCase 一致性：Java 请求 → Python 解析 → 响应 → Java 反序列化", "verified_by": "automated_test" }
+  ]
+}

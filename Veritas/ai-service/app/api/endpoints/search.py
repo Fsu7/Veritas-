@@ -11,14 +11,15 @@ from app.models.schemas import (
     SearchResultItem,
     SearchSuggestResponse,
 )
+from app.utils.response import fail_response, ok
 
 router = APIRouter()
 
 
-@router.post("/", response_model=SearchResponse, response_model_by_alias=True)
-async def search(request: SearchRequest) -> SearchResponse:
+@router.post("/")
+async def search(request: SearchRequest):
     if events.app_state.search_service is None:
-        raise AIServiceException(code=503, message="SearchService未就绪")
+        return fail_response(message="SearchService未就绪", code=503)
 
     raw_results = await events.app_state.search_service.search(
         query=request.query,
@@ -44,13 +45,14 @@ async def search(request: SearchRequest) -> SearchResponse:
         f"results={len(results)}"
     )
 
-    return SearchResponse(results=results, total=len(results))
+    response_data = SearchResponse(results=results, total=len(results))
+    return ok(data=response_data.model_dump(by_alias=True))
 
 
-@router.post("/hybrid", response_model=SearchResponse, response_model_by_alias=True)
-async def hybrid_search(request: HybridSearchRequest) -> SearchResponse:
+@router.post("/hybrid")
+async def hybrid_search(request: HybridSearchRequest):
     if events.app_state.search_service is None:
-        raise AIServiceException(code=503, message="SearchService未就绪")
+        return fail_response(message="SearchService未就绪", code=503)
 
     user_profile = None
     if request.user_profile is not None:
@@ -96,15 +98,16 @@ async def hybrid_search(request: HybridSearchRequest) -> SearchResponse:
         f"results={len(results)}"
     )
 
-    return SearchResponse(results=results, total=len(results))
+    response_data = SearchResponse(results=results, total=len(results))
+    return ok(data=response_data.model_dump(by_alias=True))
 
 
-@router.get("/suggest", response_model=SearchSuggestResponse)
+@router.get("/suggest")
 async def suggest(
     query: str = Query(..., min_length=1, max_length=100, description="搜索查询文本"),
-) -> SearchSuggestResponse:
+):
     if events.app_state.search_service is None:
-        raise AIServiceException(code=503, message="SearchService未就绪")
+        return fail_response(message="SearchService未就绪", code=503)
 
     suggestions = await events.app_state.search_service.suggest(query=query)
 
@@ -112,4 +115,5 @@ async def suggest(
         f"Suggest API completed: query='{query[:50]}', suggestions={len(suggestions)}"
     )
 
-    return SearchSuggestResponse(suggestions=suggestions, total=len(suggestions))
+    response_data = SearchSuggestResponse(suggestions=suggestions, total=len(suggestions))
+    return ok(data=response_data.model_dump(by_alias=True))

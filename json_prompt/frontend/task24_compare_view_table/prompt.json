@@ -1,0 +1,134 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析与对比页面完成",
+    "requirement": "实现 CompareView 对比分析页与 CompareTable 对比表格组件：(1) CompareView 接收 paperIds URL query，调 sessionStore.startAnalysis(type=compare)；(2) 已选论文摘要 + 对比表格（维度×论文矩阵）+ 矛盾告警 + 差异总结；(3) 表格列数 2-5 横向滚动 + 首列固定；(4) 矛盾点用 el-alert warning 突出显示；(5) 含「生成对比综述」CTA；(6) 单文件 ≤ 300 行。",
+    "requirement_ids": ["F1.3.4", "F1.3.5", "F1.3.6"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "CompareView/CompareTable 模板（6.2.2、6.4 节）" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM3 验收：对比表格 + 矛盾告警" },
+      { "path": "AGENTS.md", "purpose": "API 契约：analysisApi.comparePapers" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/CompareView.vue", "description": "当前为占位页面，需完整实现" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/analysis/CompareTable.vue", "description": "尚未创建" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "selectedPapers/selectedPaperIds 跨页共享" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "需扩展 comparePapers 编排（addComparison 流程）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/analysis.ts", "description": "comparePapers 已有" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/views/CompareView.vue", "description": "占位组件，需整体实现", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/api/analysis.ts", "description": "comparePapers({ paperIds: string[] }) → POST /analysis/compare", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "CompareView",
+      "path": "Veritas/frontend/src/views/CompareView.vue",
+      "responsibility": "对比页容器，路由 /compare?paperIds=... 解析、调用对比、渲染表格/告警/CTA",
+      "key_interfaces": [
+        { "name": "router.query.paperIds", "signature": "string (逗号分隔)", "description": "URL 参数，论文 ID 列表" }
+      ]
+    },
+    {
+      "name": "CompareTable",
+      "path": "Veritas/frontend/src/components/analysis/CompareTable.vue",
+      "responsibility": "维度×论文矩阵展示 + 矛盾点告警",
+      "key_interfaces": [
+        { "name": "props.result", "signature": "result: CompareResult", "description": "对比结果，含 table/summary/conflicts" }
+      ]
+    },
+    {
+      "name": "sessionStore",
+      "path": "Veritas/frontend/src/stores/sessionStore.ts",
+      "responsibility": "复用 startAnalysis 编排；可扩展 startCompare(topic, paperIds)"
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/analysis/CompareTable.vue", "description": "实现对比表格组件：el-table 固定首列 + 横向滚动 + 矛盾点高亮" },
+    { "operation": "modify", "path": "Veritas/frontend/src/views/CompareView.vue", "description": "完整实现：URL 解析 + 已选论文摘要 + 对比结果 + 矛盾告警 + 生成综述 CTA" },
+    { "operation": "modify", "path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "新增 startCompare(topic, paperIds)：复用 SSE/轮询骨架，对比完成后将 result.comparison 写入 analysisResults" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "CompareTable Props: result: CompareResult。结构：(1) el-table :data='result.table' stripe border fixed-columns + 横向滚动；(2) 首列 prop='dimension' label='对比维度' fixed width=140；(3) 动态列：v-for paper in papers 渲染 prop 索引对应 values[i]，表头为 paper.title (overflow tooltip 显示完整)；(4) 当 result.conflicts 非空时，下方渲染 el-alert type=warning show-icon 列表，标题=conflict.description，描述=conflict.possibleReason，附带涉及论文 (papers)",
+        "priority": "P0",
+        "acceptance_condition": "表格列数=论文数；首列固定；矛盾告警完整展示"
+      },
+      {
+        "id": "FR-002",
+        "description": "CompareView 实现：onMounted 解析 route.query.paperIds (string[]) → 若 <2 篇则 ElMessage.warning 并 router.push('/search')；调用 sessionStore.startCompare(topic='文献对比', paperIds)；loading/empty/error 三态：loading v-loading；error 用 el-result 错误页 + 重试按钮；成功渲染「已选 N 篇」+ PaperCard 列表(compact 模式) + CompareTable + 「生成对比综述」按钮(emit 'go-report' 并 router.push)",
+        "priority": "P0",
+        "acceptance_condition": "<2 篇重定向；loading/empty/error 完整；CTA 跳转 /report"
+      },
+      {
+        "id": "FR-003",
+        "description": "sessionStore.startCompare(topic, paperIds)：(1) cleanup；(2) analysisStatus='creating_session' → sessionApi.create({topic}) → currentSessionId；(3) 'starting_analysis' → analysisApi.comparePapers({paperIds}) → currentAnalysisId；(4) 'polling' → connectAgentStream + pollAnalysisStatus；(5) 完成后 result.comparison 写入 analysisResults Map。失败时设置 analysisStatus='failed' + analysisError",
+        "priority": "P0",
+        "acceptance_condition": "对比流程与单篇一致；result.comparison 正确缓存"
+      },
+      {
+        "id": "FR-004",
+        "description": "响应式：表格列数 ≤ 5 时正常展示；屏幕 <992px 时退化为卡片堆叠（每篇论文一个 el-card，列出维度值）",
+        "priority": "P1",
+        "acceptance_condition": "桌面端表格、移动端卡片切换"
+      },
+      {
+        "id": "FR-005",
+        "description": "可访问性：el-table 加 aria-label='论文对比表格'；矛盾告警 role='alert'；CTA 按钮带 aria-label",
+        "priority": "P2",
+        "acceptance_condition": "关键交互节点具备 ARIA"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "TypeScript camelCase，JSON snake_case",
+        "mappings": [
+          { "java": "paperIds", "python": "paper_ids", "json": "paper_ids" },
+          { "java": "possibleReason", "python": "possible_reason", "json": "possible_reason" }
+        ]
+      },
+      "api_contracts": [
+        { "endpoint": "/api/analysis/compare", "method": "POST", "request_format": { "paper_ids": "string[]" }, "response_format": { "code": 200, "data": "AnalysisResult(result.comparison=CompareResult)" } }
+      ],
+      "data_flow": "CompareView 解析 URL → startCompare → SSE 实时状态 → result.comparison 缓存 → CompareTable 渲染"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" } },
+    "layering": { "frontend": { "rule": "View → Store → API" } },
+    "error_handling": { "frontend": { "approach": "<2 篇重定向；分析失败 ElMessage.error + 重试按钮；表格空态用 el-empty" } },
+    "caching": { "pattern": "result.comparison 经 analysisResults Map 缓存" },
+    "logging": { "prohibited": ["console.log 完整对比结果"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "CompareTable 中直接调用 API", "reason": "数据由父级传入；纯展示组件", "severity": "critical" },
+    { "id": "FA-002", "action": "CompareView 中硬编码 paperIds 解析", "reason": "必须从 URL query 解析", "severity": "high" },
+    { "id": "FA-003", "action": "CompareView 超过 300 行", "reason": "可维护性", "severity": "medium" },
+    { "id": "FA-004", "action": "未处理 <2 篇情况", "reason": "必须有保护分支", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "CompareView_route_guard", "description": "URL 无 paperIds 或 <2 篇时跳转 /search", "framework": "vitest", "coverage": ["boundary_condition", "error_flow"] },
+      { "test_name": "CompareTable_renders", "description": "result.table 渲染对应行；conflicts 非空显示 alert", "framework": "vitest", "coverage": ["normal_flow", "error_flow"] },
+      { "test_name": "sessionStore_startCompare", "description": "成功/失败/取消各分支 analysisStatus 流转", "framework": "vitest", "coverage": ["normal_flow", "error_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无 TS 错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/__tests__/views/CompareView.spec.ts", "expected_result": "CompareView 测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "<2 篇重定向 /search + 警告提示", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "CompareTable 列数等于论文数，首列固定", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "矛盾告警展示 description + possibleReason + papers", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "sessionStore.startCompare 流程与 startAnalysis 对齐", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "组件代码 ≤ 300 行", "verified_by": "code_review" }
+  ]
+}

@@ -182,6 +182,11 @@ json_prompt/
 | 16 | task16_paper_search_fulltext_filter_sort | v0.2 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.2.3 |
 | 17 | task17_session_controller_service_basic | v0.3 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.3.1, F2.3.2 |
 | 18 | task18_session_state_machine_dto_mapping | v0.3 | M3 / JM2：基础API可用 | java_backend, data_layer | F2.3.1, F2.3.2 |
+| 19 | task19_python_ai_client | v0.3 | M3 / JM3 Day 5：AI服务调用打通 | java_backend | F2.5.1, F2.5.2, F2.5.3, F2.5.5 |
+| 20 | task20_ai_dto_schemas | v0.3 | M3 / JM3 Day 6：AI服务调用打通 | java_backend | F2.5.1, F2.5.2, F2.5.3, F2.5.4 |
+| 21 | task21_agent_client_service | v0.3 | M3 / JM3 Day 7：AI服务调用打通 | java_backend | F2.5.4, F2.5.5, F2.4.1, F2.4.4, F2.4.5 |
+| 22 | task22_analysis_controller_service | v0.3 | M3 / JM3 Week 6 Day 1：分析服务基础 | java_backend | F2.4.1, F2.4.4, F2.4.5, F2.5.5 |
+| 23 | task23_analysis_query_health | v0.3 | M3 / JM3 Week 6 Day 2：分析结果/状态查询 + 健康检查 | java_backend | F2.4.4, F2.4.5, F2.5.5 |
 
 ### ai-service/
 
@@ -225,6 +230,17 @@ json_prompt/
 | 18 | task18_paper_detail_view | v0.3 | M3 / FM3：论文分析+对比页面可用 | frontend | F1.3.1 |
 | 19 | task19_analysis_card_5dim | v0.3 | M3 / FM3：论文分析+对比页面可用 | frontend | F1.3.2, F1.3.3 |
 | 20 | task20_session_store_integration | v0.3 | M3 / FM3：论文分析+对比页面可用 | frontend | F1.1.1, F1.2.2, F1.3.1, F1.3.2, F2.3, F2.4 |
+| 21 | task21_plain_explanation_component | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.3.3 |
+| 22 | task22_analysis_card_extension | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.3.2, F1.3.3, F1.3.6 |
+| 23 | task23_paper_selector | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.3.4, F1.2.5 |
+| 24 | task24_compare_view_table | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.3.4, F1.3.5, F1.3.6 |
+| 25 | task25_report_view_preview | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.4.1, F1.4.2, F1.4.5 |
+| 26 | task26_personalization_degradation | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.4.2, F1.3.6 |
+| 27 | task27_agent_store_complete | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.5.1, F1.5.2 |
+| 28 | task28_use_sse_composable | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.5.2 |
+| 29 | task29_sse_event_parsing | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.5.2 |
+| 30 | task30_sse_integration_test | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.4.1, F1.5.2, F1.3.5, F1.3.6 |
+| 31 | task31_fm3_acceptance | v0.3 | M4 / FM3：论文分析与对比页面完成（验收里程碑） | frontend | F1.3.1-F1.5.2 |
 
 > **维护说明**：每新增一个任务文件夹，必须同步更新对应模块目录的映射表。序号与里程碑对应关系参考 `docs/项目里程碑文档.md` 和 `docs/版本里程碑功能清单.md`。
 

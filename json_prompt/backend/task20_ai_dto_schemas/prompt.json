@@ -1,0 +1,335 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "M3：前后端联调成功 / JM3：AI服务调用打通 (Day 6 of 5)",
+    "requirement": "完善 task19 中占位的 AgentRequest / AnalysisResultDTO，并新增 AgentStateResponse / PaperSearchResultDTO / ModelStatusDTO / UserProfileDTO 5 个 DTO；严格对齐 Python 端 Pydantic Schema 的字段约束（min/max/required/optional/alias）；通过 @JsonProperty + @NotNull/@NotBlank/@Size/@Valid 注解保证 Java→Python 通信契约一致性；提供 DTO 单元测试覆盖序列化/反序列化边界。",
+    "requirement_ids": ["F2.5.1", "F2.5.2", "F2.5.3", "F2.5.4"],
+    "reference_docs": [
+      { "path": "Veritas/ai-service/app/models/schemas.py", "purpose": "Python 端 Pydantic Schema 定义：UserProfile / AnalyzeRequest / AnalyzeResponse / AgentStateResponse / SearchRequest / SearchResultItem / SearchResponse / ModelStatusResponse" },
+      { "path": "Veritas/ai-service/app/models/enums.py", "purpose": "Python 端枚举：EducationLevel/KnowledgeLevel/PreferredStyle/AnalysisType/AgentName/AgentStatus/LLMMode" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/AnalysisType.java", "purpose": "Java 端 AnalysisType（paper_analysis/compare/report）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/AnalysisStatus.java", "purpose": "Java 端 AnalysisStatus（pending/processing/completed/failed）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/ProfileResponse.java", "purpose": "参考 userId/educationLevel/researchField/knowledgeLevel/preferredStyle 字段命名风格" },
+      { "path": "json_prompt/backend/task19_python_ai_client/prompt.md", "purpose": "task19 占位 DTO 字段清单与命名约定" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.common",
+        "description": "新增：AgentRequest、UserProfileDTO（发给 Python 端的请求体）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.response",
+        "description": "新增/完善：AnalysisResultDTO、AgentStateResponse、PaperSearchResultDTO、ModelStatusDTO（Python 端返回的响应）"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app.models.schemas",
+        "description": "已实现 Pydantic Schema，作为 Java DTO 的契约真源（Single Source of Truth）"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/ProfileResponse.java", "description": "userId/educationLevel/researchField/knowledgeLevel/preferredStyle 5 字段已存在，DTO 风格参考", "reuse_type": "reference" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/enums/AnalysisType.java", "description": "PAPER_ANALYSIS(\"paper_analysis\")/COMPARE(\"compare\")/REPORT(\"report\") 三选一", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/enums/AnalysisStatus.java", "description": "PENDING/PROCESSING/COMPLETED/FAILED，对应 Python status 字符串", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AgentRequest",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/AgentRequest.java",
+      "responsibility": "Java→Python AnalyzeRequest 请求体；含 topic/paperIds/userId/userProfile/analysisType/analysisId 6 字段",
+      "key_interfaces": [
+        { "name": "topic", "signature": "@NotBlank @Size(max=500) String topic", "description": "研究主题，必填，1-500 字符" },
+        { "name": "paperIds", "signature": "@JsonProperty(\"paperIds\") List<String> paperIds", "description": "论文ID列表，可空" },
+        { "name": "userId", "signature": "@NotBlank String userId", "description": "用户ID，必填" },
+        { "name": "userProfile", "signature": "UserProfileDTO userProfile", "description": "用户画像，可空（默认 master/intermediate/balanced）" },
+        { "name": "analysisType", "signature": "AnalysisType analysisType", "description": "分析类型枚举（paper_analysis/compare/report），默认 report" },
+        { "name": "analysisId", "signature": "String analysisId", "description": "分析任务ID（Java 端 UUID 生成），可空" }
+      ]
+    },
+    {
+      "name": "UserProfileDTO",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/UserProfileDTO.java",
+      "responsibility": "嵌入 AgentRequest 的画像 DTO，对齐 Python UserProfile 4 字段",
+      "key_interfaces": [
+        { "name": "educationLevel", "signature": "EducationLevel educationLevel", "description": "学历（undergraduate/master/phd/faculty），默认 master" },
+        { "name": "researchField", "signature": "String researchField", "description": "研究方向，可空" },
+        { "name": "knowledgeLevel", "signature": "KnowledgeLevel knowledgeLevel", "description": "知识水平（beginner/intermediate/advanced/expert），默认 intermediate" },
+        { "name": "preferredStyle", "signature": "PreferredStyle preferredStyle", "description": "偏好风格（simple/balanced/technical），默认 balanced" }
+      ]
+    },
+    {
+      "name": "AnalysisResultDTO",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResultDTO.java",
+      "responsibility": "Python→Java AnalyzeResponse 响应体；含 7 字段",
+      "key_interfaces": [
+        { "name": "analysisId", "signature": "String analysisId", "description": "分析任务ID" },
+        { "name": "status", "signature": "AnalysisStatus status", "description": "状态枚举" },
+        { "name": "report", "signature": "String report", "description": "综述报告 markdown，可空" },
+        { "name": "citations", "signature": "List<Map<String,Object>> citations", "description": "引用列表，元素 {index, paper_id, citation}，可空" },
+        { "name": "agentStates", "signature": "List<AgentStateResponse> agentStates", "description": "各 Agent 状态，可空" },
+        { "name": "degraded", "signature": "Boolean degraded", "description": "是否降级，可空" },
+        { "name": "degradedReason", "signature": "String degradedReason", "description": "降级原因，可空" }
+      ]
+    },
+    {
+      "name": "AgentStateResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AgentStateResponse.java",
+      "responsibility": "单 Agent 状态，对齐 Python AgentStateResponse 5 字段",
+      "key_interfaces": [
+        { "name": "agentName", "signature": "@JsonProperty(\"agentName\") String agentName", "description": "Agent 名称（coordinator/retriever/analyzer/comparer/generator/reviewer）" },
+        { "name": "status", "signature": "String status", "description": "状态字符串（waiting/running/completed/failed）" },
+        { "name": "progress", "signature": "Double progress", "description": "进度 0.0-1.0，可空" },
+        { "name": "intermediateResult", "signature": "String intermediateResult", "description": "中间结果摘要，可空" },
+        { "name": "durationMs", "signature": "Long durationMs", "description": "执行耗时（毫秒），可空" }
+      ]
+    },
+    {
+      "name": "PaperSearchResultDTO",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/PaperSearchResultDTO.java",
+      "responsibility": "Python SearchResultItem 响应 DTO，对齐 6 字段",
+      "key_interfaces": [
+        { "name": "paperId", "signature": "String paperId", "description": "论文ID" },
+        { "name": "title", "signature": "String title", "description": "标题" },
+        { "name": "abstract", "signature": "String abstract", "description": "摘要" },
+        { "name": "score", "signature": "Double score", "description": "相似度 0-1" },
+        { "name": "year", "signature": "Integer year", "description": "发表年份" },
+        { "name": "venue", "signature": "String venue", "description": "会议/期刊" }
+      ]
+    },
+    {
+      "name": "ModelStatusDTO",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/ModelStatusDTO.java",
+      "responsibility": "Python ModelStatusResponse 响应 DTO，对齐 6 字段",
+      "key_interfaces": [
+        { "name": "llm", "signature": "String llm", "description": "LLM 服务状态" },
+        { "name": "embedding", "signature": "String embedding", "description": "Embedding 服务状态" },
+        { "name": "chroma", "signature": "String chroma", "description": "ChromaDB 连接状态" },
+        { "name": "prompts", "signature": "String prompts", "description": "Prompt 模板加载状态" },
+        { "name": "embeddingDimension", "signature": "Integer embeddingDimension", "description": "Embedding 向量维度" },
+        { "name": "activeLlmProvider", "signature": "String activeLlmProvider", "description": "当前活跃 LLM Provider（builtin/api/local）" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/AgentRequest.java",
+      "description": "替换 task19 占位版本为完整版：6 字段 + @NotBlank/@Size/@JsonProperty + @Valid userProfile",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResultDTO.java",
+      "description": "替换 task19 占位版本为完整版：7 字段 + status 枚举映射 + 静态工厂 degraded()",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/UserProfileDTO.java",
+      "description": "新增：嵌入 AgentRequest 的画像 DTO（4 字段 + 4 枚举引用）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AgentStateResponse.java",
+      "description": "新增：单 Agent 状态 DTO（5 字段）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/PaperSearchResultDTO.java",
+      "description": "新增：搜索结果 DTO（6 字段）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/ModelStatusDTO.java",
+      "description": "新增：模型状态 DTO（6 字段）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/dto/AiDtoSerializationTest.java",
+      "description": "单元测试：ObjectMapper 序列化/反序列化 AgentRequest、AnalysisResultDTO、UserProfileDTO；使用 JavaTimeModule + SNAKE_CASE；断言字段命名与 Python 一致",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-020-01",
+        "description": "AgentRequest 必须含 topic/paperIds/userId/userProfile/analysisType/analysisId 6 字段，对齐 Python AnalyzeRequest 的字段名/必填/默认值",
+        "priority": "P0",
+        "acceptance_condition": "Java 序列化后 JSON 字段为 {topic, paperIds, userId, userProfile, analysisType, analysisId}，与 Python populate_by_name 一致"
+      },
+      {
+        "id": "FR-020-02",
+        "description": "UserProfileDTO 4 字段（educationLevel/researchField/knowledgeLevel/preferredStyle）必须引用 Java 端 4 个枚举（EducationLevel/KnowledgeLevel/PreferredStyle + researchField 用 String）",
+        "priority": "P0",
+        "acceptance_condition": "序列化后 JSON 字段为 snake_case（如 education_level）；枚举值映射 lowercase（master/intermediate/balanced）"
+      },
+      {
+        "id": "FR-020-03",
+        "description": "AnalysisResultDTO 7 字段；status 必须用 AnalysisStatus 枚举；提供静态工厂方法 AnalysisResultDTO.degraded(reason)",
+        "priority": "P0",
+        "acceptance_condition": "反序列化 Python 响应 {analysisId, status, report, citations, agentStates, degraded, degradedReason} 全部正确解析"
+      },
+      {
+        "id": "FR-020-04",
+        "description": "AgentStateResponse 5 字段（agentName/status/progress/intermediateResult/durationMs）",
+        "priority": "P0",
+        "acceptance_condition": "Python AgentStateResponse JSON 可直接反序列化"
+      },
+      {
+        "id": "FR-020-05",
+        "description": "PaperSearchResultDTO / ModelStatusDTO 字段对齐 Python 端 Pydantic Schema",
+        "priority": "P1",
+        "acceptance_condition": "Snake case JSON 正确解析"
+      },
+      {
+        "id": "FR-020-06",
+        "description": "字段约束：@NotBlank topic/userId；@Size(max=500) topic；@Valid userProfile 触发嵌套校验",
+        "priority": "P0",
+        "acceptance_condition": "Controller 接收空 topic 时返回 400 + 'topic: 不能为空'"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ JSON snake_case（依赖全局 Jackson property-naming-strategy: SNAKE_CASE 自动转换）",
+        "mappings": [
+          { "java": "paperIds", "python": "paper_ids", "json": "paperIds" },
+          { "java": "userId", "python": "user_id", "json": "userId" },
+          { "java": "userProfile", "python": "user_profile", "json": "userProfile" },
+          { "java": "analysisType", "python": "analysis_type", "json": "analysisType" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+          { "java": "educationLevel", "python": "education_level", "json": "educationLevel" },
+          { "java": "researchField", "python": "research_field", "json": "researchField" },
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledgeLevel" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferredStyle" },
+          { "java": "agentName", "python": "agent_name", "json": "agentName" },
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediateResult" },
+          { "java": "durationMs", "python": "duration_ms", "json": "durationMs" },
+          { "java": "embeddingDimension", "python": "embedding_dimension", "json": "embeddingDimension" },
+          { "java": "activeLlmProvider", "python": "active_llm_provider", "json": "activeLlmProvider" },
+          { "java": "topK", "python": "top_k", "json": "topK" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/agent/analyze (Java sends)",
+          "method": "POST",
+          "request_format": {
+            "topic": "string (required, 1-500)",
+            "paperIds": ["string (optional)"],
+            "userId": "string (required)",
+            "userProfile": { "educationLevel": "master (default)", "researchField": "string (optional)", "knowledgeLevel": "intermediate (default)", "preferredStyle": "balanced (default)" },
+            "analysisType": "report (default) | paper_analysis | compare",
+            "analysisId": "string (optional)"
+          },
+          "response_format": null
+        }
+      ],
+      "data_flow": "Java AgentRequest → Jackson SNAKE_CASE → JSON {paperIds:[...], userId:..., userProfile:{educationLevel:master,...}} → Python AnalyzeRequest (populate_by_name) → 6-Agent → AnalyzeResponse → Java AnalysisResultDTO"
+    },
+    "security_requirements": [
+      {
+        "category": "other",
+        "requirement": "UserProfileDTO 字段不参与日志打印（仅打印 userId/analysisId）"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "json": { "field_name": "snake_case（依赖全局 Jackson SNAKE_CASE，DTO 字段保持 camelCase）" },
+      "cross_system_mapping": [
+        { "java": "paperIds", "python": "paper_ids", "json": "paperIds" },
+        { "java": "userProfile", "python": "user_profile", "json": "userProfile" },
+        { "java": "embeddingDimension", "python": "embedding_dimension", "json": "embeddingDimension" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "DTO 位于 dto.common（请求体） / dto.response（响应体），与 Entity 严格分离",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest（请求体）/ XxxResponse / XxxDTO（嵌入体）"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "DTO 校验失败 → MethodArgumentNotValidException → GlobalExceptionHandler.handleValidation → ApiResponse.error(400, message)"
+      }
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-020-01", "action": "在 DTO 字段上添加 @JsonProperty 覆盖全局 SNAKE_CASE 配置", "reason": "破坏统一配置 + 维护成本", "severity": "high" },
+    { "id": "FA-020-02", "action": "在 DTO 中硬编码枚举字符串（必须用 Java 端枚举引用 EducationLevel/KnowledgeLevel/PreferredStyle/AnalysisType/AnalysisStatus）", "reason": "枚举统一管理 + DbValueEnum 转换", "severity": "critical" },
+    { "id": "FA-020-03", "action": "省略 @NotBlank/@Size 等 Bean Validation 注解", "reason": "任务描述要求字段约束对齐 Python Pydantic", "severity": "high" },
+    { "id": "FA-020-04", "action": "在 DTO 中混入 Entity（必须保持 Entity/DTO 分离）", "reason": "分层架构 + 数据隔离", "severity": "critical" },
+    { "id": "FA-020-05", "action": "使用 Lombok @Data 而非显式 @Getter/@Setter + @NoArgsConstructor + @AllArgsConstructor + @Builder", "reason": "与项目现有 DTO 风格一致（ProfileResponse 使用 @Data+@Builder）", "severity": "low" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "agentRequest_serialization_to_python_format",
+        "description": "构造 AgentRequest（topic=测试、userId=usr_001、userProfile=UserProfileDTO(...)），用 ObjectMapper 序列化，断言 JSON 字段为 paperIds/userId/userProfile/educationLevel 等 snake_case",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "agentRequest_deserialization_from_python",
+        "description": "给定 Python 端 JSON 字符串 {topic, paperIds, userId, userProfile, analysisType, analysisId}，反序列化为 AgentRequest，断言所有字段值正确",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "analysisResultDTO_status_enum_mapping",
+        "description": "Python 响应 status=completed/completed/failed/degraded，断言 Java 端 AnalysisStatus 枚举正确反序列化",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "agentStateResponse_field_alias",
+        "description": "Python 响应 {agentName, status, progress, intermediateResult, durationMs}，断言 Java 端 AgentStateResponse 字段正确解析",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "userProfileDTO_enum_default_values",
+        "description": "UserProfileDTO 无参构造时，educationLevel=master、knowledgeLevel=intermediate、preferredStyle=balanced",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "agentRequest_validation_blank_topic",
+        "description": "Validator 校验 topic=\"\", 期望 ConstraintViolation",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest=AiDtoSerializationTest test", "expected_result": "6/6 测试通过" },
+      { "layer": "java", "command": "cd Veritas/backend && mvn compile", "expected_result": "编译成功" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-020-01", "criterion": "5 个 DTO（AgentRequest/UserProfileDTO/AnalysisResultDTO/AgentStateResponse/PaperSearchResultDTO/ModelStatusDTO）全部创建并编译通过", "verified_by": "code_review" },
+    { "id": "AC-020-02", "criterion": "Java AgentRequest 序列化 JSON 字段与 Python AnalyzeRequest populate_by_name 一致", "verified_by": "automated_test" },
+    { "id": "AC-020-03", "criterion": "Java AnalysisResultDTO 反序列化 Python AnalyzeResponse JSON 全部 7 字段正确解析", "verified_by": "automated_test" },
+    { "id": "AC-020-04", "criterion": "字段约束生效：@NotBlank topic、@Size(max=500) topic、@Valid userProfile", "verified_by": "automated_test" },
+    { "id": "AC-020-05", "criterion": "AiDtoSerializationTest 6/6 测试通过", "verified_by": "automated_test" },
+    { "id": "AC-020-06", "criterion": "未在 DTO 字段添加 @JsonProperty 覆盖全局 SNAKE_CASE", "verified_by": "code_review" }
+  ]
+}

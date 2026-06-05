@@ -1,0 +1,303 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "M3：前后端联调成功 / JM3：AI服务调用打通 (Week 6 Day 1 of 5)",
+    "requirement": "实现 AnalysisController + AnalysisService.analyzePaper：暴露 POST /api/analysis/paper 端点；编排 用户画像获取 + 论文详情获取 + Session 创建/复用 + AnalysisResult 任务记录（status=pending→processing→completed/failed）+ 调用 AgentClientService.analyzePaper；返回 AnalysisTaskResponse {analysisId, status, message}；遵循 数据隔离（userId 校验）+ 任务状态机 + 异常转换。",
+    "requirement_ids": ["F2.4.1", "F2.4.4", "F2.4.5", "F2.5.5"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "7.2 AnalysisController/AnalysisService 完整设计 + 7.3 分析任务状态机（pending→processing→completed/failed）" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.3 Week 6 Day 1 任务：AnalysisController + AnalysisService（论文分析）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/entity/AnalysisResult.java", "purpose": "Entity：analysisId/sessionId/type/result(JSON)/status/createdAt" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/AnalysisResultRepository.java", "purpose": "findByAnalysisId/findBySessionId/countBySessionId 等方法" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/service/SessionService.java", "purpose": "createSession(userId, request) + getCurrentUserId() 模式 + validateDataIsolation() 模式" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java", "purpose": "getProfile(userId) + syncProfileToRedis 模式（个人化信息获取）" },
+      { "path": "json_prompt/backend/task21_agent_client_service/prompt.md", "purpose": "AgentClientService.analyzePaper(request) 编排层入口" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.controller",
+        "description": "新增：AnalysisController — POST /api/analysis/paper"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "新增：AnalysisService — 编排用户画像/论文/Session/分析任务/AgentClientService"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "已有：UserService.getProfile + SessionService.createSession + PaperService.getPaperDetail（依赖注入）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.repository",
+        "description": "已有：AnalysisResultRepository.findByAnalysisId / save"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.entity",
+        "description": "已有：AnalysisResult Entity（status/result JSON 字段）"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/SessionService.java", "description": "createSession(userId, request) 模式 + getCurrentUserId() + validateDataIsolation() 模式", "reuse_type": "reference" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java", "description": "getProfile(userId) 返回 ProfileResponse（educationLevel/knowledgeLevel/researchField/preferredStyle）", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java", "description": "getPaperDetail(paperId) 返回 PaperDetailResponse", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/AnalysisResultRepository.java", "description": "findByAnalysisId(String) / save(Entity)", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AnalysisController",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "responsibility": "暴露 POST /api/analysis/paper 端点；参数校验；获取当前 userId；委托 AnalysisService.analyzePaper；返回 ApiResponse<AnalysisTaskResponse>",
+      "key_interfaces": [
+        { "name": "analyzePaper", "signature": "ApiResponse<AnalysisTaskResponse> analyzePaper(@Valid @RequestBody PaperAnalysisRequest request, @AuthenticationPrincipal String userId)", "description": "论文分析入口：JWT 鉴权 → 参数校验 → AnalysisService.analyzePaper" }
+      ]
+    },
+    {
+      "name": "AnalysisService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "responsibility": "编排层：获取画像 → 获取论文 → 创建/复用 Session → 创建 AnalysisResult(pending) → 调 AgentClientService → 更新 AnalysisResult 状态 → 缓存结果",
+      "key_interfaces": [
+        { "name": "analyzePaper", "signature": "AnalysisTaskResponse analyzePaper(String userId, PaperAnalysisRequest request)", "description": "完整编排流程；事务边界仅覆盖 DB 写入，AI 调用不在事务内" }
+      ]
+    },
+    {
+      "name": "PaperAnalysisRequest",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/PaperAnalysisRequest.java",
+      "responsibility": "论文分析请求 DTO（topic/paperId/optional sessionId）",
+      "key_interfaces": [
+        { "name": "topic", "signature": "@NotBlank @Size(max=500) String topic", "description": "研究主题" },
+        { "name": "paperId", "signature": "@NotBlank String paperId", "description": "论文ID（必填）" },
+        { "name": "sessionId", "signature": "String sessionId", "description": "会话ID（可选；为空时新建）" }
+      ]
+    },
+    {
+      "name": "AnalysisTaskResponse",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisTaskResponse.java",
+      "responsibility": "任务创建响应（analysisId/status/createdAt）",
+      "key_interfaces": [
+        { "name": "analysisId", "signature": "String analysisId", "description": "分析任务ID" },
+        { "name": "status", "signature": "AnalysisStatus status", "description": "当前状态（pending/processing/completed/failed/degraded）" },
+        { "name": "message", "signature": "String message", "description": "提示信息" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "description": "新建 AnalysisController：@RestController + @RequestMapping(\"/api/analysis\") + POST /paper 端点",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "description": "新建 AnalysisService：@Service + 完整编排 + @Transactional 边界",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/PaperAnalysisRequest.java",
+      "description": "新建 PaperAnalysisRequest：topic/paperId/sessionId 3 字段 + @NotBlank 校验",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisTaskResponse.java",
+      "description": "新建 AnalysisTaskResponse：analysisId/status/message/createdAt 4 字段",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/controller/AnalysisControllerTest.java",
+      "description": "单元测试：5 个 MockMvc 用例（成功/参数校验/未授权/数据隔离/降级响应）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AnalysisServiceTest.java",
+      "description": "单元测试：6 个 Service 用例（完整编排/状态机转换/降级/DTO 转换）",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-022-01",
+        "description": "POST /api/analysis/paper 接收 PaperAnalysisRequest {topic, paperId, sessionId?}",
+        "priority": "P0",
+        "acceptance_condition": "MockMvc 测试 200 + ApiResponse {code:200, data:{analysisId, status, message}}"
+      },
+      {
+        "id": "FR-022-02",
+        "description": "AnalysisService.analyzePaper(userId, request) 编排：1) 调用 userService.getProfile 2) 调用 paperService.getPaperDetail 3) 创建/复用 Session 4) 生成 analysisId 5) 保存 AnalysisResult(status=PENDING) 6) 调 agentClientService.analyzePaper 7) 更新 AnalysisResult(status=COMPLETED/FAILED) + result(JSON)",
+        "priority": "P0",
+        "acceptance_condition": "完整链路 7 步全部执行；AnalysisResult 表新增一条记录"
+      },
+      {
+        "id": "FR-022-03",
+        "description": "任务状态机：PENDING（创建）→ PROCESSING（调用 AI 前）→ COMPLETED（成功）/ FAILED（失败）/ DEGRADED（降级回退）",
+        "priority": "P0",
+        "acceptance_condition": "正常 → COMPLETED；Python 异常 + 无缓存 → FAILED + degraded=true；Python 异常 + 有缓存 → COMPLETED + degraded=true"
+      },
+      {
+        "id": "FR-022-04",
+        "description": "数据隔离：userId 来自 SecurityContext（@AuthenticationPrincipal）；禁止从前端 request.userId 取",
+        "priority": "P0",
+        "acceptance_condition": "JWT 解析失败 → 401；userId 缺失 → 401"
+      },
+      {
+        "id": "FR-022-05",
+        "description": "事务边界：@Transactional 仅覆盖 AnalysisResult.save()；AI 调用（agentClientService.analyzePaper）必须在事务外，避免长事务",
+        "priority": "P0",
+        "acceptance_condition": "AI 30s 超时不会锁住 AnalysisResult 行"
+      },
+      {
+        "id": "FR-022-06",
+        "description": "复用 Session 逻辑：若 request.sessionId 存在且属于当前 user 且 status=ACTIVE，复用；否则新建 Session",
+        "priority": "P1",
+        "acceptance_condition": "传入有效 sessionId → 复用；传入无效/他人 sessionId → 抛 403"
+      },
+      {
+        "id": "FR-022-07",
+        "description": "AgentRequest 构造：topic=request.topic, paperIds=[request.paperId], userId=currentUserId, userProfile=UserProfileDTO(from ProfileResponse), analysisType=PAPER_ANALYSIS, analysisId=generated",
+        "priority": "P0",
+        "acceptance_condition": "AgentRequest 6 字段全部正确填充"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case（依赖全局 Jackson SNAKE_CASE）",
+        "mappings": [
+          { "java": "paperId", "python": "paper_id", "json": "paperId" },
+          { "java": "userId", "python": "user_id", "json": "userId" },
+          { "java": "userProfile", "python": "user_profile", "json": "userProfile" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/analysis/paper",
+          "method": "POST",
+          "request_format": { "topic": "string (1-500)", "paperId": "string (required)", "sessionId": "string (optional)" },
+          "response_format": { "code": 200, "message": "success", "data": { "analysisId": "anl_xxx", "status": "pending|processing|completed|failed|degraded", "message": "string" } }
+        }
+      ],
+      "data_flow": "Controller → Service.analyzePaper → UserService.getProfile + PaperService.getPaperDetail + SessionService.createSession → DB save(AnalysisResult pending) → AgentClientService.analyzePaper(AgentRequest) → Python AI → AnalysisResultDTO → DB update(status=completed/failed) → 返回 AnalysisTaskResponse"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "userId 必须从 SecurityContext 获取，禁止从前端 request.userId 注入" },
+      { "category": "data_isolation", "requirement": "复用他人 sessionId 时抛 403；论文必须存在，否则 404" },
+      { "category": "sensitive_info", "requirement": "日志禁止输出 userProfile 完整内容，仅打印 userId/analysisId/paperId" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "json": { "field_name": "snake_case（依赖全局 Jackson SNAKE_CASE）" }
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → (Repository + AgentClientService + UserService + PaperService + SessionService)；禁止 Controller 直接调 Repository",
+        "entity_dto_separation": true,
+        "dto_naming": "PaperAnalysisRequest（请求） / AnalysisTaskResponse（响应）"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "Service 内部异常 → BusinessException/AuthenticationException/ResourceNotFoundException；GlobalExceptionHandler 统一处理 → ApiResponse"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside；AnalysisResult 实体不缓存；通过 agentClientService 写入 analysis:result:{id} 字符串（30min TTL）"
+    },
+    "logging": {
+      "java": "SLF4J + Logback（@Slf4j）",
+      "prohibited": ["输出 userProfile 完整内容", "在循环中打印 INFO"]
+    },
+    "database": {
+      "transaction_boundary": "@Transactional 仅覆盖 DB 写入；agentClientService.analyzePaper 在事务外",
+      "result_field_type": "JSON 字符串，序列化为 AnalysisResultDTO JSON"
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-022-01", "action": "把 userId 从前端 request.userId 取（必须 SecurityContext）", "reason": "数据隔离 + 安全约束", "severity": "critical" },
+    { "id": "FA-022-02", "action": "在 @Transactional 方法内调 agentClientService.analyzePaper", "reason": "长事务 + DB 行锁", "severity": "critical" },
+    { "id": "FA-022-03", "action": "把 AgentRequest 完整内容写入日志", "reason": "敏感信息保护", "severity": "high" },
+    { "id": "FA-022-04", "action": "AnalysisService 直接返回 Entity（必须通过 DTO/Mapper）", "reason": "Entity/DTO 分离约束", "severity": "critical" },
+    { "id": "FA-022-05", "action": "在 AnalysisService 中执行 JPA SQL 拼接（必须用 Repository）", "reason": "SQL 注入防护 + 分层约束", "severity": "critical" },
+    { "id": "FA-022-06", "action": "复用其他用户的 sessionId", "reason": "数据隔离约束", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "analyzePaperController_success_returns202",
+        "description": "MockMvc + @WithMockUser，POST /api/analysis/paper，返回 200 + analysisId",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "analyzePaperController_blank_topic_returns400",
+        "description": "MockMvc，topic=\"\"，返回 400 + 校验错误",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "analyzePaperController_unauthenticated_returns401",
+        "description": "MockMvc 无 @WithMockUser，返回 401",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "analyzeService_normal_completes_analysisResult",
+        "description": "Mock UserService + PaperService + SessionService + AgentClientService，验证 AnalysisResult 状态机 PENDING→PROCESSING→COMPLETED",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "analyzeService_aiFailure_marks_degraded",
+        "description": "Mock AgentClientService 返回 degraded DTO，验证 AnalysisResult.status=COMPLETED + degraded=true",
+        "framework": "junit5",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "analyzeService_sessionIsolation_throws403",
+        "description": "复用他人 sessionId → 抛 BusinessException(403)",
+        "framework": "junit5",
+        "coverage": ["error_flow", "boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "analyzePaper_e2e_creates_analysis_result",
+        "description": "TestRestTemplate + Python mock，分析成功后 MySQL 中 analysis_results 表新增 1 条记录",
+        "layers_involved": ["java_backend", "data_layer"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='AnalysisControllerTest,AnalysisServiceTest' test", "expected_result": "11/11 通过" },
+      { "layer": "java", "command": "cd Veritas/backend && mvn compile", "expected_result": "编译成功" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-022-01", "criterion": "POST /api/analysis/paper 接收 PaperAnalysisRequest，参数校验生效", "verified_by": "automated_test" },
+    { "id": "AC-022-02", "criterion": "完整编排 7 步全部执行：画像/论文/Session/AnalysisResult/AgentClientService/状态更新/缓存", "verified_by": "automated_test" },
+    { "id": "AC-022-03", "criterion": "任务状态机 PENDING→PROCESSING→COMPLETED/FAILED/DEGRADED 正确转换", "verified_by": "automated_test" },
+    { "id": "AC-022-04", "criterion": "userId 必须从 SecurityContext 获取", "verified_by": "code_review" },
+    { "id": "AC-022-05", "criterion": "事务边界正确：AI 调用在 @Transactional 外", "verified_by": "code_review" },
+    { "id": "AC-022-06", "criterion": "复用他人 sessionId 抛 403", "verified_by": "automated_test" },
+    { "id": "AC-022-07", "criterion": "11 个单元测试全部通过", "verified_by": "automated_test" }
+  ]
+}

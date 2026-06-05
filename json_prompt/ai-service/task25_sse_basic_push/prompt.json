@@ -1,0 +1,220 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XH-202630 Coding Task Prompt — AM3-2: SSE推送基础实现",
+  "task_id": "task25_sse_basic_push",
+  "milestone": "AM3：API完善与Java对接",
+  "version": "v0.3",
+  "type": "object",
+  "required": [
+    "context",
+    "current_architecture",
+    "relevant_modules",
+    "files_to_modify",
+    "implementation_requirements",
+    "constraints",
+    "forbidden_actions",
+    "test_requirements",
+    "acceptance_criteria"
+  ],
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "AM3：API完善与Java对接（Week 5-6）",
+    "requirement": "在 app/api/endpoints/agent.py 扩展 /api/agent/analyze/stream 端点，使用 sse-starlette EventSourceResponse 推送 Agent 状态事件。事件类型包括：agent_started / agent_state_update / agent_completed / agent_failed / analysis_completed / error。每个事件 data 字段为 JSON 字符串（与 Java 端 SSE 解析器兼容）。",
+    "requirement_ids": ["F3.5.1", "F3.1.7", "F3.1.8"],
+    "reference_docs": [
+      { "path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "SSE 事件格式定义（§4.4.1 + §附录B.3）" },
+      { "path": "docs/ai-service/AI服务模块项目里程碑文档.md", "purpose": "AM3 任务分解（§5.3 Day 2）" },
+      { "path": "json_prompt/frontend/task28_use_sse_composable/", "purpose": "前端 useSSE 自动重连（3s 间隔，最多 5 次）" },
+      { "path": "json_prompt/frontend/task29_sse_event_parsing/", "purpose": "前端 SSE 事件解析逻辑" },
+      { "path": "Veritas/ai-service/app/agents/graph.py", "purpose": "现有 LangGraph run_workflow 同步执行（需改造为流式）" },
+      { "path": "Veritas/ai-service/app/main.py", "purpose": "现有 FastAPI 应用骨架" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service", "java_backend", "frontend"],
+    "related_modules": [
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/api/endpoints/agent.py", "description": "现有 /analyze 同步端点，需新增 /analyze/stream 端点" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/agents/graph.py", "description": "run_workflow() 同步执行 LangGraph；需新增 run_workflow_stream() 流式执行" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/agents/base.py", "description": "BaseAgent.state.to_dict() 已实现，可直接转 SSE 事件" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/composables/useSSE.ts", "description": "前端 useSSE 解析 event/data/Last-Event-ID" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/ai-service/app/api/endpoints/agent.py", "description": "POST /analyze 同步端点，可复用 agent_instances 构造逻辑", "reuse_type": "extend" },
+      { "file_path": "Veritas/ai-service/app/agents/graph.py", "description": "retrieve_node/analyze_node/generate_node 三个节点函数，结构化返回 {search_results, analysis_results, report, agent_states}", "reuse_type": "extend" },
+      { "file_path": "Veritas/ai-service/app/agents/base.py", "description": "AgentState.to_dict() 含 name/status/progress/intermediate_result/duration_ms", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AgentOrchestrator",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "responsibility": "流式 Agent 编排器，封装 SSE 事件生成逻辑",
+      "key_interfaces": [
+        { "name": "run_workflow_stream", "signature": "async def run_workflow_stream(request: AnalyzeRequest, agent_instances: Dict) -> AsyncIterator[Dict[str, str]]", "description": "yield {'event': event_name, 'data': json.dumps(payload)}" }
+      ]
+    },
+    {
+      "name": "Agent /analyze/stream endpoint",
+      "path": "Veritas/ai-service/app/api/endpoints/agent.py",
+      "responsibility": "SSE 端点",
+      "key_interfaces": [
+        { "name": "analyze_stream", "signature": "POST /api/agent/analyze/stream -> EventSourceResponse", "description": "返回 SSE 流" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/ai-service/app/agents/orchestrator.py", "description": "AgentOrchestrator 类，封装 run_workflow_stream 流式执行", "layer": "python_ai_service" },
+    { "operation": "modify", "path": "Veritas/ai-service/app/agents/graph.py", "description": "新增 retrieve_stream_node/analyze_stream_node/generate_stream_node，每个节点 yield SSE 事件", "layer": "python_ai_service" },
+    { "operation": "modify", "path": "Veritas/ai-service/app/api/endpoints/agent.py", "description": "新增 POST /analyze/stream 端点 + 复用 _build_agent_instances", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/tests/test_sse_basic_push.py", "description": "SSE 推送基础测试（pytest + httpx.AsyncClient）", "layer": "python_ai_service" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "在 graph.py 改造 retrieve_node/analyze_node/generate_node 为可同时支持同步（返回 dict）和流式（AsyncIterator[SSEEvent]）的版本。提供 _run_node_stream() 包装器：节点执行前 yield agent_started 事件，节点执行中定期 yield agent_state_update 事件，节点执行后 yield agent_completed 事件。",
+        "priority": "P0",
+        "acceptance_condition": "流式执行 retrieve_node 至少 yield 1 个 agent_started + 1 个 agent_completed 事件"
+      },
+      {
+        "id": "FR-002",
+        "description": "AgentOrchestrator.run_workflow_stream() 串联所有节点，最后 yield analysis_completed 事件，data 含 {analysisId, status, finalReport}。任何节点异常 yield agent_failed + error 事件，状态置为 failed。",
+        "priority": "P0",
+        "acceptance_condition": "流式执行后，事件序列为: [agent_started(retriever), agent_state_update(retriever,running), agent_completed(retriever), agent_started(analyzer), ..., analysis_completed]"
+      },
+      {
+        "id": "FR-003",
+        "description": "SSE 端点 /api/agent/analyze/stream 使用 sse-starlette.EventSourceResponse，事件格式严格遵循：event: <name>\\ndata: <json_string>\\n\\n。每个事件 data 字段为 JSON 字符串（不是 dict）。",
+        "priority": "P0",
+        "acceptance_condition": "curl -N POST /api/agent/analyze/stream 返回的 raw 输出形如：event: agent_state_update\\ndata: {\"agentName\":\"retriever\",\"status\":\"running\"}\\n\\n"
+      },
+      {
+        "id": "FR-004",
+        "description": "事件 payload 字段使用 camelCase（与 Java 端 JSON 解析器一致）：agentName / status / progress / intermediateResult / durationMs / analysisId / finalReport。timestamp 使用 int 毫秒。",
+        "priority": "P0",
+        "acceptance_condition": "事件 data 的 JSON 解析后字段为 {agentName, status, progress, intermediateResult, durationMs, analysisId}, timestamp 为 int"
+      },
+      {
+        "id": "FR-005",
+        "description": "错误事件：error 事件的 data 含 {analysisId, errorCode, errorMessage, stackTrace?}。LLM/Agent 异常时 yield agent_failed + error 事件，不中断整个流（除非全局崩溃）。",
+        "priority": "P0",
+        "acceptance_condition": "模拟 AnalyzerAgent 抛异常，SSE 流仍然输出 generator 节点的事件，error 事件 data.errorCode=500"
+      },
+      {
+        "id": "FR-006",
+        "description": "流式执行的总超时复用 settings.AGENT_FULL_TIMEOUT（120s）。SSE 连接本身不超时（直到 analysis_completed 或客户端断开）。",
+        "priority": "P1",
+        "acceptance_condition": "模拟工作流总耗时 > 120s，流式响应在中途 yield error 事件（{errorCode: 408, errorMessage: 'workflow timeout'})"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON camelCase（注意：SSE 事件 JSON 直接使用 camelCase，不再用 snake_case）",
+        "mappings": [
+          { "java": "agentName", "python": "agent_name", "json": "agentName" },
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediateResult" },
+          { "java": "durationMs", "python": "duration_ms", "json": "durationMs" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+          { "java": "errorMessage", "python": "error_message", "json": "errorMessage" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/agent/analyze/stream",
+          "method": "POST",
+          "request_format": { "topic": "string", "paperIds": ["string"], "userId": "string", "userProfile": "object {educationLevel, knowledgeLevel, preferredStyle, researchField}", "analysisType": "report", "analysisId": "string" },
+          "response_format": "SSE stream: event:agent_state_update\ndata:{agentName,status,progress,...}\n\nevent:analysis_completed\ndata:{analysisId,status,finalReport}\n\n"
+        }
+      ],
+      "data_flow": "Java WebClient.stream() → Python FastAPI SSE → sse-starlette.EventSourceResponse → 客户端 EventSource. 事件 data 字段为 JSON 字符串"
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "yield agent_failed 事件，继续后续节点",
+        "multi_agent_failure": "继续执行剩余节点，最终 analysis_completed 的 status='degraded'",
+        "review_retry_limit": 0
+      }
+    },
+    "security_requirements": [
+      { "category": "data_isolation", "requirement": "SSE 事件中不包含 userId/email/其他 PII（除非 analysisId 关联）" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "file_name": "snake_case.py"
+      }
+    },
+    "layering": {
+      "python": { "rule": "Router → Orchestrator → Agent，路由函数只做编排，不写业务逻辑" }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，节点异常 yield error 事件不中断流",
+        "agent_error_handling": "节点函数内 try-except，捕获后 yield {'event':'agent_failed','data':{...}} 并返回降级结果"
+      }
+    },
+    "caching": { "pattern": "本任务不涉及" },
+    "logging": {
+      "python": { "default": "Loguru" },
+      "prohibited": ["SSE 事件 data 字段写入敏感信息", "在事件循环中打印完整 prompt"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或 TODO", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改 LangGraph 框架本身（只使用其 API）", "reason": "框架约束", "severity": "critical" },
+    { "id": "FA-005", "action": "在 SSE 事件 data 中直接返回 snake_case 字段", "reason": "前端 useSSE 期望 camelCase", "severity": "high" },
+    { "id": "FA-008", "action": "在 SSE 事件循环中打印 INFO 日志", "reason": "性能约束", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_sse_event_format",
+        "description": "EventSourceResponse 输出符合 event:\\ndata:\\n\\n 格式",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_sse_camelcase_payload",
+        "description": "事件 data JSON 解析后字段为 camelCase",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_sse_event_sequence",
+        "description": "正常流程事件序列: agent_started(retriever) → ... → analysis_completed",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_sse_agent_failure_event",
+        "description": "Agent 异常时 yield agent_failed + error 事件，不中断流",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_sse_e2e_with_real_workflow",
+        "description": "完整流式端到端测试，使用真实 Graph（mock LLM）",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "python", "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && pytest tests/test_sse_basic_push.py -v", "expected_result": "全部用例 PASS" },
+      { "layer": "python", "command": "uvicorn app.main:app --port 8000 & sleep 3 && curl -N -X POST http://localhost:8000/api/agent/analyze/stream -H 'Content-Type: application/json' -d '{\"topic\":\"test\",\"userId\":\"u1\",\"analysisType\":\"report\"}' 2>&1 | head -50", "expected_result": "SSE 流输出事件，包含 agent_state_update 和 analysis_completed" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "/api/agent/analyze/stream 端点返回 EventSourceResponse", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "事件格式 event:\\ndata:\\n\\n 严格符合 SSE 规范", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "事件 data 字段为 JSON 字符串，字段名 camelCase", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "正常流程事件序列完整: agent_started → agent_state_update → agent_completed → ... → analysis_completed", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "Agent 异常 yield agent_failed + error 事件，不中断流", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "全流程超时 120s 触发 error 事件（{errorCode: 408}）", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "未硬编码、未修改无关模块、SSE 事件不含敏感信息", "verified_by": "code_review" }
+  ]
+}

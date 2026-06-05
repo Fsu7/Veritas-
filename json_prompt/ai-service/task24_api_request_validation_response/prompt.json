@@ -1,0 +1,243 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XH-202630 Coding Task Prompt — AM3-1: API请求校验完善 + 统一响应格式",
+  "task_id": "task24_api_request_validation_response",
+  "milestone": "AM3：API完善与Java对接",
+  "version": "v0.3",
+  "type": "object",
+  "required": [
+    "context",
+    "current_architecture",
+    "relevant_modules",
+    "files_to_modify",
+    "implementation_requirements",
+    "constraints",
+    "forbidden_actions",
+    "test_requirements",
+    "acceptance_criteria"
+  ],
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "AM3：API完善与Java对接（Week 5-6，6/20-7/3）",
+    "requirement": "完善 Pydantic 请求校验（422 错误码细化、空值/枚举/范围校验），实现统一响应包装器 {code, message, data, timestamp}，并新增 app/utils/response.py 工具模块 + 扩展 app/models/schemas.py。Java 后端要求所有 API 响应与 Python 端字段命名、响应结构、状态码语义保持一致。",
+    "requirement_ids": ["F3.5.1", "F3.5.2", "F3.5.4", "F3.5.5"],
+    "reference_docs": [
+      { "path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "API契约与统一响应格式定义（§4.4、§15.1）" },
+      { "path": "docs/ai-service/AI服务模块项目里程碑文档.md", "purpose": "AM3 交付物清单（§5.2 #1, #2, #9）" },
+      { "path": "AGENTS.md", "purpose": "跨系统字段命名约定与统一响应格式" },
+      { "path": "json_prompt/backend/task04_api_response_dto/", "purpose": "Java 端统一响应格式实现（code/message/data/timestamp）" },
+      { "path": "Veritas/ai-service/app/models/schemas.py", "purpose": "现有 Pydantic 模型（已含 camelCase alias）" },
+      { "path": "Veritas/ai-service/app/exception.py", "purpose": "现有异常体系" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service", "java_backend"],
+    "related_modules": [
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/models/schemas.py", "description": "Pydantic 请求/响应模型（camelCase alias 已就位）" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/exception.py", "description": "AIServiceException 体系（4 个异常类）" },
+      { "layer": "python_ai_service", "module_path": "Veritas/ai-service/app/main.py", "description": "全局异常处理器（已实现 AIServiceException / RequestValidationError 处理器）" },
+      { "layer": "java_backend", "module_path": "com.literatureassistant.common.response.ApiResponse", "description": "Java 端统一响应格式（必须与 Python 字段一致）" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/ai-service/app/models/schemas.py", "description": "UserProfile / AnalyzeRequest / SearchRequest 等 Pydantic 模型，含 populate_by_name + alias", "reuse_type": "extend" },
+      { "file_path": "Veritas/ai-service/app/main.py", "description": "ai_service_exception_handler + validation_exception_handler 已实现，但 success 路径未包装 {code, message, data, timestamp}", "reuse_type": "modify" },
+      { "file_path": "Veritas/ai-service/app/exception.py", "description": "AIServiceException / LLMException / VectorStoreException / AgentTimeoutException / ModelNotLoadedException", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "app.utils.response",
+      "path": "Veritas/ai-service/app/utils/response.py",
+      "responsibility": "统一响应包装器：ok() / fail() / error_response() 工厂函数 + timestamp 工具",
+      "key_interfaces": [
+        { "name": "ok", "signature": "ok(data: Any = None, message: str = 'success', code: int = 200) -> dict", "description": "成功响应包装" },
+        { "name": "fail", "signature": "fail(message: str, code: int = 500, data: Any = None) -> dict", "description": "业务失败响应包装" },
+        { "name": "now_ts_ms", "signature": "now_ts_ms() -> int", "description": "当前 UTC 毫秒时间戳" }
+      ]
+    },
+    {
+      "name": "AnalyzeRequest / SearchRequest / HybridSearchRequest",
+      "path": "Veritas/ai-service/app/models/schemas.py",
+      "responsibility": "请求体 Pydantic 模型 + 字段校验",
+      "key_interfaces": [
+        { "name": "AnalyzeRequest.topic", "signature": "str (1-500)", "description": "min_length + max_length 已存在，需补充 description 与 example" },
+        { "name": "AnalyzeRequest.analysisType", "signature": "Literal[paper_analysis, compare, report]", "description": "当前为 str，需升级为 Enum 严格校验" },
+        { "name": "UserProfile.educationLevel", "signature": "Literal[undergraduate, master, phd, faculty]", "description": "当前为 str，需升级为 Enum" },
+        { "name": "UserProfile.knowledgeLevel", "signature": "Literal[beginner, intermediate, advanced, expert]", "description": "当前为 str，需升级为 Enum" },
+        { "name": "UserProfile.preferredStyle", "signature": "Literal[simple, balanced, technical]", "description": "当前为 str，需升级为 Enum" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/ai-service/app/utils/response.py", "description": "统一响应工厂模块：ok()/fail()/now_ts_ms()", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/app/models/enums.py", "description": "枚举定义（EducationLevel/KnowledgeLevel/PreferredStyle/AnalysisType/AgentStatus/LLMMode/AgentName）", "layer": "python_ai_service" },
+    { "operation": "modify", "path": "Veritas/ai-service/app/models/schemas.py", "description": "把 str 类型字段升级为 Enum 严格校验；保持 populate_by_name + alias", "layer": "python_ai_service" },
+    { "operation": "modify", "path": "Veritas/ai-service/app/main.py", "description": "引入统一响应包装器，更新 health 返回格式为 {code, message, data, timestamp}", "layer": "python_ai_service" },
+    { "operation": "modify", "path": "Veritas/ai-service/app/api/endpoints/agent.py", "description": "success 路径用 ok() 包装返回", "layer": "python_ai_service" },
+    { "operation": "modify", "path": "Veritas/ai-service/app/api/endpoints/search.py", "description": "success 路径用 ok() 包装返回", "layer": "python_ai_service" },
+    { "operation": "modify", "path": "Veritas/ai-service/app/api/endpoints/model.py", "description": "success 路径用 ok() 包装返回", "layer": "python_ai_service" },
+    { "operation": "create", "path": "Veritas/ai-service/tests/test_request_validation_response.py", "description": "请求校验 + 统一响应测试（pytest）", "layer": "python_ai_service" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "实现 app/utils/response.py：ok(data, message, code) 返回 {code, message, data, timestamp}；fail(message, code, data) 返回同上；now_ts_ms() 返回 UTC 毫秒时间戳。timestamp 必须是 int（毫秒），与 Java 端 System.currentTimeMillis() 一致。",
+        "priority": "P0",
+        "acceptance_condition": "调用 ok({'x': 1}) 返回 {code:200, message:'success', data:{'x':1}, timestamp: 1700000000000}（int 类型）"
+      },
+      {
+        "id": "FR-002",
+        "description": "新建 app/models/enums.py：EducationLevel/KnowledgeLevel/PreferredStyle/AnalysisType 四个 StrEnum，值与 Java 端枚举完全一致（小写字符串）。",
+        "priority": "P0",
+        "acceptance_condition": "EducationLevel.MASTER.value == 'master'，AnalyzeType.REPORT.value == 'report'"
+      },
+      {
+        "id": "FR-003",
+        "description": "升级 schemas.py：UserProfile.education_level/knowledge_level/preferred_style 改为对应 Enum；AnalyzeRequest.analysis_type 改为 AnalysisType Enum。其他字段（topic/paperIds/topK/userId/analysisId）保持现有 min_length/max_length 校验。",
+        "priority": "P0",
+        "acceptance_condition": "POST /api/agent/analyze 传入 analysisType='xxx' 返回 422 + {code:422, message:'参数校验失败: ...', data:None, timestamp:...}"
+      },
+      {
+        "id": "FR-004",
+        "description": "扩展异常体系：新增 ValidationException(code=422)、RateLimitException(code=429)，保持 AIServiceException 父类。",
+        "priority": "P1",
+        "acceptance_condition": "ValidationException(message='xxx') 抛出后，main.py 的 ai_service_exception_handler 返回 422 + 统一格式"
+      },
+      {
+        "id": "FR-005",
+        "description": "更新 main.py 的 health endpoint：使用 ok() 包装返回 data 包含 llm/embedding/chroma/prompts 等组件状态。",
+        "priority": "P0",
+        "acceptance_condition": "GET /health 返回 {code:200, message:'success', data:{status:'UP', llm:'loaded', embedding:'loaded_local', chroma:'connected', ...}, timestamp:...}"
+      },
+      {
+        "id": "FR-006",
+        "description": "所有 endpoint 的 success 返回都用 ok() 包装（agent.py / search.py / model.py / suggest.py 等）。",
+        "priority": "P0",
+        "acceptance_condition": "任何 200 响应的根级都有 code/message/data/timestamp 4 个字段"
+      },
+      {
+        "id": "FR-007",
+        "description": "RequestValidationError 处理器：将 Pydantic ValidationError 转为 422 + 统一格式，message 包含字段名和错误原因（中文友好）。",
+        "priority": "P0",
+        "acceptance_condition": "POST /api/agent/analyze 缺 userId 时返回 422 + {code:422, message:'参数校验失败: userId 字段必填', data:None, timestamp:...}"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "educationLevel", "python": "education_level", "json": "educationLevel" },
+          { "java": "researchField", "python": "research_field", "json": "researchField" },
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledgeLevel" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferredStyle" },
+          { "java": "paperIds", "python": "paper_ids", "json": "paperIds" },
+          { "java": "analysisType", "python": "analysis_type", "json": "analysisType" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+          { "java": "userId", "python": "user_id", "json": "userId" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/agent/analyze",
+          "method": "POST",
+          "request_format": { "topic": "string", "paperIds": ["string"], "userId": "string", "userProfile": "object {educationLevel, knowledgeLevel, preferredStyle, researchField}", "analysisType": "report|compare|paper_analysis", "analysisId": "string" },
+          "response_format": { "code": 200, "message": "success", "data": { "analysisId": "string", "status": "completed|degraded|failed", "report": "string", "citations": "list of {paperId,text,location}", "agentStates": "list of {name,status,durationMs,intermediateResult}", "degraded": false, "degradedReason": null }, "timestamp": 1700000000000 }
+        }
+      ],
+      "data_flow": "Java 端 WebClient HTTP POST → Python FastAPI 路由 → Pydantic 校验（422/200）→ Service/Agent → ok() 包装 → JSON 响应。Java 端 ApiResponse<T> 反序列化 data 字段为业务 DTO。"
+    },
+    "degradation_requirements": null,
+    "security_requirements": [
+      { "category": "data_isolation", "requirement": "AnalyzeRequest.userId 必填且 min_length=1，禁止为空" },
+      { "category": "other", "requirement": "Pydantic 严格模式：extra='forbid' 拒绝未定义字段（防字段污染）" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py"
+      },
+      "json": { "field_name": "snake_case" },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "educationLevel" },
+        { "java": "analysisType", "python": "analysis_type", "json": "analysisType" }
+      ]
+    },
+    "layering": {
+      "python": { "rule": "Router → Service → Agent，逻辑不在路由函数中。response.py 工具放 utils/，enums.py 放 models/" }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent",
+        "agent_error_handling": "state['errors'].append({'agent': self.name, 'error': str(e)})，return state"
+      }
+    },
+    "caching": { "pattern": "本任务不涉及" },
+    "logging": {
+      "python": { "default": "Loguru" },
+      "prohibited": ["在日志中输出敏感信息（密码、Token、API Key）", "在循环中打印INFO及以上级别日志"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块（如不要改 LLM/Embedding/VectorStore）", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical" },
+    { "id": "FA-006", "action": "硬编码敏感配置", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-007", "action": "违反跨系统字段命名约定（直接返回 snake_case JSON 给 Java 而非 camelCase alias）", "reason": "跨系统一致性", "severity": "high" },
+    { "id": "FA-010", "action": "忽略降级场景（LLM/Agent失败时的处理）", "reason": "可用性约束ADR-003", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_response_factory",
+        "description": "ok/fail/now_ts_ms 行为正确性",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_request_validation",
+        "description": "空 topic / 非法枚举 / 越界 top_k / 缺 userId 等异常请求返回 422 + 统一格式",
+        "framework": "pytest",
+        "coverage": ["error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_camelcase_alias",
+        "description": "Java 风格 camelCase 请求体可被正确反序列化为 snake_case 模型字段",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_enum_strict_validation",
+        "description": "Enum 字段传入非法字符串返回 422，传入合法值通过",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_e2e_analyze_success_returns_unified_response",
+        "description": "完整 POST /api/agent/analyze 调用，验证响应根级含 code/message/data/timestamp",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "python", "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && pytest tests/test_request_validation_response.py -v", "expected_result": "全部用例 PASS" },
+      { "layer": "python", "command": "uvicorn app.main:app --port 8000 & sleep 3 && curl -s -X POST http://localhost:8000/api/agent/analyze -H 'Content-Type: application/json' -d '{\"topic\":\"\",\"userId\":\"u1\",\"analysisType\":\"xxx\"}' | python -m json.tool", "expected_result": "返回 422 + {code:422, message:..., data:null, timestamp:...}" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "app/utils/response.py 实现完成，ok()/fail()/now_ts_ms() 可用", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "app/models/enums.py 实现完成，4 个 StrEnum 定义", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "schemas.py 升级为 Enum 校验，camelCase alias 保持", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "main.py 全局异常处理器返回统一格式（含 RequestValidationError 422）", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "所有 endpoint success 路径用 ok() 包装，根级含 code/message/data/timestamp 4 字段", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "Java 风格 camelCase 请求体能被正确解析", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "非法枚举值（analysisType='xxx'）返回 422 + 统一格式", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "未硬编码敏感配置，未修改无关模块", "verified_by": "code_review" }
+  ]
+}

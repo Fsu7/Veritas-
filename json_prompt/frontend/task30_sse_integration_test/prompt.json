@@ -1,0 +1,122 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析与对比页面完成",
+    "requirement": "SSE 联调 + 综述生成完整流程 + Bug 修复：(1) 扩展 fullChain.spec.ts，新增综述生成路径：选论文 → 触发 generateReport → 模拟 SSE 推送 6 Agent 状态 → completed → ReportView 展示；(2) 用 mock EventSource（vi.stubGlobal）模拟事件；(3) 联调测试覆盖正常流/部分降级/失败重试 3 场景；(4) 修复 SSE 接入 sessionStore 后的回归 bug（已知：cleanup 后 EventSource 未释放、agentStates 重复初始化等）。",
+    "requirement_ids": ["F1.4.1", "F1.5.2", "F1.3.5", "F1.3.6"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "SSE 联调、综述生成流程" },
+      { "path": "AGENTS.md", "purpose": "6 Agent 协同工作流、降级策略" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/__tests__/integration/fullChain.spec.ts", "description": "FM2 阶段全链路测试，需扩展" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/composables/useSSE.ts", "description": "已实现（task28）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "已迁移 useSSE（task29）" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/__tests__/integration/fullChain.spec.ts", "description": "已有：注册→登录→搜索→详情→分析→结果（FM2 测试）", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "fullChain.spec.ts",
+      "path": "Veritas/frontend/src/__tests__/integration/fullChain.spec.ts",
+      "responsibility": "全链路联调测试",
+      "key_interfaces": []
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/frontend/src/__tests__/integration/fullChain.spec.ts", "description": "扩展全链路测试：新增综述生成路径 + 模拟 SSE 推送 + 3 场景" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "mock EventSource：vi.stubGlobal('EventSource', class { constructor(url) { this.url=url; setTimeout(() => this.onopen?.(), 0) } addEventListener(type, cb) { (this['on'+type] = cb) } close() {} trigger(data) { this.onmessage?.({ data: JSON.stringify(data) }) } triggerEvent(type, data) { this['on'+type]?.({ data: JSON.stringify(data) }) } } })",
+        "priority": "P0",
+        "acceptance_condition": "mock EventSource 可手动 trigger 事件"
+      },
+      {
+        "id": "FR-002",
+        "description": "场景 1 - 正常流：选 2 篇论文 → generateReport → mock 推送 6 Agent agent_state_update (coordinator→retriever→analyzer→comparer→generator→reviewer 各 completed) → analysis_completed → ReportView 渲染；验证 agentStore.progress=1, errors=[], totalDurationMs>0",
+        "priority": "P0",
+        "acceptance_condition": "正常流端到端通过"
+      },
+      {
+        "id": "FR-003",
+        "description": "场景 2 - 部分降级：mock generator 推送 status='failed' error='LLM 降级到 LocalLLMProvider' → 完成后 analysisResult.degraded=true degradedReason 包含降级说明 → ReportView 显示 DegradationBadge",
+        "priority": "P0",
+        "acceptance_condition": "降级场景验证通过"
+      },
+      {
+        "id": "FR-004",
+        "description": "场景 3 - 失败重试：mock EventSource onerror 立即触发，attempts 累计到 5 后 sessionStore.analysisError='SSE 连接失败'；然后再 connect 成功 → completed",
+        "priority": "P0",
+        "acceptance_condition": "重试机制正确"
+      },
+      {
+        "id": "FR-005",
+        "description": "Bug 修复清单：(1) sessionStore.cleanup 后 useSSE.disconnect 必被调用；(2) agentStore.initStates 不应被重复调用（重复会重置正在 running 的 Agent）；(3) ReportView 卸载时 onUnmounted 触发 sessionStore.cleanup；(4) useSSE autoConnect=true 时 analysisId 已 null 不创建连接",
+        "priority": "P0",
+        "acceptance_condition": "上述 4 个 bug 修复并补充测试用例"
+      },
+      {
+        "id": "FR-006",
+        "description": "测试隔离：每个 it() 前 resetAllStores / vi.clearAllMocks / vi.useFakeTimers（如使用 setTimeout）；测试间不共享 EventSource 实例",
+        "priority": "P1",
+        "acceptance_condition": "测试间无状态污染"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "SSE 事件 JSON camelCase",
+        "mappings": [
+          { "java": "agentName", "python": "agent_name", "json": "agent_name" },
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediate_result" },
+          { "java": "durationMs", "python": "duration_ms", "json": "duration_ms" }
+        ]
+      },
+      "api_contracts": [
+        { "endpoint": "/api/analysis/report", "method": "POST", "request_format": { "topic": "string", "paper_ids": "string[]" }, "response_format": { "code": 200, "data": "AnalysisResult(analysisId, status=pending)" } },
+        { "endpoint": "/api/analysis/{analysisId}/agent-stream", "method": "GET(SSE)", "response_format": "agent_state_update + analysis_completed" }
+      ],
+      "data_flow": "user click generateReport → sessionStore.startGenerateReport(topic, paperIds) → analysisApi.generateReport → useSSE.connect → 6 Agent SSE → agentStore.bulkSetStates → ReportView 渲染"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "method_variable": "camelCase" } },
+    "layering": { "frontend": { "rule": "测试只通过 Store + composable 公共 API 触发，不直接操作内部 ref" } },
+    "error_handling": { "frontend": { "approach": "mock 失败响应验证降级与重试" } },
+    "caching": { "pattern": "测试前清空 sessionStore.analysisResults 与 agentStore" },
+    "logging": { "prohibited": ["测试中 console.log 真实数据"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "依赖真实后端", "reason": "全链路集成测试必须用 mock", "severity": "high" },
+    { "id": "FA-002", "action": "使用真实 setTimeout 等待", "reason": "vi.useFakeTimers 替代", "severity": "medium" },
+    { "id": "FA-003", "action": "在 mock 中跳过 Agent 状态推送", "reason": "必须模拟完整 6 Agent", "severity": "high" },
+    { "id": "FA-004", "action": "测试后未 unstub EventSource", "reason": "影响后续测试", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "fullChain_normal_report_flow", "description": "场景 1 正常流：选论文→generateReport→6 Agent SSE→completed→ReportView", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "fullChain_degraded_report_flow", "description": "场景 2 降级：generator failed → degraded=true → DegradationBadge", "framework": "vitest", "coverage": ["degradation"] },
+      { "test_name": "fullChain_retry_after_failure", "description": "场景 3 重试：5 次 onerror → 再 connect → completed", "framework": "vitest", "coverage": ["error_flow"] },
+      { "test_name": "fullChain_cleanup_no_leak", "description": "Bug 1 验证：cleanup 后 useSSE.disconnect 必被调用，EventSource mock.close 被调用", "framework": "vitest", "coverage": ["boundary_condition"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无 TS 错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/__tests__/integration/fullChain.spec.ts", "expected_result": "全链路测试通过" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "3 场景全部通过：正常/降级/重试", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "4 个 Bug 全部修复 + 测试覆盖", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "测试隔离正确（每个 it 独立 mock）", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "TypeScript strict + npx vitest run 全通过", "verified_by": "automated_test" }
+  ]
+}

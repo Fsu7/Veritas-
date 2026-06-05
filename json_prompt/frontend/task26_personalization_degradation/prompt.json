@@ -1,0 +1,121 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析与对比页面完成",
+    "requirement": "个性化输出展示 + 降级状态展示：(1) ReportView 根据 userStore.profile.knowledgeLevel 渲染不同解读徽章（beginner=通俗版本；intermediate=均衡版本；advanced=专业版本；expert=专家版本）；(2) AnalysisCard/ReportView 完整展示降级标签与降级原因 tooltip；(3) 新增 DegradationBadge 共享组件：degraded=true 时显示黄色 warning tag + 原因 tooltip，可嵌入任意卡片；(4) ReportView 中显示分析类型 paper_analysis/compare/report 徽章；(5) 个性化提示卡按 4 维度展示用户当前画像。",
+    "requirement_ids": ["F1.4.2", "F1.3.6"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "个性化策略（14 节）、降级显示（13 节）" },
+      { "path": "AGENTS.md", "purpose": "ADR-003 LLM 三级降级、画像驱动策略" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/ReportView.vue", "description": "已完成基础元信息，需补个性化徽章" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue", "description": "已具备降级 tag，提取为 DegradationBadge" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/userStore.ts", "description": "profile.knowledgeLevel/preferredStyle/educationLevel" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue", "description": "已含 el-tag type=warning「部分降级」+ degradedReason 文本", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/views/ReportView.vue", "description": "已含 AI 标注与元信息", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "DegradationBadge",
+      "path": "Veritas/frontend/src/components/common/DegradationBadge.vue",
+      "responsibility": "降级状态徽章，支持 reason tooltip",
+      "key_interfaces": [
+        { "name": "props.degraded", "signature": "degraded?: boolean", "description": "是否降级，默认 false" },
+        { "name": "props.reason", "signature": "reason?: string", "description": "降级原因" },
+        { "name": "props.size", "signature": "'small' | 'default' | 'large'", "description": "尺寸" }
+      ]
+    },
+    {
+      "name": "ReportView",
+      "path": "Veritas/frontend/src/views/ReportView.vue",
+      "responsibility": "综述页 + 个性化徽章 + 画像摘要 + 降级展示",
+      "key_interfaces": []
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/common/DegradationBadge.vue", "description": "可复用降级徽章：el-tag warning + el-tooltip(原因)" },
+    { "operation": "modify", "path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue", "description": "用 DegradationBadge 替换内联降级 tag，保持 props 兼容" },
+    { "operation": "modify", "path": "Veritas/frontend/src/views/ReportView.vue", "description": "新增个性化版本徽章（按 knowledgeLevel 渲染）+ 画像摘要卡片 + DegradationBadge 嵌入" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "DegradationBadge：Props degraded?: boolean (默认 false)、reason?: string、size?: 'small'|'default'|'large' (默认 small)。degraded=false 时不渲染；degraded=true 时 el-tag type=warning effect='light' size=props.size 显示「⚠️ 部分降级」，reason 非空时包裹 el-tooltip placement='top' 显示完整原因",
+        "priority": "P0",
+        "acceptance_condition": "degraded=false 不渲染；degraded=true 显示 tag + tooltip"
+      },
+      {
+        "id": "FR-002",
+        "description": "AnalysisCard 改造：用 <DegradationBadge :degraded='analysis.degraded' :reason='analysis.degradedReason' /> 替换 header 内的内联降级 tag；保留 degradedReason 文本展示（向后兼容）",
+        "priority": "P0",
+        "acceptance_condition": "降级展示统一为 DegradationBadge"
+      },
+      {
+        "id": "FR-003",
+        "description": "ReportView 新增「📌 个性化版本」徽章区：按 userStore.profile.knowledgeLevel 渲染 el-tag：beginner=「通俗版（面向初学者）」/intermediate=「均衡版（标准学术）」/advanced=「专业版（深入研究）」/expert=「专家版（领域权威）」；无 profile 时显示「通用版」",
+        "priority": "P0",
+        "acceptance_condition": "4 知识水平 + null 兜底"
+      },
+      {
+        "id": "FR-004",
+        "description": "ReportView 元信息区扩展画像摘要卡片：4 维度 el-descriptions（学历·研究方向·知识水平·偏好风格），逐行展示 profile 字段；右上角加 DegradationBadge（result.degraded）",
+        "priority": "P1",
+        "acceptance_condition": "画像摘要 4 维度齐全；降级徽章在右上角"
+      },
+      {
+        "id": "FR-005",
+        "description": "ReportView 报告类型徽章：result.type 渲染 el-tag：paper_analysis=「单篇分析综述」、compare=「多论文对比综述」、report=「专题综述」",
+        "priority": "P1",
+        "acceptance_condition": "3 类型徽章正确"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "TypeScript camelCase",
+        "mappings": [
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "userStore.profile.knowledgeLevel → 个性化徽章；AnalysisResult.degraded → DegradationBadge"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" } },
+    "layering": { "frontend": { "rule": "DegradationBadge 纯展示，无业务逻辑" } },
+    "error_handling": { "frontend": { "approach": "degraded=false 不渲染兜底" } },
+    "caching": { "pattern": "无" },
+    "logging": { "prohibited": [] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "DegradationBadge 中读取 Store", "reason": "纯展示组件", "severity": "medium" },
+    { "id": "FA-002", "action": "在多个文件中重复实现降级 tag", "reason": "统一 DegradationBadge", "severity": "medium" },
+    { "id": "FA-003", "action": "硬编码知识水平文案", "reason": "应集中在 ReportView 模板中", "severity": "low" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "DegradationBadge_states", "description": "degraded=false 不渲染；true 显示 tag；reason 触发 tooltip", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition"] },
+      { "test_name": "ReportView_personalization", "description": "4 种 knowledgeLevel 渲染对应徽章；profile=null 显示「通用版」", "framework": "vitest", "coverage": ["normal_flow", "error_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无 TS 错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/__tests__/components/common/DegradationBadge.spec.ts", "expected_result": "DegradationBadge 测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "DegradationBadge 4 状态正确", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "AnalysisCard 改用 DegradationBadge", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "ReportView 4 种知识水平徽章正确", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "画像摘要 4 维度齐全", "verified_by": "code_review" }
+  ]
+}

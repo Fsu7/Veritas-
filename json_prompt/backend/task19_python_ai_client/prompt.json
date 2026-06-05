@@ -1,0 +1,326 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "M3：前后端联调成功 / JM3：AI服务调用打通 (Day 5 of 5)",
+    "requirement": "实现 PythonAIClient：基于 Spring WebClient 封装 HTTP 同步调用 Java→Python AI 服务的核心客户端；支持 论文分析(analyze) / 语义搜索(search) / 健康检查(isHealthy) / 模型状态查询(getModelStatus) 四个端点；具备 超时30s + 重试1次(间隔3s) + 异常转 AIServiceException + /health 集成；严格遵循 Java camelCase ↔ Python snake_case 跨系统字段命名约定。",
+    "requirement_ids": ["F2.5.1", "F2.5.2", "F2.5.3", "F2.5.5"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "8.1-8.2 AI服务调用模块结构、超时/重试/降级策略" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.2-5.4 JM3 交付物清单与验收检查点" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/config/WebClientConfig.java", "purpose": "已存在 WebClient Bean：连接池50、ConnectTimeout5s、responseTimeout30s、maxInMemorySize16MB" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/exception/AIServiceException.java", "purpose": "503 + message + cause + errorKey=AI_SERVICE_ERROR" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/HealthController.java", "purpose": "现有 /health 仅检测 MySQL/Redis，需扩展 aiService 状态（task23 落地，本任务先准备 isHealthy/getModelStatus 方法）" },
+      { "path": "Veritas/ai-service/app/api/router.py", "purpose": "Python 端路由：/api/agent/analyze、/api/search/、/api/model/status、/health" },
+      { "path": "Veritas/ai-service/app/main.py", "purpose": "Python /health 响应格式 {status, llm, embedding, chroma, prompts, search_service, reranker}" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.client",
+        "description": "新增：PythonAIClient — 封装 Java→Python 全部 HTTP 调用"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.config",
+        "description": "已有：WebClientConfig 提供 WebClient Bean（连接池50、30s超时、16MB buffer）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.exception",
+        "description": "已有：AIServiceException(503) + GlobalExceptionHandler.handleAIService"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app.api.endpoints.agent",
+        "description": "POST /api/agent/analyze → AnalyzeResponse（分析主端点）"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app.api.endpoints.search",
+        "description": "POST /api/search/ → SearchResponse；GET /api/search/suggest"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app.api.endpoints.model",
+        "description": "GET /api/model/status → ModelStatusResponse"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app.main",
+        "description": "GET /health → 服务综合状态（UP 200 / 503）"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/WebClientConfig.java", "description": "已注入 WebClient bean（baseUrl 来自 ${ai-service.url}），30s responseTimeout", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/AIServiceException.java", "description": "503 + message + cause + errorKey='AI_SERVICE_ERROR'，可被 GlobalExceptionHandler 捕获返回 ApiResponse 格式", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/pom.xml", "description": "已含 spring-boot-starter-webflux 依赖", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PythonAIClient",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/client/PythonAIClient.java",
+      "responsibility": "封装 Java→Python AI 服务全部 HTTP 调用；提供同步/响应式两种风格的论文分析、对比分析、综述生成、语义搜索、健康检查、模型状态查询方法；统一超时/重试/异常转换。",
+      "key_interfaces": [
+        { "name": "analyze", "signature": "AnalysisResultDTO analyze(AgentRequest request)", "description": "同步调用 /api/agent/analyze，超时30s，重试1次（间隔3s）；用于论文分析、对比分析、综述生成（按 request.analysisType 区分）" },
+        { "name": "search", "signature": "List<PaperSearchResultDTO> search(String query, int topK, Map<String,Object> filters)", "description": "同步调用 POST /api/search/，返回 SearchResultItem 列表" },
+        { "name": "isHealthy", "signature": "boolean isHealthy()", "description": "GET /health 探测，超时5s，返回 boolean；供 HealthController 集成" },
+        { "name": "getModelStatus", "signature": "ModelStatusDTO getModelStatus()", "description": "GET /api/model/status，返回 LLM/Embedding/Chroma/Prompt 各模块状态及当前活跃 LLM Provider" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/client/PythonAIClient.java",
+      "description": "新建 PythonAIClient：4 个方法（analyze/search/isHealthy/getModelStatus），统一超时+重试+异常转换，使用 lombok @Slf4j/@RequiredArgsConstructor",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/AgentRequest.java",
+      "description": "本任务先定义占位 DTO（topic/paperIds/userId/userProfile/analysisType/analysisId），task20 完整字段 + @JsonProperty",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResultDTO.java",
+      "description": "本任务先定义占位 DTO（analysisId/status/report/citations/agentStates/degraded/degradedReason），task20 完善注解",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/client/PythonAIClientTest.java",
+      "description": "单元测试：使用 Mockito 模拟 WebClient + StepVerifier；覆盖正常/超时/5xx/重试/AIServiceException 转换 5 个核心场景",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-019-01",
+        "description": "实现 analyze(AgentRequest)：POST ${ai-service.url}/api/agent/analyze，body=AgentRequest（Java DTO 序列化为 snake_case JSON 传给 Python），返回 AnalysisResultDTO",
+        "priority": "P0",
+        "acceptance_condition": "Python 返回 200 → Java 正确解析为 AnalysisResultDTO；Python 返回 5xx/超时 → 抛 AIServiceException(503)"
+      },
+      {
+        "id": "FR-019-02",
+        "description": "实现 search(query, topK, filters)：POST /api/search/，body={query, topK, filters}，返回 List<PaperSearchResultDTO>",
+        "priority": "P0",
+        "acceptance_condition": "正常返回 SearchResponse.results 列表；topK 必须 1-50，filters 可空"
+      },
+      {
+        "id": "FR-019-03",
+        "description": "实现 isHealthy()：GET /health，超时5s（独立超时，不复用30s），返回 boolean（UP=true）",
+        "priority": "P0",
+        "acceptance_condition": "UP → true；非 200 或 5xx/超时/连接拒绝 → false，且不抛异常"
+      },
+      {
+        "id": "FR-019-04",
+        "description": "实现 getModelStatus()：GET /api/model/status，返回 ModelStatusDTO（llm/embedding/chroma/prompts/embeddingDimension/activeLlmProvider）",
+        "priority": "P1",
+        "acceptance_condition": "正常返回 6 字段 DTO；失败时抛 AIServiceException(503)"
+      },
+      {
+        "id": "FR-019-05",
+        "description": "analyze 方法需具备重试机制：失败时重试1次，间隔3秒（仅在连接被拒/超时/5xx 场景触发重试；4xx 不重试）",
+        "priority": "P0",
+        "acceptance_condition": "第一次调用超时 → 等待3s → 重试1次；若仍失败 → 抛 AIServiceException(503)"
+      },
+      {
+        "id": "FR-019-06",
+        "description": "异常转换：所有 Python 端 4xx/5xx/网络异常 → 统一包装为 AIServiceException(503, 'AI service call failed: ...', cause, 'AI_SERVICE_ERROR')",
+        "priority": "P0",
+        "acceptance_condition": "WebClientResponseException/IOException/TimeoutException 均被捕获并转换，原始异常 cause 保留"
+      },
+      {
+        "id": "FR-019-07",
+        "description": "日志规范：INFO 记录成功调用（analysisId、durationMs），WARN 记录超时与降级触发，ERROR 记录最终失败；禁止在循环中打印 INFO",
+        "priority": "P1",
+        "acceptance_condition": "调用耗时打印 ≥ DEBUG；status 字段打印 ≥ DEBUG"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case（依赖 application.yml 全局 spring.jackson.property-naming-strategy: SNAKE_CASE，本任务 DTO 字段保持 camelCase 即可自动转换）",
+        "mappings": [
+          { "java": "paperIds", "python": "paper_ids", "json": "paperIds" },
+          { "java": "userId", "python": "user_id", "json": "userId" },
+          { "java": "userProfile", "python": "user_profile", "json": "userProfile" },
+          { "java": "analysisType", "python": "analysis_type", "json": "analysisType" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+          { "java": "topK", "python": "top_k", "json": "topK" },
+          { "java": "embeddingDimension", "python": "embedding_dimension", "json": "embeddingDimension" },
+          { "java": "activeLlmProvider", "python": "active_llm_provider", "json": "activeLlmProvider" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/agent/analyze",
+          "method": "POST",
+          "request_format": {
+            "topic": "string (required)",
+            "paperIds": ["string"],
+            "userId": "string (required)",
+            "userProfile": { "educationLevel": "string", "researchField": "string", "knowledgeLevel": "string", "preferredStyle": "string" },
+            "analysisType": "paper_analysis | compare | report (default report)",
+            "analysisId": "string"
+          },
+          "response_format": {
+            "analysisId": "string",
+            "status": "processing | completed | failed | degraded",
+            "report": "string (markdown)",
+            "citations": [{ "index": 1, "paper_id": "string", "citation": "string" }],
+            "agentStates": [{ "agentName": "string", "status": "string", "progress": "number", "intermediateResult": "string", "durationMs": "number" }],
+            "degraded": "boolean",
+            "degradedReason": "string"
+          }
+        },
+        {
+          "endpoint": "POST /api/search/",
+          "method": "POST",
+          "request_format": { "query": "string (1-500)", "topK": "int (1-50, default 10)", "filters": { "yearFrom": "int", "yearTo": "int", "venue": "string" } },
+          "response_format": { "results": [{ "paperId": "string", "title": "string", "abstract": "string", "score": "number (0-1)", "year": "int", "venue": "string" }], "total": "int" }
+        },
+        {
+          "endpoint": "GET /api/model/status",
+          "method": "GET",
+          "request_format": null,
+          "response_format": { "llm": "string", "embedding": "string", "chroma": "string", "prompts": "string", "embeddingDimension": "int", "activeLlmProvider": "string" }
+        },
+        {
+          "endpoint": "GET /health",
+          "method": "GET",
+          "request_format": null,
+          "response_format": { "status": "UP", "timestamp": "ISO8601", "llm": "string", "embedding": "string", "chroma": "string", "prompts": "string", "search_service": "string", "reranker": "string" }
+        }
+      ],
+      "data_flow": "Java Controller → Service → PythonAIClient.analyze(AgentRequest) → WebClient POST → Python /api/agent/analyze → 6-Agent LangGraph → AnalyzeResponse → WebClient 解析 → AnalysisResultDTO → Service → Controller"
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "禁止在日志中输出 AgentRequest 完整内容（含画像细节），仅打印 analysisId、userId、topic（截断 50 字符）"
+      },
+      {
+        "category": "other",
+        "requirement": "Python 端返回的异常信息若含敏感字段（API Key/Token），需在 Java 端记录时脱敏"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE"
+      },
+      "json": { "field_name": "snake_case（依赖全局 Jackson 配置自动转换）" },
+      "cross_system_mapping": [
+        { "java": "paperIds", "python": "paper_ids", "json": "paperIds" },
+        { "java": "userId", "python": "user_id", "json": "userId" },
+        { "java": "userProfile", "python": "user_profile", "json": "userProfile" },
+        { "java": "analysisId", "python": "analysis_id", "json": "analysisId" }
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Client（PythonAIClient），禁止 Controller 直接调 PythonAIClient",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest/XxxResponse（项目规范，非 XxxRequestDTO）"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "PythonAIClient 内部 try-catch → 转 AIServiceException → 由 GlobalExceptionHandler 统一返回 ApiResponse"
+      }
+    },
+    "logging": {
+      "java": "SLF4J + Logback（@Slf4j），通过 MDC 携带 requestId",
+      "prohibited": [
+        "在循环中打印 INFO 及以上级别日志",
+        "输出 AgentRequest 完整 body（含画像细节、API Key）"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-019-01", "action": "硬编码 AI service URL（必须用 @Value(\"${ai-service.url}\")）", "reason": "环境差异（dev=localhost:8000, prod=ai-service:8000）", "severity": "critical" },
+    { "id": "FA-019-02", "action": "在 PythonAIClient 中捕获异常后吞掉（必须转 AIServiceException 抛出）", "reason": "降级与监控依赖异常上抛", "severity": "critical" },
+    { "id": "FA-019-03", "action": "把 Python 端原始错误信息原样返回给前端（必须包装为 'AI服务暂时不可用，请稍后重试'）", "reason": "信息泄露 + UX 约束", "severity": "high" },
+    { "id": "FA-019-04", "action": "使用 RestTemplate/HttpClient（必须用 WebClient，Spring Boot 3.2 异步首选）", "reason": "架构约束 + SSE 扩展需要（task29）", "severity": "high" },
+    { "id": "FA-019-05", "action": "在 4xx 错误时重试（仅 5xx/超时/连接错误才重试）", "reason": "4xx 是客户端错误，重试无意义", "severity": "high" },
+    { "id": "FA-019-06", "action": "把 AgentRequest 中 userProfile 字段直接构造在 WebClient path/body 时丢失 camelCase 转换", "reason": "依赖全局 Jackson SNAKE_CASE 自动转换，禁止显式 @JsonProperty 覆盖", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "analyze_normal_returnsDTO",
+        "description": "Mock WebClient 返回 200 + AnalyzeResponse JSON，验证 Java 端 DTO 字段正确",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "analyze_timeout_triggers_retry",
+        "description": "Mock WebClient 第一次抛 TimeoutException，第二次成功，验证重试逻辑",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "degradation"]
+      },
+      {
+        "test_name": "analyze_5xx_raises_AIServiceException",
+        "description": "Mock WebClient 两次都返回 503，验证最终抛 AIServiceException(503)",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "analyze_4xx_no_retry",
+        "description": "Mock WebClient 返回 400，验证不重试直接抛 AIServiceException",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "isHealthy_returns_true_on_200",
+        "description": "Mock GET /health 200，验证返回 true",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "isHealthy_returns_false_on_timeout",
+        "description": "Mock GET /health 超时，验证返回 false 且不抛异常",
+        "framework": "junit5",
+        "coverage": ["degradation", "boundary_condition"]
+      },
+      {
+        "test_name": "search_passes_topK_and_filters",
+        "description": "Mock POST /api/search/，验证 topK/filters 正确传递",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "analyze_e2e_with_real_python",
+        "description": "启动 Python AI 服务（docker compose up ai-service），Java 端调用 analyze(单论文)，验证返回 200 + analysisId",
+        "layers_involved": ["java_backend", "python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest=PythonAIClientTest test", "expected_result": "7/7 测试通过，0 失败" },
+      { "layer": "java", "command": "cd Veritas/backend && mvn compile", "expected_result": "编译成功，无 WARNING" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-019-01", "criterion": "PythonAIClient.java 编译通过，含 analyze/search/isHealthy/getModelStatus 4 个 public 方法", "verified_by": "code_review" },
+    { "id": "AC-019-02", "criterion": "analyze 方法在 Python 返回 5xx/超时时抛 AIServiceException(503)，GlobalExceptionHandler 正确转换为 ApiResponse 503", "verified_by": "automated_test" },
+    { "id": "AC-019-03", "criterion": "analyze 方法具备重试1次能力（仅 5xx/超时/连接错误触发）", "verified_by": "automated_test" },
+    { "id": "AC-019-04", "criterion": "isHealthy() 超时5s 且不抛异常，返回 boolean", "verified_by": "automated_test" },
+    { "id": "AC-019-05", "criterion": "字段命名遵循 Java camelCase（依赖全局 Jackson 自动转 snake_case JSON）", "verified_by": "code_review" },
+    { "id": "AC-019-06", "criterion": "PythonAIClientTest 7 个测试全部通过", "verified_by": "automated_test" },
+    { "id": "AC-019-07", "criterion": "未修改 WebClientConfig / 已有 Service / Controller", "verified_by": "code_review" }
+  ]
+}

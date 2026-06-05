@@ -1,5 +1,6 @@
 package com.literatureassistant.enums;
 
+import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.Getter;
 
 @Getter
@@ -9,6 +10,7 @@ public enum AnalysisType implements DbValueEnum {
     COMPARE("compare"),
     REPORT("report");
 
+    @JsonValue
     private final String dbValue;
 
     AnalysisType(String dbValue) {
@@ -25,5 +27,10 @@ public enum AnalysisType implements DbValueEnum {
             }
         }
         return null;
+    }
+
+    @Override
+    public String toString() {
+        return dbValue;
     }
 }

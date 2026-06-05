@@ -1,0 +1,118 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.3",
+    "milestone": "FM3：论文分析与对比页面完成",
+    "requirement": "扩展 AnalysisCard 组件：(1) 整合 PlainExplanation 受控展示（props.showPlainExplanation）；(2) 降级标签：analysis.degraded=true 时显示 el-tag warning「部分降级」+ 可选 degradedReason 提示；(3) 个性化适配：根据 analysis.type 区分单篇分析/对比/综述；展示 researchField 标识；(4) 增加分析耗时展示（durationMs）；(5) AI 内容标注「AI生成，仅供参考」；保持单文件 ≤ 300 行。",
+    "requirement_ids": ["F1.3.2", "F1.3.3", "F1.3.6"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "AnalysisCard 模板（6.3 节）、降级/个性化策略（13/14 节）" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM3 检查点：降级标签 + 个性化" },
+      { "path": "AGENTS.md", "purpose": "用户画像与 LLM 降级（ADR-003）" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue", "description": "现已有 5 维度渲染、PlainExplanation 嵌入、降级 tag；需扩展耗时、个性化" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/analysis.ts", "description": "AnalysisResult/StructuredAnalysis/CompareResult/Citation/Conflict 类型" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/userStore.ts", "description": "profile.educationLevel/knowledgeLevel/preferredStyle 决定展示" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue", "description": "已实现：5 维度（researchQuestion/coreMethod/keyExperiments/coreFindings/limitations）、DIMENSIONS 数组、PlainExplanation 嵌入、降级 tag 与 degradedReason、generate-report/select-compare 事件", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AnalysisCard",
+      "path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue",
+      "responsibility": "5 维度分析卡片，受 showPlainExplanation + degraded 共同控制",
+      "key_interfaces": [
+        { "name": "props.analysis", "signature": "analysis: AnalysisResult", "description": "后端返回的分析结果" },
+        { "name": "props.showPlainExplanation", "signature": "showPlainExplanation?: boolean", "description": "是否显示通俗解释，默认 false" },
+        { "name": "props.durationMs", "signature": "durationMs?: number", "description": "本次分析耗时（毫秒），由父级传" },
+        { "name": "props.researchField", "signature": "researchField?: string", "description": "用户研究方向，仅展示" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/frontend/src/components/analysis/AnalysisCard.vue", "description": "扩展 AnalysisCard：新增 durationMs/researchField props、显示耗时与研究方向、降级原因 hover tooltip、保留 AI 标注" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "新增 props：durationMs?: number、researchField?: string，使用 withDefaults 保持向后兼容",
+        "priority": "P0",
+        "acceptance_condition": "TypeScript 类型扩展；默认值 undefined 不影响现有调用方"
+      },
+      {
+        "id": "FR-002",
+        "description": "header 改造：左侧「🤖 AI 智能分析」+ 类型徽章（paper_analysis=单篇，compare=对比，report=综述），中部「AI生成，仅供参考」标注，右侧降级 tag + 可选耗时徽章（durationMs/1000 保留 1 位小数+s）",
+        "priority": "P0",
+        "acceptance_condition": "header 中 4 类元素按需显示，无空标签残留"
+      },
+      {
+        "id": "FR-003",
+        "description": "降级展示：analysis.degraded=true 时 el-tag type=warning「部分降级」+ analysis.degradedReason 非空时用 el-tooltip 显示原因；degraded=true 且某维度为空的，dim 标题右侧加 el-tag size=small type=info「已降级」",
+        "priority": "P0",
+        "acceptance_condition": "降级 tag 与降级原因 tooltip 同时存在；某维度为空时显示「已降级」"
+      },
+      {
+        "id": "FR-004",
+        "description": "个性化：在 5 维度下方、PlainExplanation 上方加可折叠「📌 个性化提示」卡片（el-collapse），根据 userStore.profile.knowledgeLevel 与 researchField 渲染不同文案：beginner→「这是为你定制的科普版本」；intermediate→「聚焦方法与结论」；advanced→「聚焦创新点与实验设计」；expert→「聚焦方法局限与未来工作」",
+        "priority": "P1",
+        "acceptance_condition": "knowledgeLevel 不同渲染不同提示；无 profile 时降级为通用提示"
+      },
+      {
+        "id": "FR-005",
+        "description": "底部操作：保留「生成综述」「选择对比」事件，事件名 generate-report / select-compare，参数为 analysisId；footer 显示「基于 N 篇文献 / 仅单篇」等元信息（按 analysis.type 渲染）",
+        "priority": "P1",
+        "acceptance_condition": "事件签名不变；footer 元信息随 type 变化"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "TypeScript camelCase，JSON snake_case",
+        "mappings": [
+          { "java": "durationMs", "python": "duration_ms", "json": "duration_ms" },
+          { "java": "degradedReason", "python": "degraded_reason", "json": "degraded_reason" },
+          { "java": "researchField", "python": "research_field", "json": "research_field" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "AnalysisResult(degraded/degradedReason/result.analysis) → AnalysisCard props → 渲染降级 tag + tooltip + 维度"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" } },
+    "layering": { "frontend": { "rule": "组件接受 props，可读 userStore.profile 用于个性化提示；事件不传 Store 引用" } },
+    "error_handling": { "frontend": { "approach": "任一字段缺失不抛错，使用 el-empty 或省略号降级" } },
+    "caching": { "pattern": "无独立缓存" },
+    "logging": { "prohibited": ["console.log 完整 analysis 字段"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "在 AnalysisCard 中直接调用 API", "reason": "应由 Store 编排；组件纯展示", "severity": "critical" },
+    { "id": "FA-002", "action": "修改 emit 事件签名", "reason": "保持向后兼容 PaperDetailView 现有调用", "severity": "high" },
+    { "id": "FA-003", "action": "组件超过 300 行", "reason": "可维护性", "severity": "medium" },
+    { "id": "FA-004", "action": "硬编码颜色", "reason": "CSS 变量统一", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "AnalysisCard_degraded", "description": "analysis.degraded=true 时显示降级 tag + tooltip；degradedReason 缺失时不显示 tooltip", "framework": "vitest", "coverage": ["normal_flow", "error_flow"] },
+      { "test_name": "AnalysisCard_personalization", "description": "profile.knowledgeLevel 不同渲染不同个性化提示；profile=null 时显示通用提示", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition"] },
+      { "test_name": "AnalysisCard_events", "description": "点击生成综述/选择对比触发 emit，参数为 analysisId", "framework": "vitest", "coverage": ["normal_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无 TypeScript 错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run src/__tests__/components/analysis/AnalysisCard.spec.ts", "expected_result": "AnalysisCard 测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "新增 props 类型与默认行为正确，向后兼容", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "降级 tag + tooltip 正确联动；维度缺失显示「已降级」", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "4 种知识水平渲染对应个性化提示", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "footer 元信息随 analysis.type 变化", "verified_by": "code_review" },
+    { "id": "AC-005", "criterion": "组件代码 ≤ 300 行", "verified_by": "code_review" }
+  ]
+}
