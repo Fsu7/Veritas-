@@ -489,14 +489,14 @@ curl -X POST http://localhost:8000/api/agent/analyze \
 
 ### 6.3 详细任务分解
 
-#### Week 7 Day 1-2：协调者Agent
+#### Week 7 Day 1-2：协调者Agent✅
 
 | 天数 | 任务 | 产出 |
 |------|------|------|
 | Day 1 | CoordinatorAgent核心逻辑 | agents/coordinator.py |
 | Day 2 | 任务分解逻辑 + Prompt模板 | prompts/coordinator.txt |
 
-#### Week 7 Day 3-4：对比Agent
+#### Week 7 Day 3-4：对比Agent✅
 
 | 天数 | 任务 | 产出 |
 |------|------|------|

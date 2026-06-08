@@ -1,0 +1,772 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XH-202630 Coding Task Prompt — AM4-3: ComparerAgent 对比Agent核心逻辑",
+  "task_id": "task34_comparer_agent_core",
+  "milestone": "AM4：6-Agent协同与个性化引擎",
+  "version": "v0.4",
+  "type": "object",
+  "required": [
+    "context",
+    "current_architecture",
+    "relevant_modules",
+    "files_to_modify",
+    "implementation_requirements",
+    "constraints",
+    "forbidden_actions",
+    "test_requirements",
+    "acceptance_criteria"
+  ],
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "AM4：6-Agent协同与个性化引擎（Week 7-8，M4）",
+    "requirement": "实现 ComparerAgent 对比员 Agent 核心逻辑，产出 `agents/comparer.py`。ComparerAgent 是 6-Agent 协同工作流的可选节点（仅在 requires_compare=True 时激活），位于 Analyzer 之后、Generator 之前。它接收 AnalyzerAgent 输出的多篇论文 5 维度分析结果（analysis_results），通过 PromptManager 加载 prompts/comparer.txt 模板，调用 LLMService.generate() 进行多论文对比与矛盾发现，输出结构化对比矩阵 {comparison_matrix, summary, contradictions, paper_count}。对比维度固定 4 个：research_problem / core_method / main_experiments / core_conclusions。每篇论文至少 1 个 comparison_matrix.papers 字段引用。矛盾检测需识别 5 类根因（dataset_bias / metric_difference / condition_difference / assumption_difference / methodological_conflict），每条矛盾包含 papers 列表、topic、双方 claim/evidence、root_cause、resolution_suggestion。Agent 超时 30s。LLM 失败时降级为基于规则的两两对比（提取每对论文 4 维度的差异点 + 简单矛盾关键词匹配），不阻塞 LangGraph 流程。",
+    "requirement_ids": ["F3.1.4", "F3.1.7", "F3.1.8"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "Section 5.2 Agent角色定义表（Comparer=对比研究员） + Section 5.4.4 ComparerAgent 详细设计（_run/build_compare_prompt/_parse_comparison 接口规范、对比维度、矛盾发现） + Section 5.5 WorkflowState TypedDict + Section 5.7 降级策略"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "Section 6 M4 交付物 #2 对比Agent（对比 2-5 篇论文，生成对比表格，维度完整） + Section 6.3 Week 7 Day 3-4 任务分解"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-002 多智能体协同编排（Agent超时30s、降级机制）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "Section 3.1 Agent角色定义 + Section 3.2 6-Agent 协同工作流（条件分支：论文数>=2 激活 Comparer）"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/base.py",
+        "purpose": "BaseAgent 基类 — execute()/build_prompt()/_run()/_fallback_result() 接口，ComparerAgent 必须继承"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/analyzer.py",
+        "purpose": "AnalyzerAgent 实现 — 参考 Agent 构造器模式，build_prompt 调用 prompt_manager，_run 含进度更新 + 降级处理。ComparerAgent 输入来自 AnalyzerAgent 的 analysis_results"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/generator.py",
+        "purpose": "GeneratorAgent 实现 — 参考 Agent 完整模板（_run/_build_personalization_block/_fallback_result/_summarize_result）。ComparerAgent 输出 compare_result 供 GeneratorAgent 消费"
+      },
+      {
+        "path": "Veritas/ai-service/app/agents/coordinator.py",
+        "purpose": "task32 产出的 CoordinatorAgent — 输出的 requires_compare 标记控制 ComparerAgent 是否激活（LangGraph 条件边）"
+      },
+      {
+        "path": "Veritas/ai-service/prompts/comparer.txt",
+        "purpose": "已有对比 Prompt 模板（v1 待升级）— 当前仅含 4 维度对比 + JSON Schema，task35 负责重写为 v2 标准模板"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/llm_service.py",
+        "purpose": "LLMService.generate(prompt) -> str — 统一推理接口，含三路降级，ComparerAgent 通过此服务调用 LLM 进行对比"
+      },
+      {
+        "path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "purpose": "PromptManager.get_prompt(agent_name, **kwargs) -> str — 模板渲染，ComparerAgent 通过此服务加载 prompts/comparer.txt"
+      },
+      {
+        "path": ".trae/skills/python-agent-prompt-generator/prompt-templates.md",
+        "purpose": "Template 4 Comparer Agent 完整 Prompt DSL 规范 — 对比矩阵 Schema + 矛盾检测规则 + 5 类根因"
+      },
+      {
+        "path": ".trae/skills/python-agent-prompt-generator/multi-agent-coordination.md",
+        "purpose": "Section 立场冲突解决（Comparer 发现两篇论文结论矛盾 → 标注矛盾 + 分析根因，不裁决）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/",
+        "description": "Agent 模块目录，已有 base.py / retriever.py / analyzer.py / generator.py / coordinator.py / graph.py / tools.py / __init__.py / orchestrator.py，需新增 comparer.py"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/base.py",
+        "description": "BaseAgent 抽象基类 — execute() 含 30s 超时 + 降级，_run/build_prompt 为 @abstractmethod，_fallback_result/_summarize_result 可覆盖"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/analyzer.py",
+        "description": "AnalyzerAgent — 上游 Agent，输出 analysis_results 供 ComparerAgent 消费（每项含 5 维度结构 + paper_id + paper_title + extraction_quality）"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/coordinator.py",
+        "description": "CoordinatorAgent（task32 产出）— 输出的 requires_compare 标记控制 ComparerAgent 是否激活"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/generator.py",
+        "description": "GeneratorAgent — 下游 Agent，接收 ComparerAgent 输出的 compare_result 用于综述生成"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/agents/graph.py",
+        "description": "LangGraph 工作流（M2 阶段 3-Agent 线性）— 后续 task36 升级为 6-Agent 含 should_compare 条件边"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "prompts/comparer.txt",
+        "description": "对比 Prompt 模板（v1 待升级）— 当前使用 $analysis_data 变量，4 维度对比 + JSON Schema 输出"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/llm_service.py",
+        "description": "LLMService — generate(prompt) -> str 统一推理接口，含三路降级（Builtin→API→Local）"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/services/prompt_manager.py",
+        "description": "PromptManager — get_prompt(agent_name, **kwargs) -> str 模板渲染（string.Template.safe_substitute）"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app/models/schemas.py",
+        "description": "AnalyzeRequest Pydantic 模型 — topic/paper_ids/user_profile/analysis_type/analysis_id，ComparerAgent 间接消费 paper_ids"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent 基类 — execute() 含 30s 超时 + 降级返回，_run/build_prompt 为 @abstractmethod，_fallback_result 返回 {degraded:True, agent:self.name, error:...}",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/analyzer.py",
+        "description": "AnalyzerAgent 实现 — 参考 Agent 构造器模式（注入 llm_service/prompt_manager/personalization_service），build_prompt 调用 prompt_manager，_run 含 LLM 5 维度提取 + 规则降级 + 个性化指令",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/generator.py",
+        "description": "GeneratorAgent 实现 — 参考 Agent 完整模板（_run/_build_personalization_block/_validate_report/_generate_fallback_report/_fallback_result/_summarize_result）",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/coordinator.py",
+        "description": "CoordinatorAgent（task32 产出）— 输出的 requires_compare 标记控制 ComparerAgent 是否激活（LangGraph 条件边）",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/prompts/comparer.txt",
+        "description": "对比 Prompt 模板（v1 待升级）— $analysis_data 变量，method_comparison + conclusion_comparison + contradictions + summary JSON Schema",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/llm_service.py",
+        "description": "LLMService.generate() — 统一 LLM 推理接口，含三路降级",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "description": "PromptManager.get_prompt(agent_name, **kwargs) — 模板渲染（string.Template.safe_substitute）",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "agents/comparer.py（待创建）",
+      "path": "Veritas/ai-service/app/agents/comparer.py",
+      "responsibility": "ComparerAgent 对比员 Agent 核心逻辑 — 接收多篇论文 5 维度分析结果，通过 PromptManager 加载对比模板，调用 LLM 进行多论文对比与矛盾发现，输出结构化对比矩阵 {comparison_matrix, summary, contradictions, paper_count}。LLM 失败时降级为基于规则的两两对比。",
+      "key_interfaces": [
+        {
+          "name": "ComparerAgent.__init__",
+          "signature": "def __init__(self, llm_service, prompt_manager, timeout: int = 30, llm_temperature: float = 0.4, llm_max_tokens: int = 3072, min_papers_for_compare: int = 2, max_papers_for_compare: int = 5) -> None",
+          "description": "构造器，调用 super().__init__(name='comparer', llm_service=llm_service, prompt_manager=prompt_manager, timeout=timeout)。额外属性：llm_temperature=0.4（对比需要适度创造性但需稳定 JSON 输出）、llm_max_tokens=3072（对比矩阵可能较长）、min_papers_for_compare=2（最少 2 篇才进入对比）、max_papers_for_compare=5（最多 5 篇避免 LLM 上下文爆炸）。"
+        },
+        {
+          "name": "ComparerAgent.build_prompt",
+          "signature": "def build_prompt(self, input_data: dict, context: dict) -> str",
+          "description": "构建对比 Prompt。从 input_data 提取 analysis_results(列表，含 5 维度+paper_id+paper_title)，序列化为 JSON 字符串。从 context 提取 user_profile(4维度 dict) 序列化为画像字符串。调用 prompt_manager.get_prompt('comparer', analysis_data=, user_profile=, paper_count=)。返回渲染后的 prompt 字符串。"
+        },
+        {
+          "name": "ComparerAgent._run",
+          "signature": "async def _run(self, prompt: str, input_data: dict, context: dict) -> dict",
+          "description": "核心执行逻辑：(1) 从 input_data 获取 analysis_results，校验 paper_count 范围 [min_papers_for_compare, max_papers_for_compare]；(2) 更新 progress=0.2, intermediate_result='Building comparison prompt'；(3) 调用 build_prompt 构建完整 prompt；(4) 更新 progress=0.5, intermediate_result='Calling LLM for comparison'；(5) 调用 llm_service.generate(prompt, max_tokens=llm_max_tokens, temperature=llm_temperature) 获取对比输出；(6) 更新 progress=0.8, intermediate_result='Parsing comparison matrix'；(7) 调用 _parse_comparison 解析为结构化对比矩阵；(8) 验证矛盾根因 ∈ VALID_ROOT_CAUSES；(9) 更新 progress=1.0, intermediate_result=summary；(10) 返回 {comparison_matrix, summary, contradictions, paper_count, agent: 'comparer'}。"
+        },
+        {
+          "name": "ComparerAgent._parse_comparison",
+          "signature": "def _parse_comparison(self, llm_output: str, input_data: dict) -> dict",
+          "description": "解析 LLM 输出为结构化对比结果。优先尝试 JSON 解析（提取 ```json ... ``` 块或首个 { ... } 块）；解析成功后提取 {comparison_matrix, summary, contradictions}。验证 contradictions[].root_cause ∈ VALID_ROOT_CAUSES（dataset_bias/metric_difference/condition_difference/assumption_difference/methodological_conflict），非法值替换为 'methodological_conflict'。解析失败时降级到 _rule_based_comparison(input_data)。返回结构化对比 dict。"
+        },
+        {
+          "name": "ComparerAgent._rule_based_comparison",
+          "signature": "def _rule_based_comparison(self, input_data: dict) -> dict",
+          "description": "基于规则的两两对比（LLM 失败 / JSON 解析失败时降级）。遍历 analysis_results 列表，对每对论文 (paper_i, paper_j) 提取 4 个对比维度的差异：(1) research_problem 比较 summary 文本相似度（关键词重叠率）；(2) core_method 比较 summary 中技术名词差异；(3) main_experiments 比较数据集/指标关键词差异；(4) core_conclusions 比较 summary 中结论方向（一致/互补/矛盾）。矛盾检测使用简单关键词匹配（'但是'/'然而'/'不同于'/'相比之下'/'然而'+'不同结论'等）。返回 {comparison_matrix: {similarities, differences, contradictions}, summary: '...', contradictions: [...], paper_count: N}。"
+        },
+        {
+          "name": "ComparerAgent._extract_dimension_summary",
+          "signature": "def _extract_dimension_summary(self, result: dict, dimension: str) -> str",
+          "description": "从 analysis_result 中提取指定维度的 summary 文本。处理 dict 类型（取 summary 字段）、str 类型（直接返回）、None 类型（返回 '论文未明确提及'）。返回字符串。"
+        },
+        {
+          "name": "ComparerAgent._calculate_similarity",
+          "signature": "def _calculate_similarity(self, text1: str, text2: str) -> float",
+          "description": "计算两段文本的关键词重叠率（简化相似度）。分词后取集合交集 / 并集，返回 0.0-1.0 之间的浮点数。供 _rule_based_comparison 调用，标记 similarities 数组的 similarity 字段。"
+        },
+        {
+          "name": "ComparerAgent._detect_conflict_keywords",
+          "signature": "def _detect_conflict_keywords(self, text1: str, text2: str) -> list",
+          "description": "检测两段文本中的矛盾关键词。关键词集合：['但是', '然而', '不同于', '相比之下', '相反', 'contradict', 'however', 'but', 'unlike']。返回命中的关键词列表。供 _rule_based_comparison 调用，简单矛盾检测。"
+        },
+        {
+          "name": "ComparerAgent._summarize_comparison",
+          "signature": "def _summarize_comparison(self, comparison_result: dict) -> str",
+          "description": "生成对比结果摘要字符串（用于 state.intermediate_result）。格式：'对比 N 篇论文: M 个相似点, K 个差异, L 个矛盾'。从 comparison_result 提取 paper_count/similarities.length/differences.length/contradictions.length。"
+        },
+        {
+          "name": "ComparerAgent._fallback_result",
+          "signature": "def _fallback_result(self, input_data: dict) -> dict",
+          "description": "覆盖 BaseAgent._fallback_result。LLM 失败/超时/JSON 解析失败时调用 _rule_based_comparison 生成降级对比结果。返回 {degraded: True, agent: 'comparer', comparison_matrix: ..., summary: ..., contradictions: ..., paper_count: N, error: self.state.error}。降级路径必须保证 LangGraph 流程不中断。"
+        },
+        {
+          "name": "ComparerAgent._summarize_result",
+          "signature": "def _summarize_result(self, result: dict) -> str",
+          "description": "覆盖 BaseAgent._summarize_result。返回格式：'Compared N papers: M similarities, K differences, L contradictions'。从 result 提取 paper_count/comparison_matrix.similarities.length/comparison_matrix.differences.length/comparison_matrix.contradictions.length。"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/agents/comparer.py",
+      "description": "ComparerAgent 对比员 Agent 核心逻辑 — 多论文对比、4 维度矩阵、5 类矛盾根因检测、规则降级",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "实现 ComparerAgent 类，继承 BaseAgent。__init__ 中调用 super().__init__(name='comparer', llm_service=llm_service, prompt_manager=prompt_manager, timeout=timeout)。额外属性：llm_temperature=0.4（对比任务需要适度创造性，低于 Generator 但高于 Coordinator）、llm_max_tokens=3072（对比矩阵可能较长）、min_papers_for_compare=2（最少 2 篇）、max_papers_for_compare=5（最多 5 篇，避免 LLM 上下文爆炸）。",
+        "priority": "P0",
+        "acceptance_condition": "isinstance(comparer, BaseAgent) 为 True；comparer.name == 'comparer'；comparer.timeout == 30"
+      },
+      {
+        "id": "FR-002",
+        "description": "实现 build_prompt(input_data, context) 方法。从 input_data 提取 analysis_results(列表)，序列化为 JSON 字符串（ensure_ascii=False）。从 context 提取 user_profile(dict)，序列化为画像字符串。调用 prompt_manager.get_prompt('comparer', analysis_data=json_str, user_profile=profile_str, paper_count=str(N))。返回渲染后的 prompt 字符串。",
+        "priority": "P0",
+        "acceptance_condition": "prompt_manager.get_prompt('comparer', ...) 被正确调用；传入的 analysis_data/user_profile/paper_count 变量在渲染后可见"
+      },
+      {
+        "id": "FR-003",
+        "description": "实现 _run(prompt, input_data, context) 异步方法。核心流程：(1) 从 input_data 获取 analysis_results，校验 paper_count 范围：< min_papers_for_compare 时返回降级空结果；> max_papers_for_compare 时截断到前 max_papers_for_compare 篇；(2) 更新 progress=0.2, intermediate_result='Building comparison prompt'；(3) 调用 build_prompt 构建完整 prompt；(4) 更新 progress=0.5, intermediate_result='Calling LLM for comparison'；(5) 调用 llm_service.generate(prompt, max_tokens=self.llm_max_tokens, temperature=self.llm_temperature) 获取对比输出；(6) 更新 progress=0.8, intermediate_result='Parsing comparison matrix'；(7) 调用 _parse_comparison 解析为结构化对比矩阵；(8) 验证矛盾根因合法性（VALID_ROOT_CAUSES）；(9) 调用 _summarize_comparison 生成摘要；(10) 更新 progress=1.0, intermediate_result=summary；(11) 返回 {comparison_matrix, summary, contradictions, paper_count, agent: 'comparer'}。",
+        "priority": "P0",
+        "acceptance_condition": "正常 LLM 流程返回完整 {comparison_matrix, summary, contradictions, paper_count, agent}；progress 从 0 到 1.0 渐变；paper_count 在 [min, max] 范围内"
+      },
+      {
+        "id": "FR-004",
+        "description": "实现 _parse_comparison(llm_output, input_data) 方法。优先尝试 JSON 解析：(1) 提取 ```json ... ``` 代码块；(2) 提取首个 { ... } 块；(3) json.loads 解析。解析成功后提取 {comparison_matrix, summary, contradictions}。校验 comparison_matrix.papers 列表是否包含所有 analysis_results 的 paper_id（缺失则补全）。校验 contradictions[].root_cause ∈ VALID_ROOT_CAUSES = {'dataset_bias', 'metric_difference', 'condition_difference', 'assumption_difference', 'methodological_conflict'}，非法值替换为 'methodological_conflict' 并记录 warning。解析失败时降级调用 _rule_based_comparison(input_data)。返回 {comparison_matrix, summary, contradictions, paper_count}。",
+        "priority": "P0",
+        "acceptance_condition": "LLM 输出合法 JSON → 解析为对比矩阵 + 矛盾列表；矛盾根因非法 → 替换为 'methodological_conflict'；缺失 paper_id → 自动补全；非法 JSON → 降级到 _rule_based_comparison"
+      },
+      {
+        "id": "FR-005",
+        "description": "实现 _rule_based_comparison(input_data) 方法。基于规则的两两对比（LLM 不可用时的降级路径）。从 input_data 获取 analysis_results，对每对论文 (paper_i, paper_j)：(1) 4 维度逐个比较（research_problem/core_method/main_experiments/core_conclusions）；(2) 计算 summary 文本相似度（_calculate_similarity，0-1 之间）；(3) 检测矛盾关键词（_detect_conflict_keywords）。返回结构化对比结果：{comparison_matrix: {dimensions: ['research_problem', 'core_method', 'main_experiments', 'core_conclusions'], papers: [paper_ids], similarities: [{dimension, papers, similarity, description}], differences: [{dimension, papers, description}], contradictions: [{papers, topic, claim_a, claim_b, evidence_a, evidence_b, root_cause: 'methodological_conflict', resolution_suggestion: '基于当前证据无法判定，建议...'}], summary: '基于规则的两两对比结果...', paper_count: N}。",
+        "priority": "P0",
+        "acceptance_condition": "3 篇论文 → C(3,2)=3 个对比对，similarities/differences/contradictions 数组均反映这 3 对；LLM 不可用时仍能输出有效对比结构"
+      },
+      {
+        "id": "FR-006",
+        "description": "实现 _extract_dimension_summary(result, dimension) 辅助方法。从单个 analysis_result 中提取指定维度的 summary 文本。处理 3 种类型：(1) dict 类型 → 取 summary 字段；(2) str 类型 → 直接返回；(3) None 或缺失 → 返回 FALLBACK_NOTE='论文未明确提及'。返回字符串。供 _rule_based_comparison 调用。",
+        "priority": "P0",
+        "acceptance_condition": "dict 维度含 summary → 返回 summary 文本；str 维度 → 原样返回；None → 返回 '论文未明确提及'"
+      },
+      {
+        "id": "FR-007",
+        "description": "实现 _calculate_similarity(text1, text2) 辅助方法。计算两段文本的关键词重叠率（简化 Jaccard 相似度）。流程：(1) 中文分词（按字符 + 简单 n-gram，n=2）；(2) 转集合；(3) |交集| / |并集|；(4) 归一化到 0.0-1.0。空文本或相同文本时返回 1.0。返回浮点数。供 _rule_based_comparison 调用。",
+        "priority": "P1",
+        "acceptance_condition": "相同文本 → 1.0；完全不同 → < 0.3；部分重叠 → 0.3-0.7；返回值在 0-1 之间"
+      },
+      {
+        "id": "FR-008",
+        "description": "实现 _detect_conflict_keywords(text1, text2) 辅助方法。检测两段文本中的矛盾关键词。关键词集合 CONFLICT_KEYWORDS = ['但是', '然而', '不同于', '相比之下', '相反', 'contradict', 'however', 'but', 'unlike', 'whereas', 'on the other hand']。返回命中的关键词列表（不重复）。供 _rule_based_comparison 简单矛盾检测。",
+        "priority": "P1",
+        "acceptance_condition": "文本含 '但是' 或 'however' → 返回 ['但是'] 或 ['however']；无矛盾关键词 → 返回空列表"
+      },
+      {
+        "id": "FR-009",
+        "description": "实现 _summarize_comparison(comparison_result) 方法。生成对比结果摘要字符串。格式：'对比 N 篇论文: M 个相似点, K 个差异, L 个矛盾'。从 comparison_result 提取 paper_count、comparison_matrix.similarities.length、comparison_matrix.differences.length、comparison_matrix.contradictions.length。该摘要作为 state.intermediate_result 用于 SSE 推送。",
+        "priority": "P1",
+        "acceptance_condition": "5 篇论文 + 10 相似点 + 8 差异 + 2 矛盾 → '对比 5 篇论文: 10 个相似点, 8 个差异, 2 个矛盾'"
+      },
+      {
+        "id": "FR-010",
+        "description": "覆盖 _fallback_result(input_data) 方法。LLM 失败/超时/JSON 解析失败时调用 _rule_based_comparison 生成降级对比结果，确保 LangGraph 流程不中断。返回 {degraded: True, agent: 'comparer', comparison_matrix: rule_based_matrix, summary: rule_based_summary, contradictions: rule_based_contradictions, paper_count: N, error: self.state.error}。",
+        "priority": "P0",
+        "acceptance_condition": "LLM 不可用时返回含规则对比的完整结构；degraded=True；comparison_matrix 含 4 维度对比；paper_count 反映实际论文数"
+      },
+      {
+        "id": "FR-011",
+        "description": "覆盖 _summarize_result(result) 方法。返回格式：'Compared N papers: M similarities, K differences, L contradictions'。从 result 提取 paper_count、comparison_matrix.similarities.length、comparison_matrix.differences.length、comparison_matrix.contradictions.length。",
+        "priority": "P1",
+        "acceptance_condition": "返回字符串包含论文数、相似点、差异、矛盾数"
+      },
+      {
+        "id": "FR-012",
+        "description": "AI 免责声明处理。ComparerAgent 不直接生成用户可见内容（仅做对比分析），但矛盾发现结论应客观（标注 'AI 生成的对比分析，仅供参考'）。在 summary 字段末尾追加 AI_DISCLAIMER = '⚠️ 本对比由 AI 生成，仅供参考'。",
+        "priority": "P0",
+        "acceptance_condition": "summary 字段末尾始终包含 AI 免责声明；不重复添加"
+      },
+      {
+        "id": "FR-013",
+        "description": "使用 Loguru 记录关键日志：对比开始/完成（INFO 级别）、论文数校验（INFO 级别）、LLM 调用失败（WARNING 级别）、降级触发（WARNING 级别）、JSON 解析失败（WARNING 级别）、矛盾根因替换（WARNING 级别）、矛盾检测结果含数量（DEBUG 级别）。不在日志中输出完整 LLM 输出或用户敏感信息。",
+        "priority": "P1",
+        "acceptance_condition": "日志包含 agent 名称、论文数、相似点/差异/矛盾数量、关键决策点；不包含 LLM API Key 或完整 prompt"
+      },
+      {
+        "id": "FR-014",
+        "description": "定义类常量：VALID_ROOT_CAUSES = {'dataset_bias', 'metric_difference', 'condition_difference', 'assumption_difference', 'methodological_conflict'}；COMPARE_DIMENSIONS = ['research_problem', 'core_method', 'main_experiments', 'core_conclusions']；MIN_PAPERS = 2；MAX_PAPERS = 5；CONFLICT_KEYWORDS = [...]；FALLBACK_NOTE = '论文未明确提及'；AI_DISCLAIMER = '⚠️ 本对比由 AI 生成，仅供参考'。便于测试和后续维护。",
+        "priority": "P1",
+        "acceptance_condition": "所有常量定义完整；无魔法字符串或魔法数字"
+      },
+      {
+        "id": "FR-015",
+        "description": "激活条件校验。_run 入口处必须校验 analysis_results 数量：(1) len < MIN_PAPERS (2) 时返回空对比结果 {comparison_matrix: {dimensions: [], papers: [], similarities: [], differences: [], contradictions: []}, summary: '论文数 < 2，无需对比', contradictions: [], paper_count: len}（虽然 Coordinator 已校验 requires_compare，但代码层需再次防御）；(2) len > MAX_PAPERS (5) 时截断到前 5 篇并记录 warning 日志。该校验确保 LangGraph 不会因数据问题导致 LLM 上下文爆炸。",
+        "priority": "P0",
+        "acceptance_condition": "1 篇论文 → 返回空对比结构 + 提示信息；6+ 篇 → 截断到 5 篇 + warning 日志"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Python/JSON 统一使用 snake_case",
+        "mappings": [
+          {"python": "comparison_matrix", "json": "comparison_matrix"},
+          {"python": "similarities", "json": "similarities"},
+          {"python": "differences", "json": "differences"},
+          {"python": "contradictions", "json": "contradictions"},
+          {"python": "research_problem", "json": "research_problem"},
+          {"python": "core_method", "json": "core_method"},
+          {"python": "main_experiments", "json": "main_experiments"},
+          {"python": "core_conclusions", "json": "core_conclusions"},
+          {"python": "paper_id", "json": "paper_id"},
+          {"python": "paper_title", "json": "paper_title"},
+          {"python": "paper_count", "json": "paper_count"},
+          {"python": "analysis_results", "json": "analysis_results"},
+          {"python": "root_cause", "json": "root_cause"},
+          {"python": "claim_a", "json": "claim_a"},
+          {"python": "claim_b", "json": "claim_b"},
+          {"python": "evidence_a", "json": "evidence_a"},
+          {"python": "evidence_b", "json": "evidence_b"},
+          {"python": "resolution_suggestion", "json": "resolution_suggestion"},
+          {"python": "dataset_bias", "json": "dataset_bias"},
+          {"python": "metric_difference", "json": "metric_difference"},
+          {"python": "condition_difference", "json": "condition_difference"},
+          {"python": "assumption_difference", "json": "assumption_difference"},
+          {"python": "methodological_conflict", "json": "methodological_conflict"}
+        ]
+      },
+      "data_flow": "ComparerAgent 从 input_data['analysis_results'] 获取上游 AnalyzerAgent 输出的多篇论文 5 维度分析结果（每项含 paper_id/paper_title/research_problem.summary/core_method.summary 等）。输出 {comparison_matrix, summary, contradictions, paper_count, agent: 'comparer'} 供 LangGraph 传递给 GeneratorAgent 用于综述生成。paper_count 字段供上游 Coordinator 校验 requires_compare 决策，下游 Generator 据此判断是否在综述中包含'方法对比'章节。"
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "ComparerAgent 整体 LLM 调用失败 → 调用 _rule_based_comparison(input_data) 生成降级对比结果，确保 LangGraph 流程可继续",
+        "llm_call_timeout": "asyncio.wait_for 30s 超时（BaseAgent.execute 控制）→ _fallback_result 返回规则对比结果，degraded=True",
+        "json_parse_failure": "LLM 输出无法 JSON 解析 → _parse_comparison 降级到 _rule_based_comparison，不阻塞 GeneratorAgent",
+        "paper_count_out_of_range": "len(analysis_results) < 2 → 返回空对比结构（即使 Coordinator 已校验，代码层需防御）；> 5 → 截断到 5 篇 + warning",
+        "invalid_root_cause": "contradictions[].root_cause 不在 VALID_ROOT_CAUSES 中 → 替换为 'methodological_conflict'（最通用的兜底根因）"
+      },
+      "llm_degradation": {
+        "llm_call_failure": "llm_service.generate() 抛异常 → _run 捕获后调用 _fallback_result 走规则对比降级",
+        "llm_empty_output": "LLM 返回空字符串 → _parse_comparison 降级到 _rule_based_comparison"
+      },
+      "workflow_impact": "ComparerAgent 降级不影响 LangGraph 流程——规则对比保证 4 维度对比矩阵 + 简单矛盾检测，下游 GeneratorAgent 可消费（综述'方法对比'章节可能略浅但流程不中断）"
+    },
+    "security_requirements": [
+      {
+        "id": "SR-001",
+        "description": "AI 免责声明：所有 summary 字段末尾必须包含 '⚠️ 本对比由 AI 生成，仅供参考'，符合 AGENTS.md 安全规范",
+        "priority": "P0"
+      },
+      {
+        "id": "SR-002",
+        "description": "日志安全：不在日志中输出完整 LLM Prompt 或输出（仅输出摘要如论文数、相似点/差异/矛盾数量）",
+        "priority": "P0"
+      },
+      {
+        "id": "SR-003",
+        "description": "数据隔离：仅对比当前 analysis_id 的 analysis_results，禁止跨会话访问（通过 LangGraph State 传递保证）",
+        "priority": "P0"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中。ComparerAgent 属于 Agent 层，可调用 Service 层（LLMService/PromptManager），不可直接调用 API 层或操作数据库，不可直接调用其他 Agent（仅通过 LangGraph State 传递数据）"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent 异常不阻塞后续 Agent。_run 内部捕获 LLM 异常走 _fallback_result 降级路径。BaseAgent.execute() 提供的 30s 超时控制覆盖整体",
+        "agent_error_handling": "LLM 调用失败：logger.warning + _rule_based_comparison 降级；JSON 解析失败：logger.warning + _rule_based_comparison 降级；矛盾根因非法：logger.warning + 替换为 methodological_conflict；论文数越界：logger.warning + 截断或返回空结果"
+      }
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在日志中输出完整 LLM Prompt 或输出（使用摘要）",
+        "在日志中输出敏感信息（密码、Token、API Key、用户隐私）"
+      ]
+    },
+    "token_budget": {
+      "description": "LLM 调用 Token 预算分配",
+      "system_prompt": 500,
+      "task_prompt": 1500,
+      "memory_context": 300,
+      "tool_output": 3500,
+      "total": 5800
+    },
+    "timeout": {
+      "agent_timeout": 30,
+      "unit": "seconds"
+    }
+  },
+  "forbidden_actions": [
+    {
+      "id": "FA-001",
+      "action": "输出伪代码或 TODO 注释",
+      "reason": "必须输出完整可执行代码",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-002",
+      "action": "修改 base.py / retriever.py / analyzer.py / generator.py / coordinator.py / graph.py / prompt_manager.py / llm_service.py / comparer.txt 等已有文件",
+      "reason": "本任务仅新增 agents/comparer.py，不修改任何已有代码（comparer.txt 的重写由 task35 独立任务负责）",
+      "severity": "high"
+    },
+    {
+      "id": "FA-003",
+      "action": "输出字段使用 camelCase 命名（如 comparisonMatrix / paperCount）",
+      "reason": "Python/JSON 统一使用 snake_case（comparison_matrix / paper_count），与跨系统一致性约束一致",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-004",
+      "action": "LLM 失败时抛出异常而非降级处理",
+      "reason": "ComparerAgent 失败会导致 LangGraph 流程中断（Generator 无法获取 compare_result），必须降级为规则对比保证流程不中断",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-005",
+      "action": "ComparerAgent 直接调用其他 Agent（如 self.analyzer.execute()）",
+      "reason": "Comparer 仅做任务对比，子任务执行由 LangGraph 编排，违反单向数据流和分层调用规范",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-006",
+      "action": "ComparerAgent 包含综述生成或最终报告输出逻辑",
+      "reason": "职责混淆，Comparer 是对比研究员，不是 Generator；避免 God Prompt / Planner-Executor Hybrid 反模式",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-007",
+      "action": "硬编码对比维度字符串或矛盾根因阈值（必须使用常量 VALID_ROOT_CAUSES / COMPARE_DIMENSIONS / MIN_PAPERS / MAX_PAPERS）",
+      "reason": "避免魔法字符串/魔法数字，便于后续维护和测试",
+      "severity": "medium"
+    },
+    {
+      "id": "FA-008",
+      "action": "在 comparer.py 中修改 prompts/comparer.txt 的内容",
+      "reason": "Prompt 模板修改属于 task35 独立任务，本任务仅通过 prompt_manager.get_prompt('comparer', ...) 读取使用",
+      "severity": "high"
+    },
+    {
+      "id": "FA-009",
+      "action": "ComparerAgent 失败时返回 None 或空 dict 导致 LangGraph 中断",
+      "reason": "可用性约束 ADR-002，必须保证 LangGraph 流程不中断，规则对比降级是 P0 硬性要求",
+      "severity": "critical"
+    },
+    {
+      "id": "FA-010",
+      "action": "省略 paper_count 字段校验（min/max 防御）",
+      "reason": "防御性编程，< 2 篇时进入对比无意义，> 5 篇时 LLM 上下文爆炸；代码层需再次防御即使 Coordinator 已校验",
+      "severity": "high"
+    },
+    {
+      "id": "FA-011",
+      "action": "省略矛盾根因校验（VALID_ROOT_CAUSES 过滤）",
+      "reason": "防止 LLM 输出非法根因字符串污染数据，非法值需替换为 'methodological_conflict' 兜底",
+      "severity": "high"
+    }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_comparer_inherits_base_agent",
+        "description": "测试 ComparerAgent 继承 BaseAgent，name='comparer'，isinstance 验证",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_build_prompt_renders_template",
+        "description": "测试 build_prompt 正确调用 prompt_manager.get_prompt('comparer', analysis_data=, user_profile=, paper_count=)",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_build_prompt_with_two_papers",
+        "description": "测试 2 篇论文时 build_prompt 正常渲染（边界条件：最少 2 篇）",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_parse_comparison_valid_json",
+        "description": "测试 _parse_comparison 解析合法 JSON 代码块，提取 comparison_matrix/summary/contradictions",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_parse_comparison_invalid_json",
+        "description": "测试 _parse_comparison 在 JSON 解析失败时降级到 _rule_based_comparison",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_parse_comparison_invalid_root_cause",
+        "description": "测试 _parse_comparison 将非法 root_cause 替换为 'methodological_conflict'",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_parse_comparison_missing_paper_id",
+        "description": "测试 _parse_comparison 自动补全缺失的 paper_id 到 comparison_matrix.papers",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_rule_based_comparison_with_three_papers",
+        "description": "测试 _rule_based_comparison 3 篇论文 → C(3,2)=3 个对比对，similarities/differences/contradictions 均反映这 3 对",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_rule_based_comparison_detects_conflict_keywords",
+        "description": "测试 _rule_based_comparison 通过关键词匹配检测矛盾（'但是'/'然而'/'however' 等）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_extract_dimension_summary_dict",
+        "description": "测试 _extract_dimension_summary 处理 dict 类型（取 summary 字段）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_extract_dimension_summary_str",
+        "description": "测试 _extract_dimension_summary 处理 str 类型（直接返回）",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_extract_dimension_summary_none",
+        "description": "测试 _extract_dimension_summary 处理 None/缺失 → 返回 '论文未明确提及'",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_calculate_similarity_identical",
+        "description": "测试 _calculate_similarity 相同文本 → 1.0",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_calculate_similarity_completely_different",
+        "description": "测试 _calculate_similarity 完全不同的文本 → < 0.3",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_detect_conflict_keywords_chinese",
+        "description": "测试 _detect_conflict_keywords 检测中文矛盾关键词（'但是'/'然而'/'不同于'）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_detect_conflict_keywords_english",
+        "description": "测试 _detect_conflict_keywords 检测英文矛盾关键词（'however'/'but'/'unlike'）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_summarize_comparison",
+        "description": "测试 _summarize_comparison 生成 '对比 N 篇论文: M 个相似点, K 个差异, L 个矛盾' 摘要",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_run_success_flow",
+        "description": "测试 _run 正常 LLM 流程：3 篇论文 + analysis_type='compare' → 返回完整 {comparison_matrix, summary, contradictions, paper_count=3, agent}，progress 从 0 到 1.0 渐变",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_run_with_single_paper_returns_empty",
+        "description": "测试 _run 入口校验：1 篇论文 → 返回空对比结构 + '论文数 < 2，无需对比' 提示",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_run_with_too_many_papers_truncates",
+        "description": "测试 _run 入口校验：6 篇论文 → 截断到 5 篇 + warning 日志",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_run_llm_failure_fallback",
+        "description": "测试 LLM 调用失败时走 _rule_based_comparison 降级路径，返回 degraded=True",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_run_llm_empty_output_fallback",
+        "description": "测试 LLM 返回空字符串时降级到 _rule_based_comparison",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_fallback_result_preserves_langgraph_flow",
+        "description": "测试 _fallback_result 返回的结构包含 comparison_matrix（4 维度），可被 GeneratorAgent 后续节点消费",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "test_ai_disclaimer_in_summary",
+        "description": "测试 summary 字段末尾始终包含 AI 免责声明 '⚠️ 本对比由 AI 生成，仅供参考'",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_summarize_result",
+        "description": "测试 _summarize_result 返回 'Compared N papers: M similarities, K differences, L contradictions' 格式字符串",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_comparer_with_prompt_manager",
+        "description": "集成测试：ComparerAgent 与真实 PromptManager 配合，从 prompts/comparer.txt 加载模板并渲染",
+        "framework": "pytest",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_comparer_with_analyzer_chain",
+        "description": "集成测试：AnalyzerAgent 输出 → ComparerAgent 消费 → GeneratorAgent 消费的完整链路（端到端对比）",
+        "framework": "pytest",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && python -c \"from app.agents.comparer import ComparerAgent; print('Import OK')\"",
+        "expected_result": "Import OK（无 import 错误）"
+      },
+      {
+        "layer": "python",
+        "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && python -m pytest tests/test_comparer_agent.py -v",
+        "expected_result": "全部测试用例通过（PASS）"
+      },
+      {
+        "layer": "python",
+        "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && python -m pytest tests/ -k comparer -v",
+        "expected_result": "所有 comparer 相关测试通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "ComparerAgent 继承 BaseAgent，name='comparer'，构造器签名与基类一致",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "_run 正常 LLM 流程返回 {comparison_matrix(4维度+similarities/differences/contradictions), summary, contradictions, paper_count, agent}",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "_run 中 progress 从 0.2 → 0.5 → 0.8 → 1.0 渐变，intermediate_result 反映对比阶段",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "_parse_comparison 优先 JSON 解析，失败降级到 _rule_based_comparison；矛盾根因非法替换为 'methodological_conflict'",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "_rule_based_comparison 对 C(N,2) 个论文对生成 similarities/differences/contradictions",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "论文数 < 2 时返回空对比结构 + 提示信息；> 5 时截断到 5 篇 + warning",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "LLM 失败/超时/JSON 解析失败/空输出时 _fallback_result 返回规则对比，degraded=True，LangGraph 流程不中断",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "summary 字段末尾始终包含 AI 免责声明 '⚠️ 本对比由 AI 生成，仅供参考'",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "所有输出字段使用 snake_case 命名（comparison_matrix / paper_count / root_cause 等）",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-010",
+      "criterion": "不在 comparer.py 中硬编码对比维度或矛盾根因（使用 VALID_ROOT_CAUSES / COMPARE_DIMENSIONS 常量）",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-011",
+      "criterion": "ComparerAgent 不直接调用其他 Agent（仅通过 prompt_manager.get_prompt + llm_service.generate）",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-012",
+      "criterion": "ComparerAgent 不包含综述生成逻辑（避免职责混淆）",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-013",
+      "criterion": "不在日志中输出完整 LLM Prompt 或输出（仅输出摘要）",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-014",
+      "criterion": "单元测试覆盖：正常流程、异常流程（LLM 失败/JSON 解析失败）、边界条件（1 篇/6 篇/矛盾根因非法/缺失字段）",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-015",
+      "criterion": "未修改 base.py / retriever.py / analyzer.py / generator.py / coordinator.py / graph.py / prompt_manager.py / llm_service.py / comparer.txt 等已有文件",
+      "verified_by": "code_review"
+    }
+  ]
+}
