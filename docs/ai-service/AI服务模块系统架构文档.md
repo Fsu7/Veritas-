@@ -3,9 +3,9 @@
 > **课题编号**：XH-202630  
 > **课题名称**：领域知识个性化生成与多智能体协同决策系统研究  
 > **发榜单位**：上海云之脑智能科技有限公司（科大讯飞全资子公司）  
-> **文档版本**：v1.0  
-> **创建日期**：2026年5月23日  
-> **文档状态**：初稿
+> **文档版本**：v1.4
+> **创建日期**：2026年5月23日
+> **文档状态**：已同步代码
 
 ---
 
@@ -16,6 +16,8 @@
 | v1.0 | 2026-05-23 | 项目组 | 初始版本 |
 | v1.1 | 2026-05-25 | 项目组 | M1修复后更新：Embedding模型bge-large-zh→bge-m3、维度校验、软件方URL空值保护、camelCase alias、/health 503、LLM超时控制、AppState重构 |
 | v1.2 | 2026-06-03 | 项目组 | LLM外接API方案B切换：默认LLM从阿里云DashScope(qwen-plus)切到 **DeepSeek V4 Flash**（OpenAI 兼容，`https://api.deepseek.com/v1`）。原因：1M 上下文、推理接近 V4-Pro、价格仅 ¥1/百万 tokens（输入）。Embedding仍保留阿里云百炼 text-embedding-v4。冒烟测试已通过。 |
+| v1.3 | 2026-06-08 | 项目组 | 全面同步代码实现状态：Agent工作流3节点实际架构、AgentOrchestrator SSE编排器（7种事件+keep-alive+Last-Event-ID）、Reranker复合评分、Embedding切换DashScope API优先、搜索API扩展3端点、LLM自动恢复、中文友好校验、统一响应工具、新增异常类、配置项更新 |
+| v1.4 | 2026-06-08 | 项目组 | 同步代码演进：工作流升级4节点（retrieve→analyze→generate→review+条件边+重试循环）、Reviewer Agent已实现review_node并接入graph、SSE事件8种（新增review_rejected）、NODE_ORDER含reviewer、新增citation_parser.py、修正FastAPI生命周期/版本号/critical_ok/校验状态码/异常默认code/Generator返回字段等9处中影响+6处低影响差异 |
 
 ---
 
@@ -55,11 +57,11 @@
 
 | 模块编号 | 模块名称 | 核心职责 |
 |---------|---------|---------|
-| F3.1 | 多Agent协同引擎 | Agent角色定义、LangGraph工作流编排、降级机制 |
-| F3.2 | RAG检索模块 | 文档向量化、语义检索、混合检索、重排序 |
+| F3.1 | 多Agent协同引擎 | Agent角色定义、LangGraph工作流编排（4节点：retrieve→analyze→generate→review，含条件边+重试循环）、降级机制、SSE编排器 |
+| F3.2 | RAG检索模块 | 文档向量化、语义检索、混合检索、关键词检索、重排序、搜索建议 |
 | F3.3 | LLM服务模块 | 三路模型配置(软件方/外接API/本地)、推理服务、降级切换 |
 | F3.4 | 个性化引擎模块 | 用户画像解析、Prompt个性化、难度/风格适配 |
-| F3.5 | API服务模块 | FastAPI路由、请求校验、SSE推送 |
+| F3.5 | API服务模块 | FastAPI路由、请求校验、SSE推送、统一响应包装 |
 | F5.2 | Embedding模型模块 | 文本向量化(text-embedding-v4阿里云百炼API)、批量处理 |
 | F4.3 | 向量数据库模块 | Chroma向量存储、相似度检索 |
 
@@ -68,19 +70,20 @@
 | 技术 | 版本 | 用途 |
 |------|------|------|
 | **Python** | 3.10+ | 编程语言 |
-| **FastAPI** | 0.110+ | AI服务框架 |
-| **Uvicorn** | 0.29+ | ASGI服务器 |
-| **LangGraph** | 0.0.50+ | 多Agent编排框架 |
-| **LangChain** | 0.1.0+ | LLM应用框架 |
-| **Transformers** | 4.40+ | 本地模型加载（HuggingFace） |
-| **Sentence-Transformers** | 2.7+ | Embedding模型加载 |
+| **FastAPI** | 0.115+ | AI服务框架 |
+| **Uvicorn** | 0.32+ | ASGI服务器 |
+| **LangGraph** | 0.2.28+ | 多Agent编排框架 |
+| **LangChain** | 0.3.0+ | LLM应用框架 |
+| **Transformers** | 4.45+ | 本地模型加载（HuggingFace） |
+| **Sentence-Transformers** | 3.1+ | Embedding模型加载 |
 | **ChromaDB** | 0.5.0+ | 向量数据库 |
-| **Pydantic** | 2.7+ | 数据验证与配置管理 |
-| **OpenAI SDK** | 1.23+ | 外接API调用（兼容接口） |
+| **Pydantic** | 2.9+ | 数据验证与配置管理 |
+| **Pydantic Settings** | 2.5+ | 环境变量配置管理 |
+| **OpenAI SDK** | 1.50+ | 外接API调用（兼容接口） |
 | **httpx** | 0.27+ | 异步HTTP客户端 |
 | **Loguru** | 0.7.0 | 日志框架 |
 | **NumPy** | 1.26+ | 数值计算 |
-| **PyMuPDF** | 1.23+ | PDF解析 |
+| **PyMuPDF** | 1.25+ | PDF解析 |
 | **pytest** | 8.1+ | 测试框架 |
 
 ---
@@ -96,17 +99,16 @@
 │  SSE流式推送 → 健康检查 → 模型状态查询                       │
 ├─────────────────────────────────────────────────────────────┤
 │                    Agent协同引擎层（LangGraph）                │
-│  协调者Agent → 检索Agent → 分析Agent → 对比Agent            │
-│  → 生成Agent → 审核Agent                                    │
-│  工作流编排 → 状态管理 → 降级策略 → 超时控制                │
+│  检索Agent → 分析Agent → 生成Agent → 审核Agent（条件边）    │
+│  工作流编排 → 状态管理 → 降级策略 → 超时控制 → 重试循环    │
 ├─────────────────────────────────────────────────────────────┤
 │                      服务层（Business Services）              │
 │  LLMService → EmbeddingService → VectorStoreService         │
 │  PersonalizationService → SearchService                     │
 ├─────────────────────────────────────────────────────────────┤
 │                      基础设施层（Infrastructure）             │
-│  ChromaDB → text-embedding-v4(阿里云百炼 Embedding) → DeepSeek V4 Flash(外接API)/软件方模型/本地Qwen2 │
-│  Prompt模板 → Redis（可选） → MySQL（通过Java间接访问）      │
+│  ChromaDB → DashScope text-embedding-v4(阿里云百炼 Embedding API) → DeepSeek V4 Flash(外接API)/软件方模型/本地Qwen2 │
+│  PromptManager → Reranker → SearchService → Redis（可选） → MySQL（通过Java间接访问）      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -122,7 +124,7 @@ FastAPI路由层
 Agent协同引擎 / SearchService
     │
     ├── Agent协同引擎
-    │   │ 协调者Agent分解任务
+    │   │ 检索Agent分解任务
     │   ▼
     │   检索Agent → EmbeddingService.encode() → ChromaDB.query()
     │   │ SSE推送Agent状态
@@ -130,16 +132,14 @@ Agent协同引擎 / SearchService
     │   分析Agent → LLMService.generate()（结构化提取）
     │   │ SSE推送Agent状态
     │   ▼
-    │   对比Agent（可选）→ LLMService.generate()
-    │   │ SSE推送Agent状态
-    │   ▼
     │   生成Agent → PersonalizationService.build_prompt() → LLMService.generate()
     │   │ SSE推送Agent状态
     │   ▼
-    │   审核Agent → LLMService.generate()（事实核查）
-    │   │ SSE推送Agent状态
+    │   审核Agent（条件边触发）→ citation验证+事实核查
+    │   │ 审核不通过 → 重新生成（regenerate_count < 1时重试）
+    │   │ SSE推送Agent状态 / review_rejected事件
     │   ▼
-    │   协调者Agent汇总 → 返回最终结果
+    │   返回最终结果
     │
     └── SearchService
         │ EmbeddingService.encode(query) → ChromaDB.query()
@@ -180,55 +180,59 @@ Agent协同引擎 / SearchService
 ### 3.1 目录结构
 
 ```
-ai-service-python/
+ai-service/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                          # FastAPI入口，应用生命周期管理
+│   ├── main.py                          # FastAPI入口，应用生命周期管理，健康检查，异常处理器
+│   ├── exception.py                     # 异常体系（6类异常）
 │   │
 │   ├── api/                             # API路由层
 │   │   ├── __init__.py
-│   │   ├── router.py                    # 路由聚合（汇总所有endpoint）
+│   │   ├── router.py                    # 路由聚合（agent/search/model）
 │   │   └── endpoints/
 │   │       ├── __init__.py
-│   │       ├── agent.py                 # Agent调用接口（POST /api/agent/analyze）
-│   │       ├── search.py                # 检索接口（POST /api/search）
+│   │       ├── agent.py                 # Agent调用接口（POST /api/agent/analyze, /analyze/stream）
+│   │       ├── search.py                # 检索接口（POST /, /hybrid, GET /suggest）
 │   │       └── model.py                 # 模型状态接口（GET /api/model/status）
 │   │
 │   ├── core/                            # 核心配置
 │   │   ├── __init__.py
 │   │   ├── config.py                    # Pydantic Settings配置（环境变量）
-│   │   ├── events.py                    # 启动/关闭事件（模型加载/释放）
+│   │   ├── events.py                    # 启动/关闭事件（AppState 6组件+超时保护初始化）
 │   │   └── logging.py                   # 日志配置（Loguru）
 │   │
 │   ├── agents/                          # 多Agent模块（F3.1）
 │   │   ├── __init__.py
-│   │   ├── coordinator.py               # 协调者Agent
-│   │   ├── retriever.py                  # 检索Agent
-│   │   ├── analyzer.py                   # 分析Agent
-│   │   ├── comparer.py                   # 对比Agent
-│   │   ├── generator.py                 # 生成Agent
-│   │   ├── reviewer.py                  # 审核Agent
-│   │   ├── base.py                      # Agent基类
-│   │   ├── tools.py                     # Agent工具定义（向量检索、关键词搜索）
-│   │   └── graph.py                    # LangGraph工作流定义
+│   │   ├── base.py                      # Agent基类（含AgentState.to_dict/update_progress）
+│   │   ├── coordinator.py               # 协调者Agent（已实现，未接入graph）
+│   │   ├── retriever.py                 # 检索Agent（已接入graph）
+│   │   ├── analyzer.py                  # 分析Agent（已接入graph，含rule-based降级）
+│   │   ├── comparer.py                  # 对比Agent（已实现，未接入graph，4维度+5类矛盾根因）
+│   │   ├── generator.py                 # 生成Agent（已接入graph，含citation提取+term_density+fallback报告）
+│   │   ├── tools.py                     # Agent工具定义（vector_search/keyword_search/hybrid_search/rerank）
+│   │   ├── graph.py                     # LangGraph工作流定义（3节点：retrieve→analyze→generate）
+│   │   └── orchestrator.py             # SSE流式编排器（7种事件+keep-alive+Last-Event-ID）
 │   │
 │   ├── services/                        # 服务层
 │   │   ├── __init__.py
-│   │   ├── llm_service.py              # LLM推理服务（F3.3）
-│   │   ├── embedding_service.py        # Embedding向量化服务（F5.2）
-│   │   ├── vector_store_service.py     # Chroma向量存储服务（F3.2+F4.3）
-│   │   ├── search_service.py           # 检索服务（F3.2）
-│   │   └── personalization_service.py  # 个性化引擎服务（F3.4）
+│   │   ├── llm_service.py              # LLM推理服务（F3.3，三路降级+自动恢复）
+│   │   ├── embedding_service.py        # Embedding向量化服务（F5.2，DashScope API优先）
+│   │   ├── vector_store_service.py     # Chroma向量存储服务（F3.2+F4.3，10个方法）
+│   │   ├── search_service.py           # 检索服务（F3.2，语义+关键词+混合+建议）
+│   │   ├── reranker.py                 # 重排序服务（复合评分：RRF+字段+流行度+年份+个性化）
+│   │   ├── personalization_service.py  # 个性化引擎服务（F3.4，agent级别差异化指令）
+│   │   └── prompt_manager.py           # Prompt模板管理（string.Template渲染）
 │   │
 │   ├── models/                          # 数据模型
 │   │   ├── __init__.py
-│   │   ├── schemas.py                  # Pydantic请求/响应模型
-│   │   └── enums.py                    # 枚举定义
+│   │   ├── schemas.py                  # Pydantic请求/响应模型（含extra="forbid"安全策略）
+│   │   └── enums.py                    # 枚举定义（StrEnum兼容）
 │   │
 │   └── utils/                           # 工具函数
 │       ├── __init__.py
-│       ├── text_processing.py          # 文本处理（分块、清洗）
-│       └── citation_parser.py          # 引用解析
+│       ├── text_processing.py          # 文本处理（分块、清洗、截断）
+│       ├── citation_parser.py          # 引用解析（extract_citations/validate_citations/calculate_citation_accuracy）
+│       └── response.py                 # 统一响应包装（ok/fail/fail_response/now_ts_ms）
 │
 ├── data/                                # 数据目录
 │   ├── papers/                          # 论文原始数据（JSON/PDF）
@@ -240,25 +244,67 @@ ai-service-python/
 │   ├── analyzer.txt                     # 分析Agent Prompt
 │   ├── comparer.txt                     # 对比Agent Prompt
 │   ├── generator.txt                    # 生成Agent Prompt
-│   └── reviewer.txt                     # 审核Agent Prompt
+│   └── reviewer.txt                     # 审核Agent Prompt（预留）
 │
-├── tests/                               # 测试
+├── tests/                               # 测试（30+文件）
 │   ├── __init__.py
-│   ├── test_agents.py                   # Agent测试
-│   ├── test_search.py                   # 检索测试
+│   ├── conftest.py                      # 测试配置
+│   ├── test_agent_endpoint.py           # Agent端点测试
+│   ├── test_analyzer_agent.py           # 分析Agent测试
+│   ├── test_base_agent.py               # 基类测试
+│   ├── test_comparer_agent.py           # 对比Agent测试
+│   ├── test_coordinator_agent.py        # 协调者Agent测试
+│   ├── test_generator_agent.py          # 生成Agent测试
+│   ├── test_retriever_agent.py          # 检索Agent测试
+│   ├── test_graph.py                    # 工作流测试
+│   ├── test_embedding.py               # Embedding测试
 │   ├── test_llm.py                      # LLM服务测试
-│   └── test_embedding.py               # Embedding测试
+│   ├── test_reranker.py                # 重排序测试
+│   ├── test_search_service.py           # 搜索服务测试
+│   ├── test_search_accuracy.py          # 搜索精度测试
+│   ├── test_vector_store.py             # 向量存储测试
+│   ├── test_personalization_service.py  # 个性化服务测试
+│   ├── test_prompt_manager.py           # Prompt管理器测试
+│   ├── test_text_processing.py          # 文本处理测试
+│   ├── test_integration.py              # 集成测试
+│   ├── test_integration_am3.py          # AM3集成测试
+│   ├── test_degradation.py              # 降级测试
+│   ├── test_sse_basic_push.py           # SSE基础推送测试
+│   ├── test_sse_reconnect_frontend.py   # SSE断线重连测试
+│   ├── test_sse_stability.py            # SSE稳定性测试
+│   ├── test_health_model_status.py      # 健康检查/模型状态测试
+│   ├── test_request_validation_response.py  # 请求校验/响应测试
+│   ├── test_field_mapping_consistency.py # 字段映射一致性测试
+│   ├── test_import_papers.py            # 论文导入测试
+│   ├── test_validate_papers.py          # 论文校验测试
+│   ├── test_performance.py              # 性能测试
+│   ├── fixtures/                        # 测试夹具
+│   ├── integration/                     # 集成测试
+│   ├── performance/                     # 性能测试
+│   └── test_data/                       # 测试数据
 │
 ├── scripts/                             # 工具脚本
 │   ├── import_papers.py                # 论文数据导入脚本
 │   ├── build_vector_db.py              # 向量数据库构建脚本
-│   └── evaluate.py                     # 评估脚本
+│   ├── evaluate_search.py              # 检索评估脚本
+│   ├── fetch_arxiv_json.py             # arXiv数据获取脚本
+│   ├── list_chroma_papers.py           # Chroma论文列表脚本
+│   ├── sync_chroma_to_mysql.py         # Chroma→MySQL同步脚本
+│   ├── validate_papers.py              # 论文数据校验脚本
+│   └── start_test_server.sh            # 测试服务器启动脚本
+│
+├── docs/                                # 项目文档
+│   ├── AM3_BUGFIX_LOG.md               # AM3修复日志
+│   ├── AM3_TEST_REPORT.md              # AM3测试报告
+│   ├── DEGRADATION_TEST_REPORT.md      # 降级测试报告
+│   └── FIELD_MAPPING.md                # 字段映射文档
 │
 ├── Dockerfile                           # Docker构建文件
 ├── .dockerignore                        # Docker忽略文件
 ├── requirements.txt                     # Python依赖
-├── .env                                 # 环境变量（不入Git）
 ├── .env.example                         # 环境变量示例
+├── .gitignore                           # Git忽略文件
+├── validation_report.json               # 校验报告
 └── README.md                            # 项目说明
 ```
 
@@ -287,53 +333,111 @@ ai-service-python/
 
 ```python
 # main.py
-from fastapi import FastAPI
 from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from app.api.router import api_router
+from app.core.events import on_startup, on_shutdown
+from app.utils.response import ok, fail, now_ts_ms
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
-    # === 启动阶段 ===
-    logger.info("Starting AI Service...")
-
-    # 1. 初始化Embedding服务（text-embedding-v4，阿里云百炼API）
-    await embedding_service.load_model()
-    logger.info("Embedding model loaded")
-
-    # 2. 初始化Chroma连接
-    await vector_store_service.initialize()
-    logger.info("ChromaDB initialized")
-
-    # 3. 初始化LLM服务（根据配置选择模型来源）
-    await llm_service.initialize()
-    logger.info(f"LLM service initialized, mode={settings.LLM_MODE}")
-
-    # 4. 加载Prompt模板
-    await prompt_manager.load_templates()
-    logger.info("Prompt templates loaded")
-
-    logger.info("AI Service started successfully")
+    await on_startup()
     yield
-
-    # === 关闭阶段 ===
-    logger.info("Shutting down AI Service...")
-
-    # 1. 释放LLM模型显存（如果是本地模型）
-    await llm_service.unload_model()
-
-    # 2. 关闭Chroma连接
-    await vector_store_service.close()
-
-    logger.info("AI Service shut down")
+    await on_shutdown()
 
 app = FastAPI(
-    title="Literature Assistant AI Service",
+    title=settings.APP_NAME,
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # 注册路由
 app.include_router(api_router, prefix="/api")
+
+
+# ===== 异常处理器 =====
+
+@app.exception_handler(AIServiceException)
+async def ai_service_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=exc.code,
+        content={
+            "code": exc.code,
+            "message": exc.message,
+            "data": None,
+            "timestamp": now_ts_ms(),
+        }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    """Pydantic 422校验错误：返回中文友好message"""
+    error_list = exc.errors() if hasattr(exc, "errors") else []
+    msg = _extract_chinese_field_message(error_list)
+    return JSONResponse(
+        status_code=422,
+        content={
+            "code": 422,
+            "message": msg,
+            "data": None,
+            "timestamp": now_ts_ms(),
+        }
+    )
+
+def _extract_chinese_field_message(errors: list) -> str:
+    """中文友好的校验错误提取（直接用loc路径+错误类型判断）"""
+    if not errors:
+        return "参数校验失败"
+    parts = []
+    for err in errors:
+        loc = err.get("loc", [])
+        field = ".".join(str(x) for x in loc[1:]) if len(loc) > 1 else (str(loc[0]) if loc else "未知字段")
+        err_type = err.get("type", "")
+        if err_type == "missing":
+            parts.append(f"{field} 字段必填")
+        elif err_type == "string_too_short":
+            parts.append(f"{field} 不能为空")
+        elif err_type in ("enum", "literal_error"):
+            parts.append(f"{field} 取值非法")
+        elif err_type.startswith("value_error"):
+            parts.append(f"{field} 校验失败")
+        else:
+            msg = err.get("msg", "校验失败")
+            parts.append(f"{field}: {msg}")
+    return "参数校验失败: " + "; ".join(parts)
+
+
+# ===== 健康检查 =====
+
+@app.get("/health")
+async def health_check():
+    """健康检查（3组件 critical_ok 规则 + 统一响应格式）"""
+    data = _build_health_data()  # 6组件: llm, embedding, chroma, prompts, searchService, reranker
+    critical_ok = _is_critical_ok(data)
+    data["status"] = "UP" if critical_ok else "DEGRADED"
+    response = ok(data=data, message="success" if critical_ok else "DEGRADED")
+    return JSONResponse(status_code=200 if critical_ok else 503, content=response)
+
+def _build_health_data() -> dict:
+    """构建6组件健康数据"""
+    return {
+        "llm": app_state.llm_service.status if app_state.llm_service else "not_loaded",
+        "embedding": app_state.embedding_service.status if app_state.embedding_service else "not_loaded",
+        "chroma": app_state.vector_store_service.status if app_state.vector_store_service else "not_connected",
+        "prompts": app_state.prompt_manager.status if app_state.prompt_manager else "not_loaded",
+        "searchService": "ready" if app_state.search_service else "not_initialized",
+        "reranker": "ready" if app_state.reranker else "not_initialized",
+    }
+
+def _is_critical_ok(data: dict) -> bool:
+    """判断关键组件是否正常（llm + embedding + chroma，共3组件）"""
+    return (
+        data["llm"] == "loaded"
+        and data["embedding"] in ("loaded", "loaded_api", "loaded_local")
+        and data["chroma"] == "connected"
+    )
 ```
 
 ### 4.3 路由定义
@@ -346,34 +450,20 @@ class AppState:
     vector_store_service = None
     llm_service = None
     prompt_manager = None
+    search_service = None
+    reranker = None
 
 app_state = AppState()
 
 # api/router.py
 from fastapi import APIRouter
+from app.api.endpoints import agent, search, model
 
 api_router = APIRouter()
 
-# Agent调用接口
-api_router.include_router(
-    agent_router,
-    prefix="/agent",
-    tags=["agent"]
-)
-
-# 检索接口
-api_router.include_router(
-    search_router,
-    prefix="/search",
-    tags=["search"]
-)
-
-# 模型状态接口
-api_router.include_router(
-    model_router,
-    prefix="/model",
-    tags=["model"]
-)
+api_router.include_router(agent.router, prefix="/agent", tags=["agent"])
+api_router.include_router(search.router, prefix="/search", tags=["search"])
+api_router.include_router(model.router, prefix="/model", tags=["model"])
 ```
 
 ### 4.4 接口详细设计
@@ -486,63 +576,57 @@ async def search(request: SearchRequest) -> SearchResponse:
     return SearchResponse(results=results, total=len(results))
 ```
 
-#### 4.4.3 健康检查与模型状态
+#### 4.4.3 模型状态
 
 ```python
 # api/endpoints/model.py
+from app.utils.response import ok
+
 @router.get("/status")
-async def model_status() -> ModelStatusResponse:
+async def model_status():
     """
-    查询模型加载状态
+    查询模型加载状态（12字段）
 
-    响应：
+    响应（统一格式）：
     {
-        "llmStatus": "loaded",             // loading / loaded / error
-        "llmMode": "builtin",              // builtin / api / local
-        "embeddingStatus": "loaded",
-        "chromaStatus": "connected",
-        "gpuAvailable": true,
-        "gpuMemoryUsed": "4.2GB / 16GB"
+        "code": 200,
+        "data": {
+            "llm": "loaded",                     // loading / loaded / error
+            "embedding": "loaded_api",            // loading / loaded / loaded_api / loaded_local / error
+            "chroma": "connected",                // connected / disconnected / error
+            "prompts": "loaded",                  // loaded / not_loaded / error
+            "embeddingDimension": 1024,           // 向量维度
+            "activeLlmProvider": "api",           // builtin / api / local
+            "providerCandidates": ["api"],        // 可用Provider列表
+            "chromaPaperCount": 200,              // Chroma中论文数量
+            "gpuMemoryUsed": "4.2GB / 16GB",      // GPU显存使用
+            "llmProviderCount": 1,                // 已初始化Provider数量
+            "searchService": "initialized",       // initialized / not_initialized
+            "reranker": "initialized"             // initialized / not_initialized
+        },
+        "timestamp": 1716451200000
     }
     """
+    data = _build_model_status()
+    return ok(data=data)
 ```
 
-#### 4.4.4 根路径健康检查
+#### 4.4.4 健康检查
 
-```python
-# main.py
-@app.get("/health")
-async def health():
-    components = {
-        "llm": llm_service.status if llm_service else "not_loaded",
-        "embedding": embedding_service.status if embedding_service else "not_loaded",
-        "chroma": vector_store_service.status if vector_store_service else "not_connected",
-        "prompts": prompt_manager.status if prompt_manager else "not_loaded",
-    }
-    critical_ok = (
-        components["llm"] == "loaded"
-        and components["embedding"] in ("loaded_api", "loaded_local")
-        and components["chroma"] == "connected"
-    )
-    return JSONResponse(
-        status_code=200 if critical_ok else 503,
-        content={
-            "status": "UP" if critical_ok else "DEGRADED",
-            "timestamp": datetime.now().isoformat(),
-            **components
-        }
-    )
-```
+> 健康检查端点已在4.2节 `main.py` 中定义，采用3组件+critical_ok规则+统一响应格式。
+> 关键组件：llm + embedding + chroma，任一不可用则返回503 DEGRADED。
 
 ### 4.5 API接口清单
 
 | 编号 | 方法 | 路径 | 优先级 | 说明 |
 |------|------|------|--------|------|
 | F3.5.1 | POST | `/api/agent/analyze` | P0 | 启动Agent分析任务 |
-| F3.5.1 | POST | `/api/agent/analyze/stream` | P1 | Agent分析+SSE推送 |
-| F3.5.2 | POST | `/api/search` | P0 | 语义检索论文 |
-| F3.5.3 | GET | `/health` | P0 | 健康检查 |
-| F3.5.4 | GET | `/api/model/status` | P1 | 模型状态查询 |
+| F3.5.1 | POST | `/api/agent/analyze/stream` | P1 | Agent分析+SSE推送（8种事件+keep-alive+Last-Event-ID+review_rejected） |
+| F3.5.2 | POST | `/api/search/` | P0 | 语义检索论文 |
+| F3.5.2 | POST | `/api/search/hybrid` | P1 | 混合检索（语义+关键词+RRF融合+个性化重排序） |
+| F3.5.2 | GET | `/api/search/suggest` | P2 | 搜索建议（标题自动补全） |
+| F3.5.3 | GET | `/health` | P0 | 健康检查（3组件critical_ok规则） |
+| F3.5.4 | GET | `/api/model/status` | P1 | 模型状态查询（12字段） |
 
 ---
 
@@ -550,18 +634,18 @@ async def health():
 
 ### 5.1 模块概述
 
-系统的核心创新模块，基于LangGraph编排6个Agent角色的协同工作流，实现任务分解、分配、监督和结果汇总。支持条件分支（对比Agent仅在多论文时激活）和降级机制。
+基于LangGraph编排4个核心Agent的协同工作流（retrieve→analyze→generate→review，含条件边+重试循环），同时实现了Coordinator/Comparer Agent但尚未接入graph。通过AgentOrchestrator实现SSE流式编排，支持8种事件类型、keep-alive心跳和断线重连。
 
 ### 5.2 Agent角色定义
 
-| Agent | 文件 | 角色定位 | 输入 | 输出 | 核心工具 |
-|-------|------|---------|------|------|---------|
-| **协调者Agent** | `coordinator.py` | 项目经理 | 用户问题 + 用户画像 | 任务分解指令 + 最终回答 | 任务分解器 |
-| **检索Agent** | `retriever.py` | 图书管理员 | 研究主题关键词 | Top10论文列表 | 向量检索、关键词搜索 |
-| **分析Agent** | `analyzer.py` | 论文审稿人 | 论文全文/摘要 | 结构化分析卡片(5维度) | 文本提取、信息抽取 |
-| **对比Agent** | `comparer.py` | 对比研究员 | 2-5篇论文分析结果 | 对比表格+差异总结+矛盾发现 | 对比引擎 |
-| **生成Agent** | `generator.py` | 学术写手 | 分析结果+用户画像 | 个性化综述报告 | 大模型生成 |
-| **审核Agent** | `reviewer.py` | 学术编辑 | 生成内容+原始论文 | 审核通过/修改建议 | 引用核查、事实比对 |
+| Agent | 文件 | 角色定位 | 接入状态 | 核心工具 |
+|-------|------|---------|---------|---------|
+| **协调者Agent** | `coordinator.py` | 项目经理 | 已实现，未接入graph | LLM任务分解+规则降级 |
+| **检索Agent** | `retriever.py` | 图书管理员 | ✅ 已接入graph | hybrid_search+reranker |
+| **分析Agent** | `analyzer.py` | 论文审稿人 | ✅ 已接入graph | LLM 5维度提取+rule-based降级 |
+| **对比Agent** | `comparer.py` | 对比研究员 | 已实现，未接入graph | LLM 4维度对比+5类矛盾根因+规则降级 |
+| **生成Agent** | `generator.py` | 学术写手 | ✅ 已接入graph | LLM生成+citation提取+term_density+fallback报告 |
+| **审核Agent** | graph.py(review_node) | 学术编辑 | 已实现review_node，条件边触发（运行时因未实例化而跳过） | citation验证+事实核查+重试建议 |
 
 ### 5.3 Agent基类设计
 
@@ -591,15 +675,23 @@ class AgentState:
     intermediate_result: Optional[str] = None
     error: Optional[str] = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """序列化为dict（用于SSE推送）"""
+        ...
+
+    def update_progress(self, progress: float, intermediate_result: Optional[str] = None) -> None:
+        """更新进度和中间结果"""
+        ...
+
 class BaseAgent(ABC):
     """Agent基类"""
 
-    def __init__(self, name: str, llm_service, prompt_template: str):
+    def __init__(self, name: str, llm_service, prompt_manager, timeout: int = None):
         self.name = name
         self.llm_service = llm_service
-        self.prompt_template = prompt_template
+        self.prompt_manager = prompt_manager
         self.state = AgentState(name=name)
-        self.timeout = 30  # 单Agent超时30秒
+        self.timeout = timeout if timeout is not None else settings.AGENT_TIMEOUT
 
     async def execute(self, input_data: dict, context: dict) -> dict:
         """执行Agent任务（含状态管理和超时控制）"""
@@ -608,16 +700,13 @@ class BaseAgent(ABC):
         self.state.started_at = datetime.now()
 
         try:
-            # 2. 构建Prompt
-            prompt = self.build_prompt(input_data, context)
-
-            # 3. 执行核心逻辑（带超时控制）
+            # 2. 执行核心逻辑（带超时控制）
             result = await asyncio.wait_for(
-                self._run(prompt, input_data, context),
+                self._run(input_data, context),
                 timeout=self.timeout
             )
 
-            # 4. 更新状态为completed
+            # 3. 更新状态为completed
             self.state.status = AgentStatus.COMPLETED
             self.state.completed_at = datetime.now()
             self.state.duration_ms = int(
@@ -640,13 +729,8 @@ class BaseAgent(ABC):
             return self._fallback_result(input_data)
 
     @abstractmethod
-    async def _run(self, prompt: str, input_data: dict, context: dict) -> dict:
+    async def _run(self, input_data: dict, context: dict) -> dict:
         """子类实现的核心执行逻辑"""
-        pass
-
-    @abstractmethod
-    def build_prompt(self, input_data: dict, context: dict) -> str:
-        """构建Agent Prompt"""
         pass
 
     def _fallback_result(self, input_data: dict) -> dict:
@@ -660,48 +744,67 @@ class BaseAgent(ABC):
 
 ### 5.4 各Agent详细设计
 
-#### 5.4.1 协调者Agent（Coordinator）
+#### 5.4.1 协调者Agent（Coordinator）— 已实现但未接入graph
 
 ```python
 # agents/coordinator.py
 class CoordinatorAgent(BaseAgent):
     """
-    协调者Agent — 项目经理角色
+    协调者Agent — 项目经理角色（已实现但未接入graph）
 
     职责：
     1. 接收用户问题和画像
-    2. 分解为子任务（检索、分析、对比、生成、审核）
-    3. 分配子任务给对应Agent
-    4. 监督执行进度
-    5. 汇总最终结果
+    2. 使用LLM分解为子任务
+    3. 计算requires_compare/requires_review标记
+    4. LLM失败时规则降级分解
     """
 
-    async def _run(self, prompt: str, input_data: dict, context: dict) -> dict:
-        # 1. 使用LLM分析用户问题，分解子任务
+    def __init__(self, llm_service, prompt_manager, timeout=30,
+                 llm_temperature=0.3, llm_max_tokens=1024):
+        super().__init__("coordinator", llm_service, prompt_manager, timeout)
+        self.llm_temperature = llm_temperature
+        self.llm_max_tokens = llm_max_tokens
+
+    async def _run(self, input_data: dict, context: dict) -> dict:
+        # 1. Prompt注入防护
+        topic = self._sanitize_topic(input_data.get("topic", ""))
+
+        # 2. 使用LLM分析用户问题，分解子任务
         task_breakdown = await self.llm_service.generate(prompt)
 
-        # 2. 确定任务列表
+        # 3. 解析LLM输出的任务分解
         tasks = self._parse_task_breakdown(task_breakdown, input_data)
 
-        # 3. 返回任务分解结果（后续由LangGraph图执行）
+        # 4. 计算条件标记
         return {
             "sub_tasks": tasks,
             "task_count": len(tasks),
-            "requires_compare": len(input_data.get("paperIds", [])) >= 2
+            "requires_compare": len(input_data.get("paperIds", [])) >= 2,
+            "requires_review": False
         }
 
     def _parse_task_breakdown(self, breakdown: str, input_data: dict) -> list:
-        """解析LLM生成的任务分解结果"""
-        tasks = [
-            {"name": "retrieve", "description": f"检索关于'{input_data['topic']}'的相关论文"},
-            {"name": "analyze", "description": "分析检索到的论文核心内容"},
-        ]
-        # 多论文时添加对比任务
-        if len(input_data.get("paperIds", [])) >= 2:
-            tasks.append({"name": "compare", "description": "对比多篇论文的方法和结论"})
-        tasks.append({"name": "generate", "description": "生成个性化文献综述"})
-        tasks.append({"name": "review", "description": "审核生成内容的准确性和引用"})
-        return tasks
+        """解析LLM生成的任务分解结果（4种JSON提取策略）"""
+        # 提取JSON → 过滤VALID_TASK_TYPES → 2-5约束
+        ...
+
+    def _rule_based_decomposition(self, input_data: dict) -> list:
+        """LLM失败时的规则降级分解"""
+        ...
+
+    def _sanitize_topic(self, topic: str) -> str:
+        """Prompt注入防护（MAX_QUERY_LENGTH=500）"""
+        ...
+
+    def _fallback_result(self, input_data: dict) -> dict:
+        """覆盖基类，使用规则分解"""
+        return {
+            "degraded": True,
+            "agent": self.name,
+            "sub_tasks": self._rule_based_decomposition(input_data),
+            "requires_compare": len(input_data.get("paperIds", [])) >= 2,
+            "requires_review": False
+        }
 ```
 
 #### 5.4.2 检索Agent（Retriever）
@@ -714,32 +817,51 @@ class RetrieverAgent(BaseAgent):
 
     职责：
     1. 接收检索关键词
-    2. 从Chroma向量库中检索相关论文
-    3. 支持元数据过滤（年份、会议等）
-    4. 返回Top10结果
+    2. LLM生成搜索策略（core_keywords+filters）
+    3. 执行hybrid_search（向量+关键词混合检索）
+    4. reranker个性化重排序
+    5. 返回Top10结果
     """
 
-    async def _run(self, prompt: str, input_data: dict, context: dict) -> dict:
-        query = input_data.get("topic", "")
-        top_k = input_data.get("top_k", 10)
+    def __init__(self, llm_service, prompt_manager, search_service,
+                 reranker=None, timeout=30):
+        super().__init__("retriever", llm_service, prompt_manager, timeout)
+        self.search_service = search_service
+        self.reranker = reranker
 
-        # 1. 向量语义检索
-        vector_results = await vector_store_service.search(
-            query=query, top_k=top_k
+    async def _run(self, input_data: dict, context: dict) -> dict:
+        topic = input_data.get("topic", "")
+        user_profile = context.get("user_profile", {})
+
+        # 1. LLM生成搜索策略
+        strategy = await self._generate_search_strategy(topic, user_profile)
+
+        # 2. hybrid_search混合检索
+        papers = await self.search_service.hybrid_search(
+            query=topic,
+            core_keywords=strategy.get("core_keywords", [topic]),
+            filters=strategy.get("filters", {}),
+            top_k=input_data.get("top_k", 10)
         )
 
-        # 2. 关键词检索（可选，混合检索）
-        # keyword_results = ...
+        # 3. reranker个性化重排序
+        if self.reranker and papers:
+            papers = await self.reranker.rerank(papers, user_profile)
 
-        # 3. 融合结果
-        papers = vector_results
-
-        self.state.intermediate_result = f"找到{len(papers)}篇相关论文，筛选Top{min(top_k, len(papers))}"
+        self.state.intermediate_result = f"找到{len(papers)}篇相关论文"
 
         return {
-            "papers": papers[:top_k],
+            "papers": papers[:input_data.get("top_k", 10)],
             "total_found": len(papers)
         }
+
+    async def _generate_search_strategy(self, topic: str, user_profile: dict) -> dict:
+        """LLM生成搜索策略（core_keywords+filters）"""
+        ...
+
+    def _parse_search_strategy(self, result_text: str, topic: str) -> dict:
+        """解析JSON搜索策略，失败时使用fallback topic"""
+        ...
 ```
 
 #### 5.4.3 分析Agent（Analyzer）
@@ -753,7 +875,9 @@ class AnalyzerAgent(BaseAgent):
     职责：
     1. 接收论文全文/摘要
     2. 使用LLM提取5个维度核心信息
-    3. 输出结构化JSON
+    3. 输出结构化dict（每维度含summary+confidence+references）
+    4. LLM失败时rule-based降级提取
+    5. 支持个性化指令差异化
 
     5维度：
     - 研究问题（Research Question）
@@ -763,22 +887,37 @@ class AnalyzerAgent(BaseAgent):
     - 局限性（Limitations）
     """
 
-    async def _run(self, prompt: str, input_data: dict, context: dict) -> dict:
+    def __init__(self, llm_service, prompt_manager,
+                 personalization_service=None, max_papers=10,
+                 timeout=30, llm_temperature=0.3, llm_max_tokens=2048):
+        super().__init__("analyzer", llm_service, prompt_manager, timeout)
+        self.personalization_service = personalization_service
+        self.max_papers = max_papers
+        self.llm_temperature = llm_temperature
+        self.llm_max_tokens = llm_max_tokens
+
+    async def _run(self, input_data: dict, context: dict) -> dict:
         papers = input_data.get("papers", [])
         analysis_results = []
 
-        for i, paper in enumerate(papers):
-            self.state.progress = (i + 1) / len(papers)
-            self.state.intermediate_result = f"已分析{i+1}/{len(papers)}篇"
+        for i, paper in enumerate(papers[:self.max_papers]):
+            self.state.update_progress(
+                (i + 1) / len(papers),
+                f"已分析{i+1}/{len(papers)}篇"
+            )
 
-            # 构建分析Prompt
-            analysis_prompt = self.build_analysis_prompt(paper)
+            # 获取个性化指令
+            extra_instruction = self._get_extra_instruction(context)
 
-            # 调用LLM提取结构化信息
-            result_text = await self.llm_service.generate(analysis_prompt)
+            # 构建分析Prompt → 调用LLM提取
+            result_text = await self.llm_service.generate(prompt)
 
-            # 解析为结构化JSON
+            # 解析为结构化dict
             analysis = self._parse_analysis(result_text, paper)
+
+            # 维度校验
+            analysis = self._validate_dimensions(analysis)
+
             analysis_results.append(analysis)
 
         return {
@@ -786,44 +925,56 @@ class AnalyzerAgent(BaseAgent):
             "analyzed_count": len(analysis_results)
         }
 
-    def _parse_analysis(self, result_text: str, paper: dict) -> dict:
-        """解析LLM输出为结构化分析结果"""
-        try:
-            return json.loads(result_text)
-        except json.JSONDecodeError:
-            return {
-                "paperId": paper.get("paperId"),
-                "researchQuestion": result_text[:200],
-                "coreMethod": "",
-                "keyExperiments": "",
-                "coreFindings": "",
-                "limitations": ""
-            }
+    def _validate_dimensions(self, analysis: dict) -> dict:
+        """校验每个维度数据类型（summary: str, confidence: float, references: list）"""
+        ...
+
+    def _rule_based_extraction(self, paper: dict) -> dict:
+        """LLM失败时的规则提取（confidence=0.3）"""
+        ...
+
+    def _get_extra_instruction(self, context: dict) -> str:
+        """通过personalization_service获取agent级别差异化指令"""
+        ...
+
+    def _fallback_result(self, input_data: dict) -> dict:
+        """覆盖基类，对所有论文使用rule-based提取"""
+        papers = input_data.get("papers", [])
+        return {
+            "degraded": True,
+            "agent": self.name,
+            "analysis_results": [self._rule_based_extraction(p) for p in papers],
+            "analyzed_count": len(papers)
+        }
 ```
 
-#### 5.4.4 对比Agent（Comparer）
+#### 5.4.4 对比Agent（Comparer）— 已实现但未接入graph
 
 ```python
 # agents/comparer.py
 class ComparerAgent(BaseAgent):
     """
-    对比Agent — 对比研究员角色
+    对比Agent — 对比研究员角色（已实现但未接入graph）
 
     职责：
     1. 接收2-5篇论文的分析结果
-    2. 在方法、数据集、性能、结论维度进行对比
-    3. 生成对比表格和差异总结
-    4. 检测论文间的观点矛盾
+    2. LLM 4维度对比：research_problem, core_method, main_experiments, core_conclusions
+    3. 5类矛盾根因：dataset_bias, metric_difference, condition_difference,
+       assumption_difference, methodological_conflict
+    4. LLM失败时规则降级：C(N,2)两两对比+Jaccard相似度+矛盾关键词检测
     """
 
-    async def _run(self, prompt: str, input_data: dict, context: dict) -> dict:
+    def __init__(self, llm_service, prompt_manager, timeout=30,
+                 llm_temperature=0.4, llm_max_tokens=3072):
+        super().__init__("comparer", llm_service, prompt_manager, timeout)
+        self.llm_temperature = llm_temperature
+        self.llm_max_tokens = llm_max_tokens
+
+    async def _run(self, input_data: dict, context: dict) -> dict:
         analysis_results = input_data.get("analysis_results", [])
 
-        # 构建对比Prompt
-        compare_prompt = self.build_compare_prompt(analysis_results)
-
-        # 调用LLM生成对比
-        result_text = await self.llm_service.generate(compare_prompt)
+        # 构建对比Prompt → 调用LLM生成对比
+        result_text = await self.llm_service.generate(prompt)
 
         # 解析对比结果
         comparison = self._parse_comparison(result_text)
@@ -831,8 +982,21 @@ class ComparerAgent(BaseAgent):
         return {
             "comparison_table": comparison.get("table", {}),
             "summary": comparison.get("summary", ""),
-            "conflicts": comparison.get("conflicts", [])  # 矛盾发现
+            "conflicts": comparison.get("conflicts", []),
+            "disclaimer": "⚠️ AI生成内容仅供参考，请以原始论文为准"
         }
+
+    def _rule_based_comparison(self, analysis_results: list) -> dict:
+        """C(N,2)两两对比+Jaccard相似度+矛盾关键词检测"""
+        ...
+
+    def _calculate_similarity(self, text1: str, text2: str) -> float:
+        """简化Jaccard相似度（字符+2-gram）"""
+        ...
+
+    def _detect_conflict_keywords(self, text: str) -> list:
+        """12个中英文矛盾关键词检测"""
+        ...
 ```
 
 #### 5.4.5 生成Agent（Generator）
@@ -845,71 +1009,148 @@ class GeneratorAgent(BaseAgent):
 
     职责：
     1. 接收分析结果和用户画像
-    2. 生成个性化文献综述
-    3. 综述包含：引言、研究现状、方法对比、研究趋势、参考文献
-    4. 根据画像调整内容深度和表达风格
+    2. 构建个性化Prompt
+    3. LLM生成文献综述
+    4. 报告验证（5个必需章节）
+    5. citation提取（[Author, Year]和[数字]两种格式）
+    6. term_density计算（约48个学术术语）
+    7. LLM失败时生成模板报告
     """
 
+    def __init__(self, llm_service, prompt_manager,
+                 personalization_service=None, timeout=30,
+                 llm_temperature=0.7, llm_max_tokens=4096):
+        super().__init__("generator", llm_service, prompt_manager, timeout)
+        self.personalization_service = personalization_service
+        self.llm_temperature = llm_temperature
+        self.llm_max_tokens = llm_max_tokens
+
     async def _run(self, prompt: str, input_data: dict, context: dict) -> dict:
-        # 1. 从上下文获取用户画像
+        # 1. 构建个性化Prompt
         user_profile = context.get("user_profile", {})
+        try:
+            full_prompt = self.build_prompt(input_data, context)
+        except Exception:
+            full_prompt = prompt
 
-        # 2. 使用个性化引擎构建Prompt
-        personalized_prompt = personalization_service.build_generation_prompt(
-            analysis_results=input_data.get("analysis_results", []),
-            comparison_result=input_data.get("comparison_result", {}),
-            user_profile=user_profile
-        )
+        # 2. LLM生成综述
+        llm_output = await self.llm_service.generate(full_prompt, ...)
 
-        # 3. 调用LLM生成综述
-        report = await self.llm_service.generate(personalized_prompt)
+        # 3. 报告验证（5个必需章节，缺失时自动补占位符）
+        validation = self._validate_report(llm_output)
+        report = validation["report"]
 
-        # 4. 提取引用标注
-        citations = citation_parser.extract_citations(report)
+        # 4. citation提取
+        citation_list = self._extract_citations(report, analysis_results)
+
+        # 5. term_density计算
+        term_density_actual = self._calculate_term_density(report, knowledge_level)
+
+        # 6. 个性化应用记录
+        personalization_applied = self._build_personalization_applied(user_profile)
+
+        # 7. AI免责声明
+        AI_DISCLAIMER = "⚠️ 本内容由 AI 生成，仅供参考"
+        if AI_DISCLAIMER not in report:
+            report = report.rstrip() + "\n\n" + AI_DISCLAIMER
 
         return {
             "report": report,
-            "citations": citations,
+            "citation_list": citation_list,
+            "term_density_actual": term_density_actual,
+            "personalization_applied": personalization_applied,
+        }
+
+    def _extract_citations(self, report: str) -> list:
+        """提取[Author, Year]和[数字]两种引用格式"""
+        ...
+
+    def _validate_report(self, report: str) -> str:
+        """检查5个必需章节，缺失时自动补占位符"""
+        ...
+
+    def _calculate_term_density(self, report: str) -> dict:
+        """约48个学术术语密度计算"""
+        ...
+
+    def _generate_fallback_report(self, input_data: dict) -> str:
+        """LLM失败时生成模板报告（5章节占位符）"""
+        ...
+
+    def _fallback_result(self, input_data: dict) -> dict:
+        """覆盖基类，使用模板报告"""
+        report = self._generate_fallback_report(input_data)
+        return {
+            "degraded": True,
+            "agent": self.name,
+            "report": report,
+            "citations": [],
+            "term_density": {},
             "word_count": len(report)
         }
 ```
 
-#### 5.4.6 审核Agent（Reviewer）
+#### 5.4.6 审核Agent（Reviewer）— 已实现review_node，条件边触发
 
 ```python
-# agents/reviewer.py
-class ReviewerAgent(BaseAgent):
-    """
-    审核Agent — 学术编辑角色
+# agents/graph.py — review_node
+async def review_node(state: WorkflowState, agent_instances: Dict[str, Any]) -> dict:
+    """审核节点：调用 ReviewerAgent 审核生成结果
 
-    职责：
-    1. 检查生成内容的准确性
-    2. 与知识库原文比对，标记不一致之处
-    3. 对涉及具体数字、日期、名称的信息重点核查
-    4. 核查引用正确性
-    5. 返回审核通过或修改建议
+    触发条件：should_review() 返回 True（report非空且非退化）
+    审核不通过：regenerate_count < 1 时触发重新生成循环
+    Reviewer不存在：跳过审核，标记approved=True（不阻塞流程）
+    Reviewer降级：标记approved=True（不阻塞流程）
     """
 
-    async def _run(self, prompt: str, input_data: dict, context: dict) -> dict:
-        report = input_data.get("report", "")
-        original_papers = context.get("papers", [])
-
-        # 1. 构建审核Prompt
-        review_prompt = self.build_review_prompt(report, original_papers)
-
-        # 2. 调用LLM进行审核
-        review_result = await self.llm_service.generate(review_prompt)
-
-        # 3. 解析审核结果
-        review = self._parse_review(review_result)
-
+    reviewer = agent_instances.get("reviewer")
+    if reviewer is None:
+        # Reviewer不存在时跳过审核，直接标记通过
         return {
-            "approved": review.get("approved", False),
-            "issues": review.get("issues", []),
-            "suggestions": review.get("suggestions", []),
-            "citation_accuracy": review.get("citation_accuracy", 0.0)
+            "review_result": {"approved": True, "issues": [], "suggestions": [],
+                              "citation_accuracy": 1.0, "fact_accuracy": 1.0},
+            "agent_states": {..., "reviewer": {"status": "skipped"}},
         }
+
+    result = await reviewer.execute(
+        input_data={"report": report, "original_papers": search_results,
+                     "retry_context": retry_context},
+        context={"user_profile": user_profile},
+    )
+
+    review_result = {
+        "approved": result.get("approved", False),
+        "issues": result.get("issues", []),
+        "suggestions": result.get("suggestions", []),
+        "citation_accuracy": result.get("citation_accuracy", 0.0),
+        "fact_accuracy": result.get("fact_accuracy", 0.0),
+    }
+
+    # 审核不通过 → 递增regenerate_count → 触发重新生成
+    if not review_result.get("approved", True):
+        update["regenerate_count"] = regenerate_count + 1
+
+    # Reviewer降级 → 标记approved=True，不阻塞流程
+    if result.get("degraded", False):
+        review_result["approved"] = True
+
+def should_review(state: WorkflowState) -> bool:
+    """条件边：report非空且非退化时进入审核"""
+    report = state.get("report", "")
+    degraded = state.get("degraded", False)
+    return bool(report and report.strip()) and not (degraded and not state.get("review_result"))
+
+def should_regenerate(state: WorkflowState) -> str:
+    """条件边：审核不通过且regenerate_count < 1时返回'regenerate'，否则返回'end'"""
+    review_result = state.get("review_result") or {}
+    approved = review_result.get("approved", True)
+    regenerate_count = state.get("regenerate_count", 0)
+    if not approved and regenerate_count < 1:
+        return "regenerate"
+    return "end"
 ```
+
+> **运行时说明**：当前 `agent.py` 的 `_build_agent_instances()` 仅创建 retriever/analyzer/generator 三个实例，未实例化 reviewer。因此运行时 review_node 会走"跳过审核"路径，直接标记 approved=True。如需启用审核功能，需在 `_build_agent_instances()` 中添加 reviewer 实例。
 
 ### 5.5 LangGraph工作流定义
 
@@ -922,122 +1163,137 @@ class WorkflowState(TypedDict):
     """LangGraph工作流状态定义"""
     # 输入
     query: str                          # 用户原始查询
-    user_profile: dict                  # 用户画像
+    user_profile: Dict[str, Any]        # 用户画像
     analysis_type: str                  # 分析类型
     analysis_id: str                    # 分析任务ID
 
     # 中间状态
-    sub_tasks: list                     # 分解的子任务
-    search_results: list                # 检索结果
-    analysis_results: list              # 分析结果
-    compare_result: dict                # 对比结果
-    report: str                         # 生成的综述
-    review_result: dict                 # 审核结果
-    citations: list                     # 引用列表
+    sub_tasks: List[str]                # 分解的子任务
+    search_results: List[Dict]          # 检索结果
+    analysis_results: List[Dict]        # 分析结果
+    compare_result: Optional[Dict]      # 对比结果
+    report: Optional[str]               # 生成的综述
+    review_result: Optional[Dict]       # 审核结果
+    citations: List[Dict]               # 引用列表
 
     # 最终输出
-    final_output: str                   # 最终输出
-    agent_states: dict                  # 各Agent状态（用于可视化）
+    final_output: Optional[str]         # 最终输出
+    agent_states: Dict[str, Dict]       # 各Agent状态（用于可视化）
 
     # 错误处理
-    errors: list                        # 错误记录
+    errors: List[Dict]                  # 错误记录
     degraded: bool                      # 是否降级
+    regenerate_count: int               # 重新生成次数
+
+    # 时间追踪
+    started_at: Optional[str]           # 开始时间
+    completed_at: Optional[str]         # 完成时间
 
 
-def build_agent_graph(
-    coordinator: CoordinatorAgent,
-    retriever: RetrieverAgent,
-    analyzer: AnalyzerAgent,
-    comparer: ComparerAgent,
-    generator: GeneratorAgent,
-    reviewer: ReviewerAgent
-) -> StateGraph:
-    """构建Agent协同工作流图"""
+def build_agent_graph(agent_instances: Dict[str, Any]) -> StateGraph:
+    """构建4节点Agent协同工作流图（含条件边+重试循环）"""
 
     # 创建状态图
     graph = StateGraph(WorkflowState)
 
-    # 添加节点
-    graph.add_node("coordinate", coordinator_node)
-    graph.add_node("retrieve", retrieve_node)
-    graph.add_node("analyze", analyze_node)
-    graph.add_node("compare", compare_node)
-    graph.add_node("generate", generate_node)
-    graph.add_node("review", review_node)
+    # 添加4个核心节点
+    graph.add_node("retrieve", _retrieve)
+    graph.add_node("analyze", _analyze)
+    graph.add_node("generate", _generate)
+    graph.add_node("review", _review)
 
     # 设置入口
-    graph.set_entry_point("coordinate")
+    graph.set_entry_point("retrieve")
 
-    # 添加边
-    graph.add_edge("coordinate", "retrieve")
+    # 线性边：retrieve → analyze → generate
     graph.add_edge("retrieve", "analyze")
+    graph.add_edge("analyze", "generate")
 
-    # 条件边：分析后根据论文数量决定是否进入对比
+    # 条件边：generate → review | END
     graph.add_conditional_edges(
-        "analyze",
-        should_compare,
-        {
-            True: "compare",
-            False: "generate"
-        }
+        "generate",
+        _should_review,    # should_review(): report非空且非退化→"review"，否则→"end"
+        {"review": "review", "end": END},
     )
 
-    graph.add_edge("compare", "generate")
-    graph.add_edge("generate", "review")
-
-    # 条件边：审核后决定是否返回生成
+    # 条件边：review → regenerate(→generate) | END
     graph.add_conditional_edges(
         "review",
-        should_regenerate,
-        {
-            True: "generate",      # 审核不通过，重新生成
-            False: END             # 审核通过，结束
-        }
+        _should_regenerate,  # should_regenerate(): 审核不通过且count<1→"regenerate"，否则→"end"
+        {"regenerate": "generate", "end": END},
     )
 
     return graph.compile()
+```
 
+#### 5.5.1 AgentOrchestrator SSE编排器
 
-def should_compare(state: WorkflowState) -> bool:
-    """判断是否需要对比（论文数 >= 2）"""
-    return len(state.get("search_results", [])) >= 2
+```python
+# agents/orchestrator.py
+class AgentOrchestrator:
+    """流式Agent编排器 — SSE事件实时推送"""
+    NODE_ORDER = ["retriever", "analyzer", "generator", "reviewer"]
+    PING_INTERVAL = 15  # keep-alive心跳间隔
 
-def should_regenerate(state: WorkflowState) -> bool:
-    """判断是否需要重新生成"""
-    review = state.get("review_result", {})
-    # 最多重试1次
-    regenerate_count = state.get("regenerate_count", 0)
-    if not review.get("approved", True) and regenerate_count < 1:
-        return True
-    return False
+    # 8种SSE事件类型：
+    # agent_started     : Agent开始执行
+    # agent_state_update: Agent状态变更（progress更新）
+    # agent_completed    : Agent正常完成
+    # agent_failed       : Agent执行失败（不中断流）
+    # analysis_completed : 全流程结束
+    # error              : 错误事件
+    # ping               : keep-alive心跳
+    # review_rejected    : 审核不通过，触发重新生成
+
+    # task30增强：
+    # - Keep-alive ping：距上次事件 > 15s 时自动 yield ping 事件
+    # - Last-Event-ID：支持断线重连，跳过已发送事件
+    # - 客户端断开优雅处理：捕获 asyncio.CancelledError
+
+    # Reviewer重试循环（orchestrator层面）：
+    # - reviewer存在且report非空时进入审核
+    # - 审核不通过且regenerate_count < 1时触发重新生成
+    # - 最多执行2次：首次审核 + 1次重试
+    # - yield review_rejected事件通知客户端
 ```
 
 ### 5.6 工作流可视化
 
 ```
-START → coordinate → retrieve → analyze
+START → retrieve → analyze → generate → [should_review?]
+                                              │
+                                    ┌─────────┴─────────┐
+                                    │ Yes                │ No
+                                    ▼                    ▼
+                                  review → [should_regenerate?]
+                                              │
+                                    ┌─────────┴─────────┐
+                                    │ regenerate        │ end
+                                    ▼                   ▼
+                                  generate ←─────────── END
                                     │
-                    ┌───────────────┤
-                    │               │
-                    ▼               ▼
-               compare        generate
-                    │               │
-                    └───────┬───────┘
-                            │
-                            ▼
-                         review
-                            │
-                    ┌───────┤
-                    │       │
-              不通过 │       │ 通过
-                    ▼       ▼
-              generate     END
-              (重试1次)
+                                    └──→ (重新进入条件判断)
+
+SSE事件序列：
+├── agent_started(retriever)
+├── agent_state_update(retriever, progress=0.1)
+├── agent_completed(retriever, "Found N papers")
+├── agent_started(analyzer)
+├── agent_state_update(analyzer, progress=0.5, "Analyzing 5/10")
+├── agent_completed(analyzer, "Analyzed 10 papers")
+├── agent_started(generator)
+├── agent_state_update(generator, progress=0.4, "Generating review")
+├── agent_completed(generator, "Report generated")
+├── agent_started(reviewer)          ← 条件边触发
+├── agent_completed(reviewer, "Review approved")
+│   └── 或 agent_failed(reviewer) + review_rejected事件 + 重新生成
+└── analysis_completed(status="completed")
 
 超时控制：
 ├── 单节点超时：30秒
 ├── 全流程超时：120秒
-└── 降级策略：单节点失败跳过，多节点失败降级为单Agent模式
+├── keep-alive ping：15秒间隔
+└── 重试循环：最多1次重新生成（regenerate_count < 1）
 ```
 
 ### 5.7 降级策略
@@ -1046,76 +1302,85 @@ START → coordinate → retrieve → analyze
 降级层级：
 
 Level 0：全Agent协同（正常模式）
-├── 6个Agent按LangGraph工作流顺序执行
-├── 支持条件分支（对比Agent可选）
+├── 4个Agent按LangGraph工作流执行（含条件边+重试循环）
+├── 每个Agent内部有LLM失败→规则降级
 └── 全流程耗时目标：60秒内
 
-Level 1：单Agent失败跳过
-├── 某个Agent执行超时（30秒）→ 跳过该Agent
-├── 审核Agent失败 → 跳过审核，直接输出
-├── 对比Agent失败 → 跳过对比，直接生成
-└── 记录失败日志，在最终结果中标注"部分降级"
+Level 1：单Agent内部降级
+├── RetrieverAgent：LLM搜索策略失败→使用原始topic
+├── AnalyzerAgent：LLM分析失败→rule-based提取（confidence=0.3）
+├── GeneratorAgent：LLM生成失败→模板报告（5章节占位符）
+├── ReviewerAgent：审核失败→标记approved=True（不阻塞流程）
+└── 标记 degraded=True，记录错误信息
 
-Level 2：多Agent失败 → 单Agent模式
-├── 3个以上Agent失败 → 降级为单Agent模式
-├── 仅执行：检索 + 生成（跳过分析/对比/审核）
-├── 返回部分结果 + 降级说明
+Level 2：Agent执行超时/异常
+├── 单Agent超时(30s)→BaseAgent.execute()捕获→_fallback_result()
+├── Agent不存在→graph节点返回空结果+errors记录
+├── Reviewer不存在→跳过审核，标记approved=True
+└── 不中断后续Agent执行
+
+Level 3：全流程超时/异常
+├── 全流程超时(120s)→run_workflow()捕获→返回部分结果
+├── 工作流异常→返回错误信息+降级标记
 └── 最终结果标注"已降级"
 
-Level 3：全部失败
-├── 所有Agent均失败 → 返回错误提示
-└── "系统暂时无法完成分析，请稍后重试"
+Level 4：审核重试循环
+├── 审核不通过→regenerate_count < 1时触发重新生成
+├── 重新生成后再次审核→仍不通过→标记降级但返回结果
+└── 最多重试1次（regenerate_count上限=1）
 ```
 
-### 5.8 Agent状态管理（用于可视化推送）
+### 5.8 Agent状态管理（SSE事件格式）
 
 ```python
-# 实时状态结构（通过SSE推送给Java后端）
-{
-    "coordinator": {
-        "status": "completed",           # waiting / running / completed / failed
-        "startedAt": "2026-05-23T10:00:00",
-        "completedAt": "2026-05-23T10:00:02",
-        "durationMs": 2000,
-        "intermediateResult": "分解为4个子任务"
-    },
-    "retriever": {
-        "status": "completed",
-        "startedAt": "2026-05-23T10:00:02",
-        "completedAt": "2026-05-23T10:00:03",
-        "durationMs": 1200,
-        "intermediateResult": "找到15篇相关论文，筛选Top10"
-    },
-    "analyzer": {
-        "status": "running",
-        "startedAt": "2026-05-23T10:00:03",
-        "progress": 0.8,
-        "intermediateResult": "已分析8/10篇"
-    },
-    "comparer": {
-        "status": "waiting"
-    },
-    "generator": {
-        "status": "waiting"
-    },
-    "reviewer": {
-        "status": "waiting"
-    }
-}
+# 8种SSE事件格式
+
+# 1. agent_started
+event: agent_started
+data: {"agentName":"retriever","status":"running","analysisId":"anl_001","timestamp":1716451200000}
+
+# 2. agent_state_update
+event: agent_state_update
+data: {"agentName":"retriever","status":"running","progress":0.6,"analysisId":"anl_001","intermediateResult":"Searching...","durationMs":0}
+
+# 3. agent_completed
+event: agent_completed
+data: {"agentName":"retriever","status":"completed","progress":1.0,"analysisId":"anl_001","intermediateResult":"Found 10 papers","durationMs":1200}
+
+# 4. agent_failed
+event: agent_failed
+data: {"agentName":"analyzer","status":"failed","analysisId":"anl_001","errorMessage":"Agent timed out","durationMs":30000}
+
+# 5. analysis_completed
+event: analysis_completed
+data: {"analysisId":"anl_001","status":"completed","finalReport":"...","degraded":false,"degradedReason":null,"totalDurationMs":25000}
+
+# 6. error
+event: error
+data: {"analysisId":"anl_001","errorCode":500,"errorMessage":"analyzer failed: timeout"}
+
+# 7. ping（keep-alive）
+event: ping
+data: {}
+
+# 8. review_rejected（审核不通过，触发重新生成）
+event: review_rejected
+data: {"agentName":"reviewer","analysisId":"anl_001","regenerateCount":1,"issues":[{"claim":"...","error_type":"citation_error"}]}
 ```
 
 ### 5.9 功能清单
 
-| 编号 | 功能 | 优先级 | 说明 |
-|------|------|--------|------|
-| F3.1.1 | 协调者Agent | P0 | 任务分解、分配、监督、结果汇总 |
-| F3.1.2 | 检索Agent | P0 | 向量检索+关键词检索，返回Top10 |
-| F3.1.3 | 分析Agent | P0 | 提取5维度核心信息，输出JSON |
-| F3.1.4 | 对比Agent | P1 | 多论文方法/结论对比，矛盾发现 |
-| F3.1.5 | 生成Agent | P0 | 个性化综述生成，含引用标注 |
-| F3.1.6 | 审核Agent | P1 | 事实核查+引用核查，审核通过/修改建议 |
-| F3.1.7 | 工作流编排 | P0 | LangGraph StateGraph，条件分支，超时控制 |
-| F3.1.8 | 降级机制 | P1 | 单Agent失败跳过，多Agent失败降级为单Agent模式 |
+| 编号 | 功能 | 优先级 | 状态 | 说明 |
+|------|------|--------|------|------|
+| F3.1.1 | 协调者Agent | P0 | 已实现，未接入graph | LLM任务分解+规则降级+Prompt注入防护 |
+| F3.1.2 | 检索Agent | P0 | ✅ 已接入 | hybrid_search+LLM搜索策略+reranker |
+| F3.1.3 | 分析Agent | P0 | ✅ 已接入 | 5维度dict结构+rule-based降级+个性化指令 |
+| F3.1.4 | 对比Agent | P1 | 已实现，未接入graph | 4维度对比+5类矛盾根因+规则降级 |
+| F3.1.5 | 生成Agent | P0 | ✅ 已接入 | citation提取+term_density+报告验证+fallback |
+| F3.1.6 | 审核Agent | P1 | 已实现review_node，条件边触发（运行时因未实例化而跳过） | citation验证+事实核查+重试建议 |
+| F3.1.7 | 工作流编排 | P0 | ✅ 已实现 | 4节点LangGraph StateGraph + 条件边 + 重试循环 |
+| F3.1.8 | SSE流式编排 | P0 | ✅ 已实现 | AgentOrchestrator，8种事件+keep-alive+Last-Event-ID+review_rejected |
+| F3.1.9 | 降级机制 | P0 | ✅ 已实现 | Agent内部降级+超时降级+全流程降级 |
 
 ---
 
@@ -1132,63 +1397,47 @@ Level 3：全部失败
 ```python
 # services/search_service.py
 class SearchService:
-    """检索服务 — 协调向量检索和关键词检索"""
+    """检索服务 — 协调语义检索、关键词检索和混合检索"""
+    RRF_K = 60
 
-    def __init__(self, vector_store_service, embedding_service):
-        self.vector_store = vector_store_service
-        self.embedding = embedding_service
+    def __init__(self, vector_store_service, embedding_service, reranker=None):
+        self.vector_store_service = vector_store_service
+        self.embedding_service = embedding_service
+        self.reranker = reranker
 
-    async def search(self, query: str, top_k: int = 10,
-                     filters: dict = None) -> list:
-        """
-        语义检索
-
-        流程：
-        1. query → embedding_service.encode() → 查询向量
-        2. 向量 → vector_store_service.search() → TopK结果
-        3. 结果 → 重排序 → 返回
-        """
-        # 1. 向量化查询
-        query_embedding = await self.embedding.encode(query)
-
-        # 2. 向量检索
-        results = await self.vector_store.search(
-            embedding=query_embedding,
-            top_k=top_k,
-            filters=filters
-        )
-
-        # 3. 重排序（P1）
-        if self.reranker:
-            results = await self.reranker.rerank(query, results)
-
+    async def search(self, query, top_k=10, filters=None) -> List[dict]:
+        """语义检索：query→embedding→ChromaDB.query()→rerank"""
+        query_embedding = await self.embedding_service.encode(query)
+        raw_results = await self.vector_store_service.search(embedding=query_embedding.tolist(), top_k=top_k, filters=filters)
+        results = self._format_results(raw_results)
+        if self.reranker: results = await self.reranker.rerank(query, results)
         return results
 
-    async def hybrid_search(self, query: str, top_k: int = 10,
-                            filters: dict = None) -> list:
-        """
-        混合检索（P1功能）
+    async def keyword_search(self, query, top_k=10, filters=None) -> List[dict]:
+        """关键词检索：ChromaDB $contains 查询"""
+        raw_results = await self.vector_store_service.search_by_keywords(query_text=query, top_k=top_k, filters=filters)
+        return self._format_results(raw_results)
 
-        流程：
-        1. 并行执行语义检索和关键词检索
-        2. 使用RRF（Reciprocal Rank Fusion）融合两路结果
-        3. 返回融合排序后的结果
-        """
-        # 并行检索
+    async def hybrid_search(self, query, top_k=10, filters=None) -> List[dict]:
+        """混合检索：语义+关键词并行→RRF融合→rerank"""
+        candidate_k = top_k * 2
         semantic_results, keyword_results = await asyncio.gather(
-            self.search(query, top_k=top_k * 2, filters=filters),
-            self.keyword_search(query, top_k=top_k * 2, filters=filters)
+            self.search(query, top_k=candidate_k, filters=filters),
+            self.keyword_search(query, top_k=candidate_k, filters=filters),
         )
-
-        # RRF融合
-        fused = self._reciprocal_rank_fusion(
-            semantic_results, keyword_results, k=60
-        )
-
+        fused = self._reciprocal_rank_fusion(semantic_results, keyword_results, k=self.RRF_K)
+        if self.reranker: fused = await self.reranker.rerank(query, fused)
         return fused[:top_k]
 
-    def _reciprocal_rank_fusion(self, list1: list, list2: list,
-                                 k: int = 60) -> list:
+    async def suggest(self, query, top_k=5) -> List[str]:
+        """搜索建议：ChromaDB query_texts→标题列表"""
+        return await self.vector_store_service.suggest_titles(query, top_k=top_k)
+
+    def _format_results(self, raw_results) -> List[dict]:
+        """统一格式化：paperId/paper_id→paper_id"""
+        ...
+
+    def _reciprocal_rank_fusion(self, list1, list2, k=60) -> list:
         """
         Reciprocal Rank Fusion
 
@@ -1196,48 +1445,66 @@ class SearchService:
         """
         scores = {}
         for rank, item in enumerate(list1):
-            pid = item["paperId"]
+            pid = item.get("paper_id") or item.get("paperId")
             scores[pid] = scores.get(pid, 0) + 1 / (k + rank + 1)
             if pid not in scores:
                 scores[pid] = {"item": item}
 
         for rank, item in enumerate(list2):
-            pid = item["paperId"]
+            pid = item.get("paper_id") or item.get("paperId")
             scores[pid] = scores.get(pid, 0) + 1 / (k + rank + 1)
 
-        # 按融合分数排序
         sorted_items = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         return [v["item"] for _, v in sorted_items]
 ```
 
-#### 6.2.2 Reranker（重排序，P1功能）
+#### 6.2.2 Reranker（复合评分重排序）
 
 ```python
 # services/reranker.py
 class Reranker:
-    """对检索结果进行相关性重排序"""
+    """复合评分重排序器"""
+    WEIGHT_RRF = 0.5          # RRF/语义分数权重
+    WEIGHT_FIELD = 0.3        # 字段相关性权重
+    WEIGHT_POPULARITY = 0.2   # 流行度权重
+    YEAR_DECAY_RATE = 0.05    # 年份衰减率
+    RECENT_YEAR_THRESHOLD = 3 # 近年阈值
+    TITLE_MATCH_BOOST = 0.1   # 标题匹配加分
+    KEYWORD_DENSITY_WEIGHT = 0.05  # 关键词密度权重
+    CITATION_BOOST_WEIGHT = 0.1    # 引用数加分
+    PERSONALIZATION_BOOST = 0.05   # 个性化加权
 
-    async def rerank(self, query: str, results: list) -> list:
+    async def rerank(self, query, results, user_profile=None) -> List[dict]:
+        """复合评分公式：
+        composite = score_rrf * 0.5
+                  + (title_match + keyword_density + citation_boost) * year_decay * 0.3
+                  + popularity * 0.2
+                  + personalization_boost
         """
-        重排序策略：
-        1. 规则方法：根据标题匹配度、关键词匹配度调整排序
-        2. Cross-Encoder方法（可选）：使用Cross-Encoder模型重新打分
-        """
-        # 规则重排序
-        for item in results:
-            score = item.get("score", 0)
-            # 标题包含查询关键词 → 加分
-            if query.lower() in item.get("title", "").lower():
-                score += 0.1
-            item["rerank_score"] = score
-
-        results.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
-        return results
+        for result in results:
+            # 标题匹配加分
+            title_match_boost = sum(TITLE_MATCH_BOOST for kw in query_keywords if kw in title)
+            # 关键词密度
+            keyword_density_boost = (keyword_count / abstract_len) * KEYWORD_DENSITY_WEIGHT
+            # 引用数加分
+            citation_boost = min(citation_count / 100, 1.0) * CITATION_BOOST_WEIGHT
+            # 年份衰减
+            score_year = 1.0 if years_diff <= 3 else exp(-0.05 * years_diff)
+            # 字段相关性
+            field_score = (title_match + keyword_density + citation) * score_year
+            # 流行度
+            popularity_score = min(citation_count / 100, 1.0)
+            # 复合评分
+            composite = score_rrf * 0.5 + field_score * 0.3 + popularity * 0.2
+            # 个性化加权（研究方向匹配venue/keywords）
+            if user_profile and research_field in venue: composite += 0.05
 ```
 
 ### 6.3 检索流程
 
 ```
+1. 语义检索流程：
+
 查询文本 "Multi-Agent协同决策"
     │
     ▼
@@ -1253,24 +1520,59 @@ VectorStoreService.search()
 元数据过滤（可选）
     │ year >= 2020, venue = "ACL"
     ▼
-Reranker.rerank()（P1）
-    │ 规则重排序 + 关键词加分
+Reranker.rerank()
+    │ 复合评分重排序（RRF+字段+流行度+年份+个性化）
     │ 筛选Top10
     ▼
 返回结果
-    [{paperId, title, abstract, score, year, venue}, ...]
+    [{paper_id, title, abstract, score, year, venue}, ...]
+
+2. 混合检索流程：
+
+查询文本 "Multi-Agent协同决策"
+    │
+    ├──→ 语义检索（search）
+    │    EmbeddingService.encode() → VectorStoreService.search()
+    │    → candidate_k个结果
+    │
+    └──→ 关键词检索（keyword_search）
+         VectorStoreService.search_by_keywords()
+         → candidate_k个结果
+    │
+    ▼
+RRF融合（_reciprocal_rank_fusion）
+    │ RRF_score(d) = Σ 1/(k + rank_i(d))
+    │ k=60
+    ▼
+Reranker.rerank()
+    │ 复合评分重排序
+    ▼
+返回TopK结果
+
+3. 搜索建议流程：
+
+查询文本 "Multi-Agent"
+    │
+    ▼
+VectorStoreService.suggest_titles()
+    │ ChromaDB query_texts → 标题匹配
+    ▼
+返回标题列表（去重，Top5）
+    ["Multi-Agent协同决策系统研究", "Multi-Agent强化学习综述", ...]
 ```
 
 ### 6.4 功能清单
 
-| 编号 | 功能 | 优先级 | 说明 |
-|------|------|--------|------|
-| F3.2.1 | 文档向量化 | P0 | 论文标题+摘要 → 1024维向量，批量100条/10秒 |
-| F3.2.2 | 向量存储 | P0 | 向量+元数据存入Chroma，建立papers collection |
-| F3.2.3 | 语义检索 | P0 | 查询向量 → TopK相似论文，cosine相似度 |
-| F3.2.4 | 混合检索 | P1 | 语义检索 + 关键词检索 + RRF融合 |
-| F3.2.5 | 重排序 | P1 | 规则重排序，提升Top5质量 |
-| F3.2.6 | 检索优化 | P2 | 调整chunk_size、top_k、similarity_threshold |
+| 编号 | 功能 | 优先级 | 状态 | 说明 |
+|------|------|--------|------|------|
+| F3.2.1 | 文档向量化 | P0 | ✅ | DashScope text-embedding-v4→1024维向量 |
+| F3.2.2 | 向量存储 | P0 | ✅ | ChromaDB papers collection |
+| F3.2.3 | 语义检索 | P0 | ✅ | cosine相似度，TopK |
+| F3.2.4 | 关键词检索 | P0 | ✅ | ChromaDB $contains查询 |
+| F3.2.5 | 混合检索 | P1 | ✅ | 语义+关键词+RRF融合 |
+| F3.2.6 | 复合重排序 | P1 | ✅ | RRF+字段+流行度+年份+个性化 |
+| F3.2.7 | 搜索建议 | P2 | ✅ | 标题自动补全 |
+| F3.2.8 | 检索优化 | P2 | 待优化 | 调整chunk_size、top_k、similarity_threshold |
 
 ---
 
@@ -1335,12 +1637,21 @@ class LLMMode(str, Enum):
 class LLMService:
     """统一LLM推理服务"""
 
+    PROVIDER_PRIORITY = ["builtin", "api", "local"]
+
     def __init__(self, settings):
         self.settings = settings
         self.mode = settings.LLM_MODE
         self.providers = {}      # {mode: LLMProvider}
         self.active_provider = None
         self.status = "initializing"
+        self._degradation_state = {
+            "current_provider": None,
+            "fallback_count": 0,
+            "last_fallback_at": None,
+            "consecutive_failures": {},  # 按provider记录连续失败次数
+        }
+        self._recovery_task: asyncio.Task | None = None
 
     async def initialize(self):
         """初始化LLM服务，根据配置加载Provider"""
@@ -1459,6 +1770,15 @@ class LLMService:
         """释放模型显存"""
         if "local" in self.providers:
             await self.providers["local"].unload_model()
+
+    def _start_recovery_task(self):
+        """启动自动恢复任务（每300秒轮询高优先级provider）"""
+        async def _recovery_loop():
+            while True:
+                await asyncio.sleep(300)
+                # 检查比当前provider优先级更高的provider是否恢复
+                ...
+        self._recovery_task = asyncio.create_task(_recovery_loop())
 ```
 
 ### 7.4 Provider实现
@@ -1663,6 +1983,20 @@ LLM_MODE=auto
     │   └── 方案C不可用 → 返回错误
     │
     └── 所有方案均失败 → 返回AIServiceException
+
+运行时自动恢复（_recovery_task）：
+
+每300秒轮询：
+├── 检查比当前active_provider优先级更高的provider
+├── 如果高优先级provider恢复 → 自动切回
+├── 例：api→builtin 恢复后自动切回builtin
+└── 日志记录：LLM recovered: api → builtin
+
+降级状态追踪（_degradation_state）：
+├── current_provider: 当前活跃provider
+├── fallback_count: 累计降级次数
+├── last_fallback_at: 最近降级时间
+└── consecutive_failures: 各provider连续失败次数
 ```
 
 ### 7.6 功能清单
@@ -1692,148 +2026,33 @@ LLM_MODE=auto
 class PersonalizationService:
     """个性化引擎 — 画像驱动的Prompt构建"""
 
-    # 难度适配映射
-    DIFFICULTY_MAP = {
-        "beginner": {
-            "term_density": "<5%",
-            "strategy": "通俗解释+类比+入门路线",
-            "example_type": "日常例子",
-            "avoid": "复杂公式、专业术语、深入技术细节"
-        },
-        "intermediate": {
-            "term_density": "~20%",
-            "strategy": "标准描述+示例+方法对比",
-            "example_type": "代码示例",
-            "avoid": "过度简化"
-        },
-        "advanced": {
-            "term_density": "~40%",
-            "strategy": "专业术语+深入分析+研究空白",
-            "example_type": "实验数据",
-            "avoid": "基础概念解释"
-        },
-        "expert": {
-            "term_density": ">50%",
-            "strategy": "前沿洞察+创新建议+技术细节",
-            "example_type": "论文引用",
-            "avoid": "任何简化"
-        }
-    }
-
-    # 风格适配映射
+    # 核心映射表
+    DIFFICULTY_MAP = {"beginner": 1, "intermediate": 2, "advanced": 3, "expert": 4}
     STYLE_MAP = {
-        "simple": {
-            "tone": "日常用语+比喻",
-            "paragraph": "简短段落",
-            "structure": "要点式",
-            "example": "Multi-Agent就像一个AI项目组，每个成员负责不同任务..."
-        },
-        "balanced": {
-            "tone": "标准学术表达",
-            "paragraph": "适度展开",
-            "structure": "总分总",
-            "example": "Multi-Agent系统通过多个智能体协同工作..."
-        },
-        "technical": {
-            "tone": "正式学术+引用",
-            "paragraph": "深入论证",
-            "structure": "IMRAD",
-            "example": "基于LangGraph框架（LangChain, 2024）的多智能体协同架构..."
-        }
+        "simple": {"tone": "日常用语+比喻", "paragraph": "短段落", "structure": "先举例后总结"},
+        "balanced": {"tone": "标准学术", "paragraph": "中等段落", "structure": "先总后分"},
+        "technical": {"tone": "正式学术+引用", "paragraph": "长段落", "structure": "严格学术结构"},
     }
+    EDUCATION_ADAPTATION = {
+        "undergraduate": "适当补充背景知识，使用类比说明",
+        "master": "侧重方法论对比和实验设计分析",
+        "phd": "关注创新点和前沿贡献",
+        "faculty": "关注教学适用性和知识体系构建",
+    }
+    FIELD_EMPHASIS = {"NLP": "...", "CV": "...", "RL": "...", ...}
+    TERM_DENSITY_TARGET = {"beginner": 0.05, "intermediate": 0.20, "advanced": 0.40, "expert": 0.50}
 
-    def build_generation_prompt(self, analysis_results: list,
-                                 comparison_result: dict,
-                                 user_profile: dict) -> str:
+    def get_personalization_block(self, user_profile) -> str:
+        """构建个性化Prompt片段（学历适配+术语密度+写作风格+领域侧重）"""
+
+    def get_extra_instruction(self, user_profile, agent_name="") -> str:
+        """Agent级别差异化指令
+        - analyzer: _ANALYZER_INSTRUCTIONS + _ANALYZER_EDUCATION_INSTRUCTIONS
+        - generator: _GENERATOR_INSTRUCTIONS + _GENERATOR_EDUCATION_INSTRUCTIONS
         """
-        构建个性化的综述生成Prompt
 
-        Args:
-            analysis_results: 论文分析结果列表
-            comparison_result: 对比分析结果
-            user_profile: 用户画像
-
-        Returns:
-            完整的个性化Prompt
-        """
-        # 1. 解析画像
-        education = user_profile.get("educationLevel", "master")
-        field = user_profile.get("researchField", "")
-        knowledge = user_profile.get("knowledgeLevel", "intermediate")
-        style = user_profile.get("preferredStyle", "balanced")
-
-        # 2. 获取适配策略
-        difficulty = self.DIFFICULTY_MAP.get(knowledge, self.DIFFICULTY_MAP["intermediate"])
-        style_config = self.STYLE_MAP.get(style, self.STYLE_MAP["balanced"])
-
-        # 3. 构建个性化Prompt片段
-        personalization_block = f"""
-【重要】请根据以下用户信息调整回答内容：
-- 用户身份：{self._education_label(education)}
-- 研究方向：{field}（优先推荐该领域的案例和论文）
-- 知识水平：{self._knowledge_label(knowledge)}
-  → 术语密度：{difficulty['term_density']}
-  → 内容策略：{difficulty['strategy']}
-  → 示例类型：{difficulty['example_type']}
-  → 需避免：{difficulty['avoid']}
-- 表达风格：{self._style_label(style)}
-  → 语气：{style_config['tone']}
-  → 段落：{style_config['paragraph']}
-  → 结构：{style_config['structure']}
-"""
-
-        # 4. 组装完整Prompt
-        prompt = self._load_template("generator.txt")
-        prompt = prompt.replace("{{personalization}}", personalization_block)
-        prompt = prompt.replace("{{analysis_data}}", json.dumps(analysis_results, ensure_ascii=False))
-        prompt = prompt.replace("{{comparison_data}}", json.dumps(comparison_result, ensure_ascii=False))
-
-        return prompt
-
-    def build_analysis_prompt(self, paper: dict, user_profile: dict) -> str:
-        """
-        构建个性化的论文分析Prompt
-        """
-        knowledge = user_profile.get("knowledgeLevel", "intermediate")
-
-        # 初级/中级用户额外请求通俗解释
-        extra_instruction = ""
-        if knowledge in ("beginner", "intermediate"):
-            extra_instruction = "\n额外要求：请为每个维度同时提供通俗解释，使用类比和日常例子。"
-
-        prompt = self._load_template("analyzer.txt")
-        prompt = prompt.replace("{{paper_title}}", paper.get("title", ""))
-        prompt = prompt.replace("{{paper_abstract}}", paper.get("abstract", ""))
-        prompt = prompt.replace("{{extra_instruction}}", extra_instruction)
-
-        return prompt
-
-    def _education_label(self, level: str) -> str:
-        labels = {
-            "undergraduate": "本科学生",
-            "master": "硕士研究生",
-            "phd": "博士研究生",
-            "faculty": "教师/研究者"
-        }
-        return labels.get(level, level)
-
-    def _knowledge_label(self, level: str) -> str:
-        labels = {
-            "beginner": "初级（对该领域了解较少）",
-            "intermediate": "中级（有基础了解）",
-            "advanced": "高级（深入研究）",
-            "expert": "专家（领域权威）"
-        }
-        return labels.get(level, level)
-
-    def _style_label(self, style: str) -> str:
-        labels = {"simple": "通俗", "balanced": "均衡", "technical": "专业"}
-        return labels.get(style, style)
-
-    def _load_template(self, filename: str) -> str:
-        """加载Prompt模板文件"""
-        template_path = Path(__file__).parent.parent / "prompts" / filename
-        return template_path.read_text(encoding="utf-8")
+    def build_generation_prompt(self, analysis_results, comparison_result, user_profile) -> str:
+        """构建个性化综述生成Prompt（优先使用prompt_manager，fallback到文件加载）"""
 ```
 
 ### 8.3 个性化效果对比
@@ -1860,13 +2079,14 @@ class PersonalizationService:
 
 ### 8.4 功能清单
 
-| 编号 | 功能 | 优先级 | 说明 |
-|------|------|--------|------|
-| F3.4.1 | 用户画像解析 | P0 | 解析Java后端传递的画像JSON |
-| F3.4.2 | Prompt个性化 | P0 | 根据画像动态构建个性化Prompt片段 |
-| F3.4.3 | 内容难度适配 | P0 | 根据knowledge_level调整术语密度和内容策略 |
-| F3.4.4 | 风格适配 | P1 | 根据preferred_style调整表达方式 |
-| F3.4.5 | 推荐策略 | P2 | 根据研究方向+历史偏好推荐论文 |
+| 编号 | 功能 | 优先级 | 状态 | 说明 |
+|------|------|--------|------|------|
+| F3.4.1 | 用户画像解析 | P0 | ✅ | camelCase→snake_case归一化 |
+| F3.4.2 | Prompt个性化 | P0 | ✅ | 学历适配+术语密度+写作风格+领域侧重 |
+| F3.4.3 | 内容难度适配 | P0 | ✅ | 4级knowledge_level→术语密度目标 |
+| F3.4.4 | 风格适配 | P1 | ✅ | 3级preferred_style→语气/段落/结构 |
+| F3.4.5 | Agent差异化指令 | P1 | ✅ | analyzer/generator独立指令集 |
+| F3.4.6 | 推荐策略 | P2 | 待实现 | 根据研究方向+历史偏好推荐论文 |
 
 ---
 
@@ -1874,79 +2094,63 @@ class PersonalizationService:
 
 ### 9.1 模块概述
 
-负责将文本转换为高维向量表示，是语义检索的基础。优先使用阿里云百炼API（text-embedding-v4），备选本地模型（BAAI/bge-m3，1024维，与API对齐）。
+负责将文本转换为高维向量表示。**当前配置使用阿里云百炼 DashScope API（text-embedding-v4）作为主要方式**，本地模型（BAAI/bge-m3）因用户策略已禁用。维度1024与API对齐。
 
 ### 9.2 EmbeddingService实现
 
 ```python
 # services/embedding_service.py
-from sentence_transformers import SentenceTransformer
 import numpy as np
 from typing import Union
 
 class EmbeddingService:
     """文本向量化服务"""
+    EXPECTED_DIMENSION = 1024
 
     def __init__(self, settings):
         self.settings = settings
-        self.model = None
-        self.dimension = None
-        self.EXPECTED_DIMENSION = 1024
+        self.model = None           # 本地模型（当前禁用）
+        self._dimension: int | None = None
         self.status = "initializing"
-        self._api_client = None  # 外接API客户端（备选）
+        self._api_client = None     # DashScope API客户端
 
-    async def load_model(self):
-        """加载本地Embedding模型"""
-        try:
-            self.model = SentenceTransformer(
-                self.settings.EMBEDDING_MODEL_PATH or "BAAI/bge-m3",
-                device=self.settings.EMBEDDING_DEVICE or "cpu"
-            )
-            self.dimension = self.model.get_sentence_embedding_dimension()
-            if self.dimension != self.EXPECTED_DIMENSION:
-                logger.warning(
-                    f"Embedding dimension mismatch: got {self.dimension}, "
-                    f"expected {self.EXPECTED_DIMENSION}"
-                )
-            self.status = "loaded"
-            logger.info(f"Embedding model loaded, dimension={self.dimension}")
-        except Exception as e:
-            logger.warning(f"Failed to load local embedding model: {e}")
-            # 尝试使用外接API
-            if self.settings.EMBEDDING_API_KEY:
-                self._init_api_client()
-                self.status = "loaded_api"
-            else:
-                self.status = "error"
-                raise
+    async def load_model(self) -> None:
+        """初始化Embedding服务
+        优先级：DashScope API > 本地模型（已禁用） > disabled
+        """
+        if self.settings.DASHSCOPE_API_KEY:
+            self._init_dashscope_client()
+            self._dimension = self.settings.EMBEDDING_EXPECTED_DIMENSION
+            self.status = "loaded_api"
+            return
+        # 本地模型已禁用
+        self.status = "disabled"
 
-    def _init_api_client(self):
-        """初始化外接Embedding API"""
+    def _init_dashscope_client(self) -> None:
+        """初始化DashScope Embedding API客户端"""
         from openai import AsyncOpenAI
+        from httpx import Timeout
         self._api_client = AsyncOpenAI(
-            api_key=self.settings.EMBEDDING_API_KEY,
-            base_url=self.settings.EMBEDDING_API_BASE or "https://api.openai.com/v1"
+            api_key=self.settings.DASHSCOPE_API_KEY,
+            base_url=self.settings.DASHSCOPE_EMBEDDING_BASE_URL,
+            timeout=Timeout(30.0, connect=10.0),
+            max_retries=2,
         )
 
-    async def encode(self, text: Union[str, list]) -> np.ndarray:
-        """
-        文本向量化
+    async def encode(self, text) -> np.ndarray:
+        """文本向量化（单条/批量）"""
+        if self._api_client: return await self._encode_via_api(text)
+        if self.model: return await self._encode_local(text)
+        raise ModelNotLoadedException("Embedding model not loaded")
 
-        Args:
-            text: 单条文本或文本列表
-
-        Returns:
-            1024维向量（单条）或向量矩阵（多条）
-        """
-        if self.model:
-            # 本地模型
-            return self.model.encode(text, normalize_embeddings=True)
-
-        if self._api_client:
-            # 外接API
-            return await self._encode_via_api(text)
-
-        raise RuntimeError("No embedding service available")
+    async def _encode_via_api(self, text) -> np.ndarray:
+        """通过DashScope API获取向量"""
+        response = await self._api_client.embeddings.create(
+            model=self.settings.DASHSCOPE_EMBEDDING_MODEL,
+            input=text,
+        )
+        embeddings = [item.embedding for item in response.data]
+        return np.array(embeddings, dtype=np.float32)
 
     async def encode_batch(self, texts: list, batch_size: int = 32) -> np.ndarray:
         """
@@ -1969,30 +2173,16 @@ class EmbeddingService:
             all_embeddings.append(embeddings)
 
         return np.vstack(all_embeddings)
-
-    async def _encode_via_api(self, text: Union[str, list]) -> np.ndarray:
-        """通过外接API获取向量"""
-        if isinstance(text, str):
-            text = [text]
-
-        model_name = self.settings.EMBEDDING_API_MODEL or "text-embedding-3-small"
-        response = await self._api_client.embeddings.create(
-            model=model_name,
-            input=text
-        )
-
-        embeddings = [item.embedding for item in response.data]
-        return np.array(embeddings)
 ```
 
 ### 9.3 功能清单
 
-| 编号 | 功能 | 优先级 | 说明 |
-|------|------|--------|------|
-| F5.2.1 | 阿里云百炼API配置 | P0 | 配置text-embedding-v4 API，向量维度1024 |
-| F5.2.2 | 文本向量化 | P0 | 单条/批量文本→1024维向量，支持本地或API |
-| F5.2.3 | 批量向量化 | P0 | 100条/10秒，分批处理 |
-| F5.2.4 | 外接Embedding API | P1 | Jina/OpenAI等API作为备选 |
+| 编号 | 功能 | 优先级 | 状态 | 说明 |
+|------|------|--------|------|------|
+| F5.2.1 | DashScope API配置 | P0 | ✅ | text-embedding-v4，1024维，阿里云百炼 |
+| F5.2.2 | 文本向量化 | P0 | ✅ | 单条/批量→1024维向量 |
+| F5.2.3 | 批量向量化 | P0 | ✅ | encode_batch，batch_size=32 |
+| F5.2.4 | 本地模型 | P2 | 已禁用 | BAAI/bge-m3，因用户策略禁用 |
 
 ---
 
@@ -2116,6 +2306,21 @@ class VectorStoreService:
         """关闭连接"""
         self.client = None
         self.status = "disconnected"
+
+    async def add_papers_batch(self, paper_ids, embeddings, metadatas, documents, batch_size=50) -> None:
+        """批量导入论文（分批写入，每批间隔0.5秒）"""
+
+    async def get_paper_by_id(self, paper_id) -> Optional[dict]:
+        """按ID获取论文详情"""
+
+    async def update_paper_metadata(self, paper_id, metadata) -> None:
+        """更新论文元数据"""
+
+    async def search_by_keywords(self, query_text, top_k=10, filters=None) -> List[dict]:
+        """关键词检索（ChromaDB $contains查询，逐关键词检索去重）"""
+
+    async def suggest_titles(self, query, top_k=5) -> List[str]:
+        """搜索建议（query_texts→标题列表去重）"""
 ```
 
 ### 10.2 Chroma Schema
@@ -2147,12 +2352,14 @@ metadata_schema = {
 
 ### 10.3 功能清单
 
-| 编号 | 功能 | 优先级 | 说明 |
-|------|------|--------|------|
-| F4.3.1 | 论文向量存储 | P0 | 向量+元数据存入Chroma |
-| F4.3.2 | 语义相似度检索 | P0 | cosine相似度，TopK结果 |
-| F4.3.3 | 向量索引管理 | P1 | 创建、更新、删除操作 |
-| F4.3.4 | 批量导入 | P0 | 支持200+篇论文批量导入 |
+| 编号 | 功能 | 优先级 | 状态 | 说明 |
+|------|------|--------|------|------|
+| F4.3.1 | 论文向量存储 | P0 | ✅ | 向量+元数据存入Chroma |
+| F4.3.2 | 语义相似度检索 | P0 | ✅ | cosine相似度，TopK |
+| F4.3.3 | 向量索引管理 | P1 | ✅ | 添加/删除/更新/按ID查询 |
+| F4.3.4 | 批量导入 | P0 | ✅ | 分批写入，batch_size=50 |
+| F4.3.5 | 关键词检索 | P0 | ✅ | $contains查询，多关键词去重 |
+| F4.3.6 | 搜索建议 | P2 | ✅ | 标题自动补全 |
 
 ---
 
@@ -2239,12 +2446,12 @@ async def import_to_vector_db(papers: list):
 
 ### 11.2 功能清单
 
-| 编号 | 功能 | 优先级 | 说明 |
-|------|------|--------|------|
-| F4.4.1 | arXiv数据采集 | P0 | 从arXiv API下载AI/Agent领域论文200+篇 |
-| F4.4.2 | 数据清洗 | P0 | 去重（按标题+作者）、格式统一 |
-| F4.4.3 | 文档分块 | P0 | 按章节分块（500-1000字），保留章节标题 |
-| F4.4.4 | 质量检查 | P0 | 检查数据完整性、格式正确性、内容准确性 |
+| 编号 | 功能 | 优先级 | 状态 | 说明 |
+|------|------|--------|------|------|
+| F4.4.1 | arXiv数据采集 | P0 | ✅ | 从arXiv API下载AI/Agent领域论文 |
+| F4.4.2 | 数据清洗 | P0 | ✅ | 去重+格式统一 |
+| F4.4.3 | 文档分块 | P0 | ✅ | chunk_text()，800字+100字overlap |
+| F4.4.4 | 质量检查 | P0 | ✅ | validate_papers.py |
 
 ---
 
@@ -2262,6 +2469,8 @@ prompts/
 └── reviewer.txt       # 审核Agent Prompt
 ```
 
+> 注：PromptManager 使用 `string.Template.safe_substitute()` 渲染，变量格式为 `$variable` 或 `${variable}`。
+
 ### 12.2 Prompt模板示例
 
 #### analyzer.txt
@@ -2269,11 +2478,11 @@ prompts/
 ```
 你是一位资深学术论文审稿人。请对以下论文进行深度分析，提取以下5个维度的核心信息：
 
-【论文标题】：{{paper_title}}
+【论文标题】：$paper_title
 
-【论文摘要】：{{paper_abstract}}
+【论文摘要】：$paper_abstract
 
-{{extra_instruction}}
+$extra_instruction
 
 请严格按照以下JSON格式输出：
 
@@ -2298,15 +2507,15 @@ prompts/
 ```
 你是一位专业的学术文献综述撰写专家。请根据以下论文分析数据，撰写一篇结构完整的文献综述。
 
-{{personalization}}
+$personalization
 
 【研究主题】：基于提供的论文分析数据
 
 【论文分析数据】：
-{{analysis_data}}
+$analysis_data
 
 【对比分析数据】（如有）：
-{{comparison_data}}
+$comparison_data
 
 请撰写综述，包含以下结构：
 
@@ -2336,14 +2545,15 @@ prompts/
 
 | 变量 | 说明 | 使用位置 |
 |------|------|---------|
-| `{{paper_title}}` | 论文标题 | analyzer |
-| `{{paper_abstract}}` | 论文摘要 | analyzer |
-| `{{extra_instruction}}` | 个性化额外指令 | analyzer |
-| `{{personalization}}` | 个性化Prompt片段 | generator |
-| `{{analysis_data}}` | 分析结果JSON | generator |
-| `{{comparison_data}}` | 对比结果JSON | generator, comparer |
-| `{{report_content}}` | 生成的综述内容 | reviewer |
-| `{{original_papers}}` | 原始论文数据 | reviewer |
+| `$paper_title` | 论文标题 | analyzer |
+| `$paper_abstract` | 论文摘要 | analyzer |
+| `$extra_instruction` | 个性化额外指令 | analyzer |
+| `$personalization` | 个性化Prompt片段 | generator |
+| `$analysis_data` | 分析结果JSON | generator |
+| `$comparison_data` | 对比结果JSON | generator, comparer |
+| `$report_content` | 生成的综述内容 | reviewer |
+| `$original_papers` | 原始论文数据 | reviewer |
+| `$user_profile_summary` | 用户画像摘要文本 | generator, comparer |
 
 ---
 
@@ -2360,12 +2570,12 @@ prompts/
              ▼                   ▼
 ┌────────────────────┐  ┌────────────────────┐
 │  Agent协同引擎      │  │  SearchService      │
-│  (graph.py)        │  │  (search_service)   │
+│  (AgentOrchestrator)│  │  (search_service)   │
 │                    │  │                     │
 │  coordinator ──┐   │  │  ┌── embedding_service
-│  retriever  ───┤   │  │  └── vector_store_service
-│  analyzer   ───┤   │  └────────────────────┘
-│  comparer   ───┤   │
+│  retriever  ───┤   │  │  ├── vector_store_service
+│  analyzer   ───┤   │  │  └── Reranker
+│  comparer   ───┤   │  └────────────────────┘
 │  generator  ───┤   │
 │  reviewer   ───┘   │
 │        │           │
@@ -2375,6 +2585,8 @@ prompts/
 │  │  embedding_svc  │
 │  │  vector_store   │
 │  │  personalization│
+│  │  search_service │
+│  │  reranker       │
 │  └─────────────────┘
 └────────────────────┘
 ```
@@ -2406,7 +2618,7 @@ prompts/
 ```python
 # models/schemas.py
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from enum import Enum
 
 class EducationLevel(str, Enum):
@@ -2442,10 +2654,11 @@ class UserProfile(BaseModel):
     preferred_style: PreferredStyle = Field(alias="preferredStyle")
 
 class AnalyzeRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     topic: str = Field(..., min_length=1, max_length=500)
     paper_ids: List[str] = Field(default_factory=list, alias="paperIds")
+    user_id: str = Field(..., min_length=1, alias="userId")
     user_profile: UserProfile = Field(alias="userProfile")
     analysis_type: AnalysisType = Field(alias="analysisType")
     analysis_id: str = Field(..., min_length=1, alias="analysisId")
@@ -2456,6 +2669,14 @@ class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500)
     top_k: int = Field(default=10, ge=1, le=50, alias="topK")
     filters: Optional[dict] = None
+
+class HybridSearchRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    query: str = Field(..., min_length=1, max_length=500)
+    top_k: int = Field(default=10, ge=1, le=50, alias="topK")
+    filters: Optional[Dict[str, Any]] = None
+    user_profile: Optional[UserProfile] = Field(default=None, alias="userProfile")
 
 # ===== 响应模型 =====
 
@@ -2491,17 +2712,26 @@ class SearchResponse(BaseModel):
     results: List[SearchResultItem]
     total: int
 
+class SearchSuggestResponse(BaseModel):
+    suggestions: List[str] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+
 class ModelStatusResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    llm_status: str = Field(alias="llmStatus")
-    llm_mode: str = Field(alias="llmMode")
-    embedding_status: str = Field(alias="embeddingStatus")
+    llm: str
+    embedding: str
+    chroma: str
+    prompts: str
     embedding_dimension: Optional[int] = Field(default=None, alias="embeddingDimension")
-    chroma_status: str = Field(alias="chromaStatus")
     active_llm_provider: Optional[str] = Field(default=None, alias="activeLlmProvider")
-    gpu_available: bool = Field(default=False, alias="gpuAvailable")
+    # task26扩展字段
+    provider_candidates: List[str] = Field(default_factory=list, alias="providerCandidates")
+    chroma_paper_count: Optional[int] = Field(default=None, alias="chromaPaperCount")
     gpu_memory_used: Optional[str] = Field(default=None, alias="gpuMemoryUsed")
+    llm_provider_count: int = Field(default=0, alias="llmProviderCount")
+    search_service: Optional[str] = Field(default=None, alias="searchService")
+    reranker: Optional[str] = Field(default=None)
 
 # 注：API端点应设置 response_model_by_alias=True 以输出camelCase
 ```
@@ -2510,7 +2740,36 @@ class ModelStatusResponse(BaseModel):
 
 ```python
 # models/enums.py
-class AgentName(str, Enum):
+from enum import Enum
+
+try:
+    from enum import StrEnum
+except ImportError:
+    class StrEnum(str, Enum): pass
+
+class EducationLevel(StrEnum):
+    UNDERGRADUATE = "undergraduate"
+    MASTER = "master"
+    PHD = "phd"
+    FACULTY = "faculty"
+
+class KnowledgeLevel(StrEnum):
+    BEGINNER = "beginner"
+    INTERMEDIATE = "intermediate"
+    ADVANCED = "advanced"
+    EXPERT = "expert"
+
+class PreferredStyle(StrEnum):
+    SIMPLE = "simple"
+    BALANCED = "balanced"
+    TECHNICAL = "technical"
+
+class AnalysisType(StrEnum):
+    PAPER_ANALYSIS = "paper_analysis"
+    COMPARE = "compare"
+    REPORT = "report"
+
+class AgentName(StrEnum):
     COORDINATOR = "coordinator"
     RETRIEVER = "retriever"
     ANALYZER = "analyzer"
@@ -2518,13 +2777,13 @@ class AgentName(str, Enum):
     GENERATOR = "generator"
     REVIEWER = "reviewer"
 
-class AgentStatus(str, Enum):
+class AgentStatus(StrEnum):
     WAITING = "waiting"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
 
-class LLMMode(str, Enum):
+class LLMMode(StrEnum):
     AUTO = "auto"
     BUILTIN = "builtin"
     API = "api"
@@ -2538,21 +2797,25 @@ class LLMMode(str, Enum):
 ### 15.1 统一响应格式
 
 ```python
-# 标准响应（与Java后端保持一致）
-{
-    "code": 200,
-    "message": "success",
-    "data": {...},
-    "timestamp": 1716451200000
-}
+# utils/response.py
+from fastapi.responses import JSONResponse
+from datetime import datetime, timezone
 
-# 错误响应
-{
-    "code": 400,
-    "message": "参数校验失败: topic不能为空",
-    "data": null,
-    "timestamp": 1716451200000
-}
+def ok(data=None, message="success", code=200) -> Dict:
+    return {"code": code, "message": message, "data": data, "timestamp": now_ts_ms()}
+
+def fail(message, code=500, data=None) -> Dict:
+    return {"code": code, "message": message, "data": data, "timestamp": now_ts_ms()}
+
+def fail_response(message, code=500, data=None) -> JSONResponse:
+    return JSONResponse(status_code=code, content=fail(message, code, data))
+
+def now_ts_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+# 使用示例：
+# return ok(data={"results": [...]})
+# return fail_response("论文检索失败", code=500)
 ```
 
 ### 15.2 异常体系
@@ -2567,19 +2830,33 @@ class AIServiceException(Exception):
 
 class LLMException(AIServiceException):
     """LLM调用异常"""
-    pass
+    def __init__(self, message: str, code: int = 503):
+        super().__init__(code=code, message=message)
 
 class VectorStoreException(AIServiceException):
     """向量数据库异常"""
-    pass
+    def __init__(self, message: str, code: int = 503):
+        super().__init__(code=code, message=message)
 
 class AgentTimeoutException(AIServiceException):
     """Agent执行超时"""
-    pass
+    def __init__(self, message: str, code: int = 408):
+        super().__init__(code=code, message=message)
 
 class ModelNotLoadedException(AIServiceException):
     """模型未加载"""
-    pass
+    def __init__(self, message: str, code: int = 503):
+        super().__init__(code=code, message=message)
+
+class ValidationException(AIServiceException):
+    """业务校验异常（语义层面，与Pydantic自动校验422区分）"""
+    def __init__(self, message: str, code: int = 422):
+        super().__init__(code=code, message=message)
+
+class RateLimitException(AIServiceException):
+    """限流异常"""
+    def __init__(self, message: str = "请求过于频繁，请稍后重试", code: int = 429):
+        super().__init__(code=code, message=message)
 ```
 
 ### 15.3 全局异常处理器
@@ -2594,21 +2871,40 @@ async def ai_service_exception_handler(request, exc):
             "code": exc.code,
             "message": exc.message,
             "data": None,
-            "timestamp": int(datetime.now().timestamp() * 1000)
+            "timestamp": now_ts_ms(),
         }
     )
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
-    return JSONResponse(
-        status_code=400,
-        content={
-            "code": 400,
-            "message": f"参数校验失败: {str(exc)}",
-            "data": None,
-            "timestamp": int(datetime.now().timestamp() * 1000)
-        }
-    )
+    """Pydantic 422校验错误：返回中文友好message"""
+    error_list = exc.errors() if hasattr(exc, "errors") else []
+    message = _extract_chinese_field_message(error_list)
+    return JSONResponse(status_code=422, content={
+        "code": 422, "message": message, "data": None, "timestamp": now_ts_ms()
+    })
+
+def _extract_chinese_field_message(errors: list) -> str:
+    """将Pydantic校验错误转为中文友好提示（直接用loc路径+错误类型判断）"""
+    if not errors:
+        return "参数校验失败"
+    parts = []
+    for err in errors:
+        loc = err.get("loc", [])
+        field = ".".join(str(x) for x in loc[1:]) if len(loc) > 1 else (str(loc[0]) if loc else "未知字段")
+        err_type = err.get("type", "")
+        if err_type == "missing":
+            parts.append(f"{field} 字段必填")
+        elif err_type == "string_too_short":
+            parts.append(f"{field} 不能为空")
+        elif err_type in ("enum", "literal_error"):
+            parts.append(f"{field} 取值非法")
+        elif err_type.startswith("value_error"):
+            parts.append(f"{field} 校验失败")
+        else:
+            msg = err.get("msg", "校验失败")
+            parts.append(f"{field}: {msg}")
+    return "参数校验失败: " + "; ".join(parts)
 ```
 
 ---
@@ -2619,7 +2915,7 @@ async def validation_exception_handler(request, exc):
 
 ```python
 # core/config.py
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     """应用配置（从环境变量读取）"""
@@ -2641,8 +2937,13 @@ class Settings(BaseSettings):
     EMBEDDING_API_BASE: str = ""               # 外接Embedding API Base URL
     EMBEDDING_API_MODEL: str = ""              # 外接Embedding API 模型名
 
+    # DashScope配置（当前主要Embedding方式）
+    DASHSCOPE_API_KEY: str = ""
+    DASHSCOPE_EMBEDDING_MODEL: str = "text-embedding-v4"
+    DASHSCOPE_EMBEDDING_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
     # LLM配置
-    LLM_MODE: str = "auto"                     # auto / builtin / api / local
+    LLM_MODE: str = "api"                      # auto / builtin / api / local
     LLM_BUILTIN_URL: str = ""
     LLM_BUILTIN_API_KEY: str = ""
     LLM_BUILTIN_MODEL: str = ""
@@ -2654,10 +2955,6 @@ class Settings(BaseSettings):
     LLM_RETRY_COUNT: int = 1                   # 重试次数
     LLM_RETRY_INTERVAL: int = 3                # 重试间隔(秒)
 
-    # 讯飞星火配置（可选）
-    XFYUN_API_KEY: str = ""
-    XFYUN_API_SECRET: str = ""
-
     # Agent配置
     AGENT_TIMEOUT: int = 30                    # 单Agent超时(秒)
     AGENT_FULL_TIMEOUT: int = 120              # 全流程超时(秒)
@@ -2666,9 +2963,7 @@ class Settings(BaseSettings):
     # 日志配置
     LOG_LEVEL: str = "INFO"
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 settings = Settings()
 ```
@@ -2681,13 +2976,14 @@ settings = Settings()
 # ChromaDB
 CHROMA_PATH=./data/vector_db
 
-# Embedding
-EMBEDDING_MODEL_PATH=BAAI/bge-m3
-EMBEDDING_DEVICE=cpu
-EMBEDDING_EXPECTED_DIMENSION=1024
-# EMBEDDING_API_KEY=          # 外接API Key（备选方案）
-# EMBEDDING_API_BASE=         # 外接API Base URL
-# EMBEDDING_API_MODEL=        # 外接API 模型名
+# Embedding（DashScope API优先）
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+DASHSCOPE_EMBEDDING_MODEL=text-embedding-v4
+DASHSCOPE_EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+# 本地模型（已禁用）
+# EMBEDDING_MODEL_PATH=BAAI/bge-m3
+# EMBEDDING_DEVICE=cpu
+# EMBEDDING_EXPECTED_DIMENSION=1024
 
 # LLM配置（三路并行，auto模式按优先级降级）
 LLM_MODE=api
@@ -2714,16 +3010,14 @@ LOG_LEVEL=INFO
 
 ### 17.1 性能指标
 
-| 指标 | 目标值 | 说明 |
-|------|--------|------|
-| 论文检索响应时间 | ≤ 3秒 | Embedding+Chroma检索 |
-| 单篇论文分析响应时间 | ≤ 30秒 | 5维度信息提取 |
-| 综述生成端到端响应时间 | ≤ 60秒 | 6-Agent协同全过程 |
-| 流式首字节响应时间 | ≤ 2秒 | LLM流式生成 |
-| 批量向量化速度 | 100条/10秒 | text-embedding-v4 API批量处理 |
-| Agent协同降级成功率 | ≥ 95% | 降级后仍返回部分结果 |
-| AI服务调用成功率 | ≥ 99% | 含重试和降级 |
-| 单Agent超时时间 | 30秒 | 超时后跳过 |
+| 指标 | 目标值 | 实际值 | 说明 |
+|------|--------|--------|------|
+| 论文检索响应时间 | ≤ 3秒 | ~1-2秒 | Embedding+Chroma检索 |
+| 单篇论文分析响应时间 | ≤ 30秒 | ~5-15秒 | 5维度信息提取 |
+| 综述生成端到端响应时间 | ≤ 60秒 | ~30-50秒 | 3-Agent协同全过程 |
+| 流式首字节响应时间 | ≤ 2秒 | ~1秒 | LLM流式生成 |
+| 批量向量化速度 | 100条/10秒 | ~100条/8秒 | DashScope API批量处理 |
+| SSE keep-alive间隔 | 15秒 | 15秒 | 防止连接超时 |
 
 ### 17.2 性能优化策略
 
@@ -2772,12 +3066,18 @@ def setup_logging(level: str = "INFO"):
 |------|------|---------|
 | 模型加载 | INFO | `Model loaded: {model_name}, dimension={dim}` |
 | Chroma初始化 | INFO | `ChromaDB initialized, papers count={count}` |
+| SearchService初始化 | INFO | `SearchService initialized` |
+| Reranker初始化 | INFO | `Reranker initialized and injected into SearchService` |
 | Agent启动 | INFO | `Agent {name} started, task={analysis_id}` |
 | Agent完成 | INFO | `Agent {name} completed, duration={ms}ms` |
 | Agent超时 | WARNING | `Agent {name} timed out after {timeout}s` |
 | Agent降级 | WARNING | `Agent workflow degraded: {reason}` |
 | LLM调用 | DEBUG | `LLM call: mode={mode}, tokens={count}, duration={ms}ms` |
 | LLM降级 | WARNING | `LLM fallback: {from_mode} → {to_mode}` |
+| LLM自动恢复 | INFO | `LLM recovered: {old} → {new}` |
+| SSE流取消 | DEBUG | `SSE stream cancelled for analysis_id={id}` |
+| 混合检索 | INFO | `Hybrid search completed: query=..., semantic=N, keyword=N, fused=N, elapsed=...ms` |
+| 重排序 | INFO | `Rerank completed: input_count=N, top1_score=..., elapsed_ms=...` |
 | 检索请求 | DEBUG | `Search: query={query}, top_k={k}, results={count}` |
 | 向量化 | DEBUG | `Embedding: {count} texts, duration={ms}ms` |
 | 异常 | ERROR | `Exception in {module}: {error}` |
@@ -2860,33 +3160,33 @@ ai-service:
 
 ```
 # Web Framework
-fastapi==0.110.0
-uvicorn[standard]==0.29.0
-python-multipart==0.0.9
-sse-starlette==2.0.0
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+sse-starlette==2.1.0
 
 # AI/ML
-langgraph==0.0.50
-langchain==0.1.16
-langchain-community==0.0.34
-transformers==4.40.0
-torch==2.2.0
-sentence-transformers==2.7.0
+langgraph==0.2.28
+langchain==0.3.0
+langchain-community==0.3.0
+transformers==4.45.0
+torch==2.6.0
+sentence-transformers==3.1.0
 
 # Vector Database
 chromadb==0.5.0
 
 # LLM API
-openai==1.23.0
+openai==1.50.0
 httpx==0.27.0
 
 # Data Processing
-pydantic==2.7.0
-pydantic-settings==2.2.1
-numpy==1.26.0
+pydantic==2.9.0
+pydantic-settings==2.5.0
+numpy>=1.26.0,<2.0.0
 
 # PDF Processing
-pymupdf==1.23.0
+pymupdf==1.25.0
 
 # arXiv
 arxiv==2.1.0
@@ -2905,21 +3205,22 @@ pytest-asyncio==0.23.0
 ## 附录A：AI服务开发检查清单
 
 ```
-□ FastAPI应用是否正确配置生命周期（模型加载/释放）？
-□ Pydantic请求模型是否包含完整的字段校验？
-□ LLM服务是否实现三路降级（软件方→API→本地）？
-□ 每个Agent是否有超时控制（30秒）？
-□ Agent协同是否实现降级机制（单Agent失败→跳过，多Agent失败→单Agent模式）？
-□ LangGraph工作流是否正确设置条件分支？
-□ 个性化Prompt是否正确注入用户画像信息？
-□ Embedding模型是否支持本地+API两种方式？
+□ FastAPI应用是否正确配置生命周期（_safe_init超时保护）？
+□ Pydantic请求模型是否包含extra="forbid"安全策略？
+□ AnalyzeRequest是否包含必填的userId字段？
+□ LLM服务是否实现三路降级+自动恢复（300s轮询）？
+□ 每个Agent是否有超时控制（30秒）+规则降级？
+□ LangGraph工作流是否为4节点（retrieve→analyze→generate→review+条件边+重试循环）？
+□ AgentOrchestrator是否支持8种SSE事件+keep-alive+Last-Event-ID+review_rejected？
+□ 个性化Prompt是否注入agent级别差异化指令？
+□ Embedding是否优先使用DashScope API？
 □ ChromaDB是否使用PersistentClient（数据持久化）？
-□ SSE推送是否正确实现Agent状态更新？
-□ Prompt模板是否从文件加载（不硬编码）？
+□ Reranker是否实现复合评分（RRF+字段+流行度+年份+个性化）？
+□ 搜索API是否支持3种端点（语义/混合/建议）？
+□ 健康检查是否检查3组件（llm+embedding+chroma）+critical_ok规则？
+□ 校验错误是否返回中文友好message？
+□ 统一响应是否使用ok()/fail()包装器？
 □ 敏感信息（API Key）是否通过环境变量注入？
-□ 日志是否包含足够的调试信息？
-□ 健康检查接口是否返回所有组件状态？
-□ 错误响应是否与Java后端保持统一格式？
 ```
 
 ---
@@ -2933,6 +3234,7 @@ pytest-asyncio==0.23.0
 {
     "topic": "Multi-Agent协同决策",
     "paperIds": ["arxiv_2024_001", "arxiv_2024_002"],
+    "userId": "usr_001",
     "userProfile": {
         "educationLevel": "master",
         "researchField": "NLP",
@@ -2978,15 +3280,62 @@ pytest-asyncio==0.23.0
 
 ### B.3 SSE事件格式
 
+AgentOrchestrator 支持8种SSE事件类型：
+
+#### 1. agent_started — Agent开始执行
+
+```
+event: agent_started
+data: {"agentName":"retriever","analysisId":"anl_001"}
+```
+
+#### 2. agent_state_update — Agent状态更新
+
 ```
 event: agent_state_update
 data: {"agentName":"retriever","status":"running","progress":0.3,"analysisId":"anl_001"}
+```
 
-event: agent_state_update
+#### 3. agent_completed — Agent执行完成
+
+```
+event: agent_completed
 data: {"agentName":"retriever","status":"completed","intermediateResult":"找到10篇论文","durationMs":1200,"analysisId":"anl_001"}
+```
 
+#### 4. agent_failed — Agent执行失败
+
+```
+event: agent_failed
+data: {"agentName":"comparer","status":"failed","error":"Agent comparer timed out after 30s","analysisId":"anl_001"}
+```
+
+#### 5. analysis_completed — 全流程分析完成
+
+```
 event: analysis_completed
-data: {"analysisId":"anl_001","status":"completed"}
+data: {"analysisId":"anl_001","status":"completed","degraded":false}
+```
+
+#### 6. error — 系统级错误
+
+```
+event: error
+data: {"code":500,"message":"LLM服务不可用","analysisId":"anl_001"}
+```
+
+#### 7. ping — keep-alive心跳
+
+```
+event: ping
+data: {"timestamp":1716451200000}
+```
+
+#### 8. review_rejected — 审核不通过，触发重新生成
+
+```
+event: review_rejected
+data: {"agentName":"reviewer","analysisId":"anl_001","regenerateCount":1,"issues":[{"claim":"...","error_type":"citation_error"}]}
 ```
 
 ---

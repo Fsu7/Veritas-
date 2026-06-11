@@ -1,0 +1,296 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "AM4：6-Agent协同与个性化引擎",
+    "requirement": "在 graph.py 中增加 Reviewer 审核节点和条件边，实现审核不通过→重新生成（最多重试1次）的闭环；在 orchestrator.py 的流式工作流中增加 Reviewer 节点支持；编写集成测试验证6-Agent全链路。",
+    "requirement_ids": ["F3.1.7", "F3.1.8"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "查阅LangGraph工作流定义（5.5节）、条件分支逻辑（should_compare/should_regenerate）、降级策略（5.7节）"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "查阅AM4里程碑中审核重试逻辑和集成测试的交付物（6.2节第6-7项）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "了解项目架构、降级策略"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/graph.py",
+        "description": "LangGraph工作流定义：当前仅3节点（retrieve/analyze/generate），线性流程，无Reviewer节点和条件边"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/orchestrator.py",
+        "description": "流式Agent编排器：NODE_ORDER仅含retriever/analyzer/generator，缺少Reviewer节点"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/reviewer.py",
+        "description": "ReviewerAgent（Task36产出）：审核Agent核心逻辑"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/graph.py",
+        "description": "当前graph.py：WorkflowState已定义review_result和regenerate_count字段，但未实现review_node和条件边。build_agent_graph()只构建3节点线性图。",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/orchestrator.py",
+        "description": "当前orchestrator.py：NODE_ORDER=['retriever','analyzer','generator']，run_workflow_stream()只执行3个节点。需增加Reviewer节点。",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent基类：execute()超时30s，_fallback_result()降级返回",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "graph.py",
+      "path": "Veritas/ai-service/app/agents/graph.py",
+      "responsibility": "LangGraph状态图定义，编排6-Agent工作流",
+      "key_interfaces": [
+        {
+          "name": "build_agent_graph",
+          "signature": "def build_agent_graph(agent_instances: Dict[str, Any]) -> StateGraph",
+          "description": "构建Agent协同工作流图，编译后返回"
+        },
+        {
+          "name": "run_workflow",
+          "signature": "async def run_workflow(request: AnalyzeRequest, agent_instances: Dict[str, Any]) -> dict",
+          "description": "执行工作流（非流式），返回最终结果"
+        },
+        {
+          "name": "WorkflowState",
+          "signature": "class WorkflowState(TypedDict)",
+          "description": "工作流状态定义，包含review_result/regenerate_count等字段"
+        }
+      ]
+    },
+    {
+      "name": "orchestrator.py",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "responsibility": "流式Agent编排器，SSE事件推送",
+      "key_interfaces": [
+        {
+          "name": "run_workflow_stream",
+          "signature": "async def run_workflow_stream(self, request: AnalyzeRequest) -> AsyncIterator[Dict[str, str]]",
+          "description": "流式执行工作流，yield SSE事件"
+        },
+        {
+          "name": "NODE_ORDER",
+          "signature": "NODE_ORDER = [\"retriever\", \"analyzer\", \"generator\"]",
+          "description": "节点执行顺序列表"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/graph.py",
+      "description": "增加review_node节点函数、should_review条件判断、should_regenerate条件判断，扩展build_agent_graph()支持6节点完整工作流",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "description": "NODE_ORDER增加reviewer节点，run_workflow_stream()增加Reviewer执行段，支持审核重试逻辑",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_graph_integration.py",
+      "description": "新建集成测试：验证6-Agent全链路工作流、条件边逻辑、审核重试、降级场景",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "在 graph.py 中新增 review_node() 异步函数：从 WorkflowState 获取 report 和 search_results，调用 ReviewerAgent.execute()，返回 review_result 更新到 state",
+        "priority": "P0",
+        "acceptance_condition": "review_node 能正确调用 ReviewerAgent 并更新 state"
+      },
+      {
+        "id": "FR-002",
+        "description": "实现 should_review(state) 条件函数：当 report 非空且非退化时进入审核，否则直接结束",
+        "priority": "P0",
+        "acceptance_condition": "should_review() 正确判断是否需要审核"
+      },
+      {
+        "id": "FR-003",
+        "description": "实现 should_regenerate(state) 条件函数：审核不通过（approved=False）且 regenerate_count < 1 时返回True（重新生成），否则返回False（结束）",
+        "priority": "P0",
+        "acceptance_condition": "should_regenerate() 正确判断是否需要重新生成，最多重试1次"
+      },
+      {
+        "id": "FR-004",
+        "description": "扩展 build_agent_graph()：增加 review 节点，添加 generate→review 边，添加 review 的条件边（should_regenerate: True→generate, False→END）",
+        "priority": "P0",
+        "acceptance_condition": "工作流图包含6节点，条件边正确"
+      },
+      {
+        "id": "FR-005",
+        "description": "generate_node 支持重试上下文：当 regenerate_count > 0 时，将 review_result 中的 issues 和 suggestions 注入到 Generator 的 input_data 中，指导针对性修改",
+        "priority": "P1",
+        "acceptance_condition": "重试时 Generator 收到上次审核的问题列表"
+      },
+      {
+        "id": "FR-006",
+        "description": "在 orchestrator.py 的 NODE_ORDER 中增加 'reviewer'，run_workflow_stream() 增加 Reviewer 执行段：支持审核通过/不通过的SSE事件推送，支持审核重试时回到Generator",
+        "priority": "P0",
+        "acceptance_condition": "流式工作流包含 Reviewer 节点的SSE事件推送"
+      },
+      {
+        "id": "FR-007",
+        "description": "orchestrator.py 支持审核重试循环：reviewer不通过 → generator重新生成 → reviewer再次审核，最多1次重试",
+        "priority": "P0",
+        "acceptance_condition": "审核不通过时自动触发重新生成，最多1次重试"
+      },
+      {
+        "id": "FR-008",
+        "description": "编写集成测试 tests/test_graph_integration.py：Mock Agent实例，验证6-Agent全链路、条件边（should_review/should_regenerate）、审核重试、降级场景",
+        "priority": "P0",
+        "acceptance_condition": "集成测试覆盖所有AM4验收检查点"
+      }
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "ReviewerAgent失败时跳过审核，直接输出生成结果，在final_output中标注'审核未完成'",
+        "multi_agent_failure": "多Agent失败时降级为单Agent模式（仅Retriever+Generator）",
+        "review_retry_limit": 1
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，graph.py负责工作流编排，orchestrator.py负责流式推送"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "logging": {
+      "python": "Loguru"
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "审核重试超过1次", "reason": "ADR-002约束：最多重试1次", "severity": "critical" },
+    { "id": "FA-004", "action": "破坏已有3节点工作流", "reason": "必须向后兼容，3节点流程仍可正常工作", "severity": "high" },
+    { "id": "FA-005", "action": "在orchestrator中硬编码SSE事件格式", "reason": "使用_make_event()方法统一构造", "severity": "medium" },
+    { "id": "FA-006", "action": "忽略降级场景（Reviewer不存在时的处理）", "reason": "当reviewer agent未注册时，应跳过审核直接输出", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_should_review_true",
+        "description": "验证当report非空时should_review返回True",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_should_review_false_empty_report",
+        "description": "验证当report为空时should_review返回False",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_should_review_false_degraded",
+        "description": "验证当degraded=True时should_review返回False",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "test_should_regenerate_true",
+        "description": "验证审核不通过且regenerate_count=0时返回True",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_should_regenerate_false_approved",
+        "description": "验证审核通过时返回False",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_should_regenerate_false_max_retry",
+        "description": "验证regenerate_count>=1时返回False",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_full_workflow_6_agents",
+        "description": "Mock所有6个Agent，验证LangGraph工作流完整执行（retrieve→analyze→generate→review→END）",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_review_rejected_regenerate",
+        "description": "Mock Reviewer返回不通过，验证generate→review→generate→review→END（重试1次后结束）",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_review_agent_not_found_skip",
+        "description": "Mock agent_instances中无reviewer，验证跳过审核直接输出",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_review_agent_timeout_degraded",
+        "description": "Mock Reviewer超时，验证降级处理（approved=False, degraded=True）",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_graph_integration.py -v",
+        "expected_result": "所有集成测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/ -v --ignore=tests/test_graph_integration.py",
+        "expected_result": "已有测试不受影响，全部通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "graph.py 包含 review_node、should_review、should_regenerate", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "build_agent_graph() 包含6节点和条件边（generate→review→generate/END）", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "should_regenerate 最多返回True 1次（regenerate_count<1）", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "orchestrator.py NODE_ORDER 包含 reviewer，支持审核重试循环", "verified_by": "code_review" },
+    { "id": "AC-005", "criterion": "审核不通过时自动触发重新生成，最多1次重试", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "Reviewer不存在时跳过审核，不阻塞流程", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "集成测试覆盖6-Agent全链路、条件边、重试、降级场景", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "已有测试不受影响，全部通过", "verified_by": "automated_test" }
+  ]
+}

@@ -1,0 +1,277 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4：多Agent协同完成 / JM4：分析服务与SSE推送完成 (Week 7 Day 3)",
+    "requirement": "实现对比分析API，支持2-5篇论文的对比分析。具体：1) 新建 CompareRequest DTO，含 topic(@NotBlank, max500)、paperIds(@Size(min=2,max=5))、可选 sessionId；2) 扩展 AnalysisService.comparePapers(String userId, CompareRequest request) 方法，编排逻辑与 analyzePaper 类似但 AnalysisType.COMPARE，需验证所有 paperIds 对应论文存在；3) 新增 POST /api/analysis/compare 端点，JWT 认证 + 数据隔离。",
+    "requirement_ids": ["F4.1.2", "F4.1.3"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "7.2.3 AnalysisService.comparePapers 编排逻辑 + 7.5 API清单 POST /api/analysis/compare" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.4 Week 7 Day 3 任务：对比分析 API 实现" },
+      { "path": "json_prompt/backend/task24_analysis_service_refactor/prompt.md", "purpose": "task24 重构后的 AnalysisService 结构（transactionService 注入 + comparePapers 骨架）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/PaperAnalysisRequest.java", "purpose": "参考现有 DTO 风格（@NotBlank/@Size + @Builder + @Data）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "purpose": "task24 重构后的 AnalysisService，comparePapers 骨架方法需替换为完整实现" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "purpose": "现有 Controller 结构，新增 /compare 端点" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.request",
+        "description": "新增：CompareRequest DTO（topic + paperIds + sessionId）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "修改：AnalysisService — comparePapers() 从骨架替换为完整实现"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.controller",
+        "description": "修改：AnalysisController — 新增 POST /api/analysis/compare 端点"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "task24 重构后：含 transactionService 注入、analyzePaper() 完整编排、comparePapers() 骨架（抛 UnsupportedOperationException）", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisTransactionService.java", "description": "task24 新建：savePending() + completeAnalysis() 事务方法", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/PaperAnalysisRequest.java", "description": "参考 DTO 风格：@NotBlank/@Size + @Builder + @Data + @NoArgsConstructor + @AllArgsConstructor", "reuse_type": "reference" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "description": "现有 Controller：analyzePaper 端点模式（JWT + @Valid + @AuthenticationPrincipal）", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java", "description": "getPaperDetail(paperId) 方法，用于验证论文存在性", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "description": "analyzePaper(AgentRequest) 方法，对比分析复用同一 Agent 调用", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "CompareRequest (新增)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/CompareRequest.java",
+      "responsibility": "对比分析请求 DTO，含 topic（必填）、paperIds（必填，2-5个）、sessionId（可选）",
+      "key_interfaces": [
+        { "name": "topic", "signature": "@NotBlank @Size(max=500) String topic", "description": "研究主题，必填，最大500字符" },
+        { "name": "paperIds", "signature": "@Size(min=2, max=5) List<String> paperIds", "description": "论文ID列表，2-5个" },
+        { "name": "sessionId", "signature": "String sessionId", "description": "可选，为空时新建 Session" }
+      ]
+    },
+    {
+      "name": "AnalysisService (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "responsibility": "comparePapers() 从骨架替换为完整编排：buildUserProfile → 验证所有paperIds存在 → resolveOrCreateSession → savePending(COMPARE) → buildAgentRequest(paperIds列表) → callAI → completeAnalysis",
+      "key_interfaces": [
+        { "name": "comparePapers", "signature": "AnalysisTaskResponse comparePapers(String userId, CompareRequest request)", "description": "对比分析入口，编排与 analyzePaper 类似但 AnalysisType.COMPARE + 多论文校验" }
+      ]
+    },
+    {
+      "name": "AnalysisController (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "responsibility": "新增 POST /api/analysis/compare 端点",
+      "key_interfaces": [
+        { "name": "comparePapers", "signature": "ResponseEntity<ApiResponse<AnalysisTaskResponse>> comparePapers(@Valid @RequestBody CompareRequest request, @AuthenticationPrincipal String userId)", "description": "POST /api/analysis/compare，JWT 认证 + 数据隔离" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/CompareRequest.java",
+      "description": "新建对比分析请求 DTO（topic + paperIds + sessionId）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "description": "comparePapers() 从骨架替换为完整实现：多论文校验 + COMPARE 类型编排",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "description": "新增 POST /api/analysis/compare 端点",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/dto/request/CompareRequestValidationTest.java",
+      "description": "新建 CompareRequest 校验测试（paperIds size、topic blank）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AnalysisServiceTest.java",
+      "description": "新增 comparePapers 正常流程 + paperId 不存在测试",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/controller/AnalysisControllerTest.java",
+      "description": "新增 POST /api/analysis/compare 端点测试",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-025-01",
+        "description": "新建 CompareRequest DTO：topic(@NotBlank, @Size(max=500))、paperIds(@NotNull, @Size(min=2, max=5))、sessionId(可选)。风格与 PaperAnalysisRequest 一致（@Data @Builder @NoArgsConstructor @AllArgsConstructor）",
+        "priority": "P0",
+        "acceptance_condition": "CompareRequest 可编译；paperIds 为 null 或空列表时 @Valid 校验失败；paperIds 只有1个或超过5个时校验失败"
+      },
+      {
+        "id": "FR-025-02",
+        "description": "AnalysisService.comparePapers() 完整编排：1) buildUserProfile(userId) → 2) 遍历 request.getPaperIds() 逐个调用 paperService.getPaperDetail() 验证存在（任一不存在抛 ResourceNotFoundException 404）→ 3) resolveOrCreateSession(userId, request) → 4) 生成 analysisId → 5) transactionService.savePending(analysisId, sessionId, AnalysisType.COMPARE) → 6) 构建 AgentRequest（paperIds=请求中的完整列表, analysisType=COMPARE）→ 7) agentClientService.analyzePaper(agentRequest) → 8) transactionService.completeAnalysis(pending.getId(), result)",
+        "priority": "P0",
+        "acceptance_condition": "comparePapers 编排 8 步完整执行；AgentRequest.paperIds 包含所有请求论文ID；AnalysisType=COMPARE"
+      },
+      {
+        "id": "FR-025-03",
+        "description": "POST /api/analysis/compare 端点：JWT 认证（@AuthenticationPrincipal），@Valid 校验 CompareRequest，数据隔离（userId 从 JWT 提取），返回 ApiResponse<AnalysisTaskResponse>",
+        "priority": "P0",
+        "acceptance_condition": "未登录 → 401；paperIds 校验失败 → 400；正常 → 202 ACCEPTED + ApiResponse"
+      },
+      {
+        "id": "FR-025-04",
+        "description": "paperIds 中任一论文不存在（paperService.getPaperDetail 抛 ResourceNotFoundException）→ 直接抛出，返回 404",
+        "priority": "P0",
+        "acceptance_condition": "5个 paperIds 中第3个不存在 → 404，前2个论文不产生副作用"
+      },
+      {
+        "id": "FR-025-05",
+        "description": "paperIds 数量不在 2-5 范围（由 @Size 校验）→ 返回 400，不进入 Service 层",
+        "priority": "P0",
+        "acceptance_condition": "paperIds=[\"p1\"] → 400；paperIds=[\"p1\",\"p2\",\"p3\",\"p4\",\"p5\",\"p6\"] → 400"
+      },
+      {
+        "id": "FR-025-06",
+        "description": "resolveOrCreateSession 需支持 CompareRequest（含 topic + sessionId），复用现有逻辑：sessionId 非空时校验归属和状态，为空时新建 Session",
+        "priority": "P0",
+        "acceptance_condition": "CompareRequest.sessionId 非空 → 复用已有 Session；为空 → 新建 Session(topic=request.topic)"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case（依赖全局 Jackson SNAKE_CASE）",
+        "mappings": [
+          { "java": "paperIds", "python": "paper_ids", "json": "paper_ids" },
+          { "java": "analysisType", "python": "analysis_type", "json": "analysis_type" },
+          { "java": "sessionId", "python": "session_id", "json": "session_id" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/analysis/compare",
+          "method": "POST",
+          "request_format": { "topic": "string (required, max500)", "paper_ids": ["string (2-5 items)"], "session_id": "string (optional)" },
+          "response_format": { "code": 200, "data": { "analysis_id": "string", "status": "PENDING|COMPLETED|FAILED", "message": "string", "created_at": "ISO8601" } }
+        }
+      ],
+      "data_flow": "前端 → AnalysisController.comparePapers → AnalysisService.comparePapers → 1) buildUserProfile 2) 验证所有 paperIds 3) resolveOrCreateSession 4) transactionService.savePending(COMPARE) 5) 构建 AgentRequest(paperIds列表) 6) agentClientService.analyzePaper 7) transactionService.completeAnalysis"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "POST /api/analysis/compare 必须 @AuthenticationPrincipal 取 userId；未登录返回 401" },
+      { "category": "data_isolation", "requirement": "sessionId 复用时校验 Session.userId == currentUserId；他人 sessionId → 403" },
+      { "category": "sql_injection", "requirement": "paperIds 通过 JPA 参数化查询，禁止 SQL 拼接" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "json": { "field_name": "snake_case（依赖全局 Jackson SNAKE_CASE）" }
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → (AnalysisTransactionService + AgentClientService + PaperService)；禁止 Controller 直接调 Repository 或 AgentClientService",
+        "entity_dto_separation": true
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "paperService.getPaperDetail 抛 ResourceNotFoundException → 直接透传 404；sessionId 归属校验失败 → BusinessException(403)；@Valid 校验失败 → MethodArgumentNotValidException → GlobalExceptionHandler 处理"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：对比分析结果走 analysisResult 缓存（@Cacheable 在 getAnalysisResult 中）"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["在循环中打印 INFO（论文校验循环用 DEBUG）"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-025-01", "action": "修改 analyzePaper 编排逻辑", "reason": "task24 已重构完成，不在本次范围", "severity": "critical" },
+    { "id": "FA-025-02", "action": "CompareRequest 中 paperIds 使用 @NotBlank（应使用 @NotNull + @Size）", "reason": "paperIds 是 List 类型，@NotBlank 仅适用于 String", "severity": "high" },
+    { "id": "FA-025-03", "action": "Controller 直接调用 PaperService 或 AnalysisTransactionService", "reason": "分层约束：Controller 仅调用 AnalysisService", "severity": "critical" },
+    { "id": "FA-025-04", "action": "在 comparePapers 中跳过论文存在性校验", "reason": "必须验证所有 paperIds 对应论文存在", "severity": "critical" },
+    { "id": "FA-025-05", "action": "返回 Entity 给前端（必须 DTO 转换）", "reason": "Entity/DTO 分离约束", "severity": "high" },
+    { "id": "FA-025-06", "action": "修改 AnalysisTransactionService 代码", "reason": "task24 已完成，事务方法不在本次范围", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "compareRequest_paperIds_too_few_validation_fails",
+        "description": "paperIds 只有1个 → @Valid 校验失败",
+        "framework": "junit5",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "compareRequest_paperIds_too_many_validation_fails",
+        "description": "paperIds 有6个 → @Valid 校验失败",
+        "framework": "junit5",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "compareRequest_topic_blank_validation_fails",
+        "description": "topic 为空 → @Valid 校验失败",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "comparePapers_normal_flow_completes",
+        "description": "2个有效 paperIds → 编排完整执行 → status=COMPLETED",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "comparePapers_paperId_not_found_throws404",
+        "description": "paperIds 中第2个不存在 → 抛 ResourceNotFoundException",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "comparePapers_session_isolation_throws403",
+        "description": "复用他人 sessionId → 抛 BusinessException(403)",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "comparePapers_agentRequest_contains_all_paperIds",
+        "description": "验证 AgentRequest.paperIds 包含请求中的所有论文ID + analysisType=COMPARE",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "compareController_success_returns202",
+        "description": "MockMvc POST /api/analysis/compare → 202 ACCEPTED + ApiResponse",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='CompareRequestValidationTest,AnalysisServiceTest,AnalysisControllerTest' test", "expected_result": "全部测试通过" },
+      { "layer": "java", "command": "cd Veritas/backend && mvn test", "expected_result": "全部测试通过，0 失败" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-025-01", "criterion": "CompareRequest DTO 含 topic(@NotBlank,max500) + paperIds(@Size(min=2,max=5)) + sessionId(可选)", "verified_by": "automated_test" },
+    { "id": "AC-025-02", "criterion": "comparePapers 编排 8 步完整执行，AgentRequest.paperIds 包含所有论文ID", "verified_by": "automated_test" },
+    { "id": "AC-025-03", "criterion": "POST /api/analysis/compare 返回 202 + ApiResponse<AnalysisTaskResponse>", "verified_by": "automated_test" },
+    { "id": "AC-025-04", "criterion": "paperIds 中任一论文不存在 → 404", "verified_by": "automated_test" },
+    { "id": "AC-025-05", "criterion": "paperIds 数量不在 2-5 → 400", "verified_by": "automated_test" },
+    { "id": "AC-025-06", "criterion": "JWT 认证 + 数据隔离（他人 sessionId → 403）", "verified_by": "automated_test" },
+    { "id": "AC-025-07", "criterion": "全部测试通过（含回归测试）", "verified_by": "automated_test" }
+  ]
+}

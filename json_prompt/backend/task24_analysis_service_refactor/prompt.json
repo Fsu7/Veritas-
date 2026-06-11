@@ -1,0 +1,228 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4：多Agent协同完成 / JM4：分析服务与SSE推送完成 (Week 7 Day 1-2)",
+    "requirement": "重构 AnalysisService，消除 @Autowired @Lazy 自注入反模式（S-003），提取 AnalysisTransactionService 处理事务方法，统一三种分析类型（PAPER_ANALYSIS/COMPARE/REPORT）的编排逻辑为模板方法模式。具体：1) 新建 AnalysisTransactionService，将 savePending() 和 completeAnalysis() 两个 @Transactional 方法从 AnalysisService 提取出来；2) AnalysisService 删除 @Autowired @Lazy self 注入，改为注入 AnalysisTransactionService；3) 重构 analyzePaper() 编排流程不变但调用 transactionService 替代 self 调用；4) 为 COMPARE 和 REPORT 类型预留 comparePapers() 和 generateReport() 方法骨架。",
+    "requirement_ids": ["F4.1.1", "F4.1.2"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "7.2 AnalysisService 编排逻辑 + 事务边界设计" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.4 Week 7 Day 1-2 任务：AnalysisService 重构消除自注入" },
+      { "path": "json_prompt/backend/task23_analysis_query_health/prompt.md", "purpose": "task23 完成后的 AnalysisService 完整结构（含 self 注入、savePending、completeAnalysis）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "purpose": "当前 AnalysisService 完整代码（362行），含 @Autowired @Lazy self + 两个 @Transactional 方法" },
+      { "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AnalysisServiceTest.java", "purpose": "现有 6 个 AnalysisServiceTest 测试，重构后必须全部通过" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "修改：AnalysisService — 消除 @Autowired @Lazy self，注入 AnalysisTransactionService；重构为模板方法模式"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "新增：AnalysisTransactionService — 提取 savePending() + completeAnalysis() 事务方法"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "task22-23 实现，含 analyzePaper()、getAnalysisResult()、getAnalysisStatus()、savePending()、completeAnalysis()、@Autowired @Lazy self 注入", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/AnalysisResultRepository.java", "description": "save()、findById()、findByAnalysisId() 方法", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/AgentRequest.java", "description": "AgentRequest 构建模式（topic/paperIds/userId/userProfile/analysisType/analysisId）", "reuse_type": "reference" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisTaskResponse.java", "description": "completeAnalysis 返回类型", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/test/java/com/literatureassistant/service/AnalysisServiceTest.java", "description": "6 个现有测试（正常流程、降级、数据隔离、论文不存在、默认画像、复用会话），重构后必须全部通过", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AnalysisTransactionService (新增)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisTransactionService.java",
+      "responsibility": "提取 AnalysisService 中的事务方法，消除自注入反模式",
+      "key_interfaces": [
+        { "name": "savePending", "signature": "@Transactional AnalysisResult savePending(String analysisId, String sessionId, AnalysisType type)", "description": "保存 AnalysisResult(PENDING) 记录 — 短事务，从 AnalysisService.savePending 迁移" },
+        { "name": "completeAnalysis", "signature": "@Transactional AnalysisTaskResponse completeAnalysis(Long id, AnalysisResultDTO result)", "description": "更新 AnalysisResult 状态 + 持久化 result JSON — 短事务，从 AnalysisService.completeAnalysis 迁移" }
+      ]
+    },
+    {
+      "name": "AnalysisService (重构)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "responsibility": "消除 @Autowired @Lazy self 注入，改为注入 AnalysisTransactionService；重构为模板方法模式，预留 comparePapers() 和 generateReport() 骨架",
+      "key_interfaces": [
+        { "name": "analyzePaper", "signature": "AnalysisTaskResponse analyzePaper(String userId, PaperAnalysisRequest request)", "description": "论文分析入口，编排流程不变，self.savePending/completeAnalysis → transactionService 替代" },
+        { "name": "comparePapers", "signature": "AnalysisTaskResponse comparePapers(String userId, CompareRequest request)", "description": "对比分析骨架（JM4 Day 3 实现），当前抛 UnsupportedOperationException" },
+        { "name": "generateReport", "signature": "AnalysisTaskResponse generateReport(String userId, ReportRequest request)", "description": "综述生成骨架（JM4 Day 4 实现），当前抛 UnsupportedOperationException" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisTransactionService.java",
+      "description": "新建事务服务：提取 savePending() + completeAnalysis() 两个 @Transactional 方法",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "description": "删除 @Autowired @Lazy self 注入；注入 AnalysisTransactionService；self.savePending/completeAnalysis → transactionService 替代；新增 comparePapers/generateReport 骨架方法",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AnalysisTransactionServiceTest.java",
+      "description": "新建 AnalysisTransactionService 单元测试（savePending + completeAnalysis 事务行为）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AnalysisServiceTest.java",
+      "description": "修改现有测试：@Mock AnalysisTransactionService 替代 self 调用验证；6 个测试全部通过",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-024-01",
+        "description": "新建 AnalysisTransactionService，包含 savePending(String analysisId, String sessionId, AnalysisType type) 和 completeAnalysis(Long id, AnalysisResultDTO result) 两个 @Transactional 方法，逻辑从 AnalysisService 原方法原样迁移",
+        "priority": "P0",
+        "acceptance_condition": "AnalysisTransactionService.savePending 逻辑与原 AnalysisService.savePending 完全一致；completeAnalysis 同理"
+      },
+      {
+        "id": "FR-024-02",
+        "description": "AnalysisService 删除 @Autowired @Lazy self 字段声明，改为注入 AnalysisTransactionService（通过构造器注入，配合 @RequiredArgsConstructor）",
+        "priority": "P0",
+        "acceptance_condition": "AnalysisService 中不再存在 @Autowired @Lazy 注解；不再存在 AnalysisService self 字段"
+      },
+      {
+        "id": "FR-024-03",
+        "description": "AnalysisService.analyzePaper() 编排流程不变，但 self.savePending() → transactionService.savePending()，self.completeAnalysis() → transactionService.completeAnalysis()",
+        "priority": "P0",
+        "acceptance_condition": "analyzePaper 7 步编排逻辑不变；调用目标从 self 改为 transactionService"
+      },
+      {
+        "id": "FR-024-04",
+        "description": "AnalysisService 新增 comparePapers(String userId, CompareRequest request) 方法骨架，当前抛 UnsupportedOperationException(\"对比分析尚未实现\")，为 task25 预留扩展点",
+        "priority": "P1",
+        "acceptance_condition": "方法存在且可编译；调用时抛 UnsupportedOperationException"
+      },
+      {
+        "id": "FR-024-05",
+        "description": "AnalysisService 新增 generateReport(String userId, ReportRequest request) 方法骨架，当前抛 UnsupportedOperationException(\"综述生成尚未实现\")，为后续任务预留扩展点",
+        "priority": "P1",
+        "acceptance_condition": "方法存在且可编译；调用时抛 UnsupportedOperationException"
+      },
+      {
+        "id": "FR-024-06",
+        "description": "所有现有测试（AnalysisServiceTest 6 个 + AnalysisServiceQueryTest 7 个 + AnalysisControllerTest + HealthControllerTest 等）必须全部通过，重构不改变行为",
+        "priority": "P0",
+        "acceptance_condition": "mvn test 全部通过，0 失败"
+      }
+    ],
+    "security_requirements": [
+      { "category": "data_isolation", "requirement": "AnalysisTransactionService 不涉及数据隔离逻辑（由 AnalysisService 编排层负责），事务方法仅做 DB 写入" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      }
+    },
+    "layering": {
+      "java": {
+        "rule": "AnalysisService（编排层）→ AnalysisTransactionService（事务层）→ Repository；禁止 AnalysisTransactionService 反向调用 AnalysisService",
+        "entity_dto_separation": true
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "AnalysisTransactionService 内部异常由 GlobalExceptionHandler 统一处理；savePending/completeAnalysis 不捕获异常，向上抛出"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：completeAnalysis 中 analysisResultRepository.save 后无需手动删缓存（@Cacheable 在 getAnalysisResult 中，save 操作不触发 evict）"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["在事务方法内打印 INFO 级别日志（savePending/completeAnalysis 为短事务，无需日志）"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-024-01", "action": "AnalysisService 中保留任何形式的自注入（@Autowired @Lazy self、ApplicationContext.getBean 等）", "reason": "S-003 反模式消除目标", "severity": "critical" },
+    { "id": "FA-024-02", "action": "AnalysisTransactionService 反向依赖 AnalysisService", "reason": "分层约束：事务层不应依赖编排层", "severity": "critical" },
+    { "id": "FA-024-03", "action": "修改 analyzePaper 编排流程的步骤顺序或逻辑", "reason": "重构不改变行为约束", "severity": "critical" },
+    { "id": "FA-024-04", "action": "删除或修改 getAnalysisResult / getAnalysisStatus 查询方法", "reason": "task23 已实现，不在本次重构范围", "severity": "high" },
+    { "id": "FA-024-05", "action": "comparePapers / generateReport 骨架方法包含实际业务逻辑", "reason": "仅预留骨架，实际逻辑在 task25 实现", "severity": "high" },
+    { "id": "FA-024-06", "action": "在 AnalysisTransactionService 中注入 AgentClientService 或 UserService", "reason": "事务层仅负责 DB 写入，不应依赖外部服务", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "savePending_creates_pending_analysis_result",
+        "description": "Mock AnalysisResultRepository.save，验证传入的 entity status=PENDING, type=入参, result=\"{}\"",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "savePending_returns_saved_entity",
+        "description": "验证 savePending 返回 Repository.save 的返回值",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "completeAnalysis_updates_status_and_result",
+        "description": "Mock Repository.findById + save，验证 entity.setStatus + setResult + save 被调用",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "completeAnalysis_degraded_result_sets_COMPLETED",
+        "description": "result.degraded=true → entity.status=COMPLETED（非 FAILED）",
+        "framework": "junit5",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "completeAnalysis_entity_not_found_throws_404",
+        "description": "Repository.findById 返回 empty → 抛 ResourceNotFoundException",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "analyzePaper_uses_transactionService_not_self",
+        "description": "验证 analyzePaper 调用 transactionService.savePending 和 transactionService.completeAnalysis（而非 self）",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "comparePapers_throws_unsupported_operation",
+        "description": "调用 comparePapers → 抛 UnsupportedOperationException",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "generateReport_throws_unsupported_operation",
+        "description": "调用 generateReport → 抛 UnsupportedOperationException",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='AnalysisTransactionServiceTest,AnalysisServiceTest' test", "expected_result": "8+6 测试全部通过" },
+      { "layer": "java", "command": "cd Veritas/backend && mvn test", "expected_result": "全部测试通过（272+ 个），0 失败" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-024-01", "criterion": "AnalysisService 中不存在 @Autowired @Lazy self 注入", "verified_by": "code_review" },
+    { "id": "AC-024-02", "criterion": "AnalysisTransactionService 包含 savePending + completeAnalysis 两个 @Transactional 方法", "verified_by": "automated_test" },
+    { "id": "AC-024-03", "criterion": "analyzePaper 编排流程不变，调用 transactionService 替代 self", "verified_by": "automated_test" },
+    { "id": "AC-024-04", "criterion": "comparePapers / generateReport 骨架方法存在且抛 UnsupportedOperationException", "verified_by": "automated_test" },
+    { "id": "AC-024-05", "criterion": "AnalysisTransactionService 不反向依赖 AnalysisService", "verified_by": "code_review" },
+    { "id": "AC-024-06", "criterion": "全部现有测试通过（272+ 个），重构不改变行为", "verified_by": "automated_test" }
+  ]
+}

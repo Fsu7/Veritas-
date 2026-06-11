@@ -13,6 +13,7 @@ def _make_mock_services():
     pm.get_prompt = MagicMock(return_value="analyzer prompt for $paper_title")
     ps = MagicMock()
     ps.get_extra_instruction = MagicMock(return_value="")
+    ps.get_personalization_for_agent = MagicMock(return_value="")
     return llm, pm, ps
 
 

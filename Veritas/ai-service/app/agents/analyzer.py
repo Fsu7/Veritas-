@@ -42,7 +42,7 @@ class AnalyzerAgent(BaseAgent):
         self.llm_max_tokens = llm_max_tokens
 
     def build_prompt(self, input_data: dict, context: dict) -> str:
-        extra_instruction = self._get_extra_instruction(context)
+        extra_instruction = self._get_personalized_instruction(context)
 
         return self.prompt_manager.get_prompt(
             "analyzer",
@@ -271,6 +271,25 @@ class AnalyzerAgent(BaseAgent):
             "ai_disclaimer": "⚠️ 本分析由 AI 生成，仅供参考",
             "extraction_quality": 0.1,
         }
+
+    def _get_personalized_instruction(self, context: dict) -> str:
+        """优先使用 get_personalization_for_agent，降级到 _get_extra_instruction"""
+        user_profile = context.get("user_profile")
+        if not user_profile:
+            return ""
+
+        if self.personalization_service is not None:
+            try:
+                instruction = self.personalization_service.get_personalization_for_agent(
+                    "analyzer", user_profile
+                )
+                if instruction:
+                    return instruction
+            except Exception as e:
+                logger.warning(f"Personalization service failed for analyzer: {e}")
+
+        # 降级到旧接口
+        return self._get_extra_instruction(context)
 
     def _get_extra_instruction(self, context: dict) -> str:
         user_profile = context.get("user_profile")

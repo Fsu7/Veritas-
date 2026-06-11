@@ -34,6 +34,33 @@ def _serialize_agent_state(agent) -> Dict[str, Any]:
     return agent.state.to_dict()
 
 
+def should_review(state: WorkflowState) -> bool:
+    """判断是否需要审核：report非空且非退化时进入审核"""
+    report = state.get("report", "")
+    degraded = state.get("degraded", False)
+    if not report or not report.strip():
+        return False
+    if degraded and not state.get("review_result"):
+        return False
+    return True
+
+
+def should_regenerate(state: WorkflowState) -> str:
+    """判断是否需要重新生成。
+
+    审核不通过（approved=False）且 regenerate_count < 1 时返回 'regenerate'，
+    否则返回 'end'。
+    """
+    review_result = state.get("review_result") or {}
+    regenerate_count = state.get("regenerate_count", 0)
+
+    approved = review_result.get("approved", True)
+    if not approved and regenerate_count < 1:
+        return "regenerate"
+
+    return "end"
+
+
 async def retrieve_node(state: WorkflowState, agent_instances: Dict[str, Any]) -> dict:
     retriever = agent_instances.get("retriever")
     if retriever is None:
@@ -106,20 +133,52 @@ async def generate_node(state: WorkflowState, agent_instances: Dict[str, Any]) -
         }
 
     try:
+        input_data = {
+            "analysis_results": state.get("analysis_results", []),
+            "compare_result": state.get("compare_result"),
+        }
+
+        # 重试上下文：当 regenerate_count > 0 时，将 review_result 中的 issues/suggestions 注入
+        regenerate_count = state.get("regenerate_count", 0)
+        if regenerate_count > 0:
+            review_result = state.get("review_result") or {}
+            issues = review_result.get("issues", [])
+            suggestions = review_result.get("suggestions", [])
+            if issues or suggestions:
+                retry_context_parts: List[str] = []
+                if issues:
+                    retry_context_parts.append("上次审核发现的问题：")
+                    for issue in issues:
+                        retry_context_parts.append(
+                            f"- {issue.get('claim', issue.get('citation', ''))} "
+                            f"({issue.get('error_type', 'unknown')}: {issue.get('note', issue.get('issue', ''))})"
+                        )
+                if suggestions:
+                    retry_context_parts.append("修改建议：")
+                    for sug in suggestions:
+                        retry_context_parts.append(
+                            f"- [{sug.get('section', '')}] {sug.get('suggestion', '')}"
+                        )
+                input_data["retry_context"] = "\n".join(retry_context_parts)
+
         result = await generator.execute(
-            input_data={
-                "analysis_results": state.get("analysis_results", []),
-                "compare_result": state.get("compare_result"),
-            },
+            input_data=input_data,
             context={"user_profile": state.get("user_profile", {})},
         )
         report = result.get("report", "")
         citations = result.get("citation_list", [])
-        return {
+
+        update: Dict[str, Any] = {
             "report": report,
             "citations": citations,
             "agent_states": {**state.get("agent_states", {}), "generator": _serialize_agent_state(generator)},
         }
+
+        # 重新生成时递增 regenerate_count
+        if regenerate_count > 0 or (state.get("review_result") and not state.get("review_result", {}).get("approved", True)):
+            update["regenerate_count"] = regenerate_count + 1
+
+        return update
     except Exception as e:
         logger.error(f"generate_node failed: {e}")
         return {
@@ -128,6 +187,82 @@ async def generate_node(state: WorkflowState, agent_instances: Dict[str, Any]) -
             "errors": state.get("errors", []) + [{"agent": "generator", "error": str(e)}],
             "degraded": True,
             "agent_states": {**state.get("agent_states", {}), "generator": _serialize_agent_state(generator)},
+        }
+
+
+async def review_node(state: WorkflowState, agent_instances: Dict[str, Any]) -> dict:
+    """审核节点：调用 ReviewerAgent 审核生成结果"""
+    reviewer = agent_instances.get("reviewer")
+    if reviewer is None:
+        # Reviewer 不存在时跳过审核，直接标记通过
+        logger.warning("ReviewerAgent not found, skipping review")
+        return {
+            "review_result": {"approved": True, "issues": [], "suggestions": [], "citation_accuracy": 1.0, "fact_accuracy": 1.0},
+            "agent_states": {**state.get("agent_states", {}), "reviewer": {"name": "reviewer", "status": "skipped", "error": "Agent not found"}},
+        }
+
+    try:
+        report = state.get("report", "")
+        original_papers = state.get("search_results", [])
+
+        # 构建重试上下文
+        regenerate_count = state.get("regenerate_count", 0)
+        retry_context = ""
+        if regenerate_count > 0:
+            prev_review = state.get("review_result") or {}
+            issues = prev_review.get("issues", [])
+            suggestions = prev_review.get("suggestions", [])
+            if issues or suggestions:
+                parts: List[str] = []
+                if issues:
+                    parts.append("上次审核发现的问题：")
+                    for issue in issues:
+                        parts.append(f"- {issue.get('claim', issue.get('citation', ''))} ({issue.get('error_type', '')})")
+                if suggestions:
+                    parts.append("修改建议：")
+                    for sug in suggestions:
+                        parts.append(f"- [{sug.get('section', '')}] {sug.get('suggestion', '')}")
+                retry_context = "\n".join(parts)
+
+        result = await reviewer.execute(
+            input_data={
+                "report": report,
+                "original_papers": original_papers,
+                "retry_context": retry_context,
+            },
+            context={"user_profile": state.get("user_profile", {})},
+        )
+
+        review_result = {
+            "approved": result.get("approved", False),
+            "issues": result.get("issues", []),
+            "suggestions": result.get("suggestions", []),
+            "citation_accuracy": result.get("citation_accuracy", 0.0),
+            "fact_accuracy": result.get("fact_accuracy", 0.0),
+        }
+
+        # 如果审核不通过，标记需要重新生成（不在此递增 regenerate_count）
+        update: Dict[str, Any] = {
+            "review_result": review_result,
+            "agent_states": {**state.get("agent_states", {}), "reviewer": _serialize_agent_state(reviewer)},
+        }
+
+        # Reviewer 降级处理
+        if result.get("degraded", False):
+            update["degraded"] = True
+            update["errors"] = state.get("errors", []) + [{"agent": "reviewer", "error": "审核降级，跳过审核"}]
+            # 降级时标记审核通过，不阻塞流程
+            review_result["approved"] = True
+            update["review_result"] = review_result
+
+        return update
+    except Exception as e:
+        logger.error(f"review_node failed: {e}")
+        return {
+            "review_result": {"approved": True, "issues": [], "suggestions": [], "citation_accuracy": 0.0, "fact_accuracy": 0.0},
+            "errors": state.get("errors", []) + [{"agent": "reviewer", "error": str(e)}],
+            "degraded": True,
+            "agent_states": {**state.get("agent_states", {}), "reviewer": _serialize_agent_state(reviewer)},
         }
 
 
@@ -141,16 +276,41 @@ def build_agent_graph(agent_instances: Dict[str, Any]) -> StateGraph:
     async def _generate(state: WorkflowState) -> dict:
         return await generate_node(state, agent_instances)
 
+    async def _review(state: WorkflowState) -> dict:
+        return await review_node(state, agent_instances)
+
+    def _should_review(state: WorkflowState) -> str:
+        if should_review(state):
+            return "review"
+        return "end"
+
+    def _should_regenerate(state: WorkflowState) -> str:
+        return should_regenerate(state)
+
     graph = StateGraph(WorkflowState)
 
     graph.add_node("retrieve", _retrieve)
     graph.add_node("analyze", _analyze)
     graph.add_node("generate", _generate)
+    graph.add_node("review", _review)
 
     graph.set_entry_point("retrieve")
     graph.add_edge("retrieve", "analyze")
     graph.add_edge("analyze", "generate")
-    graph.add_edge("generate", END)
+
+    # generate → review 条件判断
+    graph.add_conditional_edges(
+        "generate",
+        _should_review,
+        {"review": "review", "end": END},
+    )
+
+    # review → regenerate/end 条件判断
+    graph.add_conditional_edges(
+        "review",
+        _should_regenerate,
+        {"regenerate": "generate", "end": END},
+    )
 
     return graph.compile()
 
@@ -211,11 +371,16 @@ async def run_workflow(request: AnalyzeRequest, agent_instances: Dict[str, Any])
         elif is_degraded:
             status = "degraded"
 
+        review_result = result_state.get("review_result")
+        regenerate_count = result_state.get("regenerate_count", 0)
+
         return {
             "analysis_id": result_state.get("analysis_id", analysis_id),
             "status": status,
             "report": result_state.get("report"),
             "citations": result_state.get("citations", []),
+            "review_result": review_result,
+            "regenerate_count": regenerate_count,
             "agent_states": result_state.get("agent_states", {}),
             "errors": result_state.get("errors", []),
             "degraded": is_degraded,

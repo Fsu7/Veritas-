@@ -1,0 +1,402 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "AM4：6-Agent协同与个性化引擎",
+    "requirement": "完善 PersonalizationService 完整实现：增强4维度画像解析（education_level / knowledge_level / preferred_style / research_field），实现6-Agent全链路个性化Prompt片段注入（coordinator/retriever/analyzer/comparer/generator/reviewer），完善难度适配和风格适配策略，确保同一主题不同画像差异度>60%。",
+    "requirement_ids": ["F3.4.1", "F3.4.2", "F3.4.3"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "查阅个性化引擎模块设计（第8节），了解用户画像数据结构、个性化策略、Prompt注入机制"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "查阅AM4里程碑中个性化引擎的交付物清单（6.2节：交付物9-10）和验收标准（6.4节）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "了解项目架构、命名规范、跨系统字段映射（camelCase↔snake_case）"
+      },
+      {
+        "path": "docs/agents/04-personalization.md",
+        "purpose": "查阅用户画像4维度定义和PersonalizationService设计规范"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/services/personalization_service.py",
+        "description": "个性化引擎核心：当前已实现基础画像解析、学历适配、术语密度、风格指导、领域侧重，但DIFFICULTY_MAP仅存数值映射，需增强为完整策略对象"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/generator.py",
+        "description": "生成Agent：通过build_generation_prompt()注入个性化片段，是当前唯一完整使用个性化服务的Agent"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/analyzer.py",
+        "description": "分析Agent：通过get_extra_instruction()获取个性化额外指令，已有部分个性化支持"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/graph.py",
+        "description": "LangGraph工作流：在WorkflowState中传递user_profile，各Agent通过context访问"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/prompts/generator.txt",
+        "description": "生成Prompt模板：8-Block结构，含个性化适配Block，通过$personalization变量注入"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/services/personalization_service.py",
+        "description": "PersonalizationService核心类：已实现get_personalization_block()/get_extra_instruction()/build_generation_prompt()/get_education_adaptation()/get_term_density_target()/get_style_guide()/get_field_emphasis()及camelCase→snake_case转换",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/tests/test_personalization_service.py",
+        "description": "个性化服务测试：16个测试用例覆盖generator prompt结构、变量渲染、个性化块生成、camelCase输入、未知枚举默认值、label方法等",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/generator.py",
+        "description": "GeneratorAgent：通过personalization_service.build_generation_prompt()注入个性化片段，是参考实现",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PersonalizationService",
+      "path": "Veritas/ai-service/app/services/personalization_service.py",
+      "responsibility": "个性化引擎核心：用户画像解析、难度适配、风格适配、Prompt片段注入",
+      "key_interfaces": [
+        {
+          "name": "get_personalization_block",
+          "signature": "def get_personalization_block(self, user_profile: dict) -> str",
+          "description": "生成个性化适配文本块，包含学历适配、术语密度目标、写作风格、领域侧重"
+        },
+        {
+          "name": "get_extra_instruction",
+          "signature": "def get_extra_instruction(self, user_profile: dict, agent_name: str = '') -> str",
+          "description": "获取Agent特定的额外指令，按agent_name分发不同指令集"
+        },
+        {
+          "name": "build_generation_prompt",
+          "signature": "def build_generation_prompt(self, analysis_results: list, comparison_result: dict, user_profile: dict) -> str",
+          "description": "构建完整的生成Prompt，含个性化片段注入"
+        },
+        {
+          "name": "get_education_adaptation",
+          "signature": "def get_education_adaptation(self, education_level: str) -> str",
+          "description": "获取学历适配策略文本"
+        },
+        {
+          "name": "get_term_density_target",
+          "signature": "def get_term_density_target(self, knowledge_level: str) -> float",
+          "description": "获取术语密度目标值"
+        },
+        {
+          "name": "get_style_guide",
+          "signature": "def get_style_guide(self, preferred_style: str) -> str",
+          "description": "获取写作风格指导文本"
+        }
+      ]
+    },
+    {
+      "name": "DIFFICULTY_MAP",
+      "path": "Veritas/ai-service/app/services/personalization_service.py#L9-L14",
+      "responsibility": "知识水平→难度级别映射（当前仅数值，需增强为策略对象）",
+      "key_interfaces": []
+    },
+    {
+      "name": "STYLE_MAP",
+      "path": "Veritas/ai-service/app/services/personalization_service.py#L16-L32",
+      "responsibility": "风格偏好→写作风格映射（tone/paragraph/structure，需增强）",
+      "key_interfaces": []
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/services/personalization_service.py",
+      "description": "增强PersonalizationService：完善DIFFICULTY_MAP为策略对象、扩展STYLE_MAP、新增6-Agent全链路个性化指令映射、新增get_personalization_for_agent()方法、增强_user_profile_summary上下文",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/coordinator.py",
+      "description": "在CoordinatorAgent中注入个性化指令：根据用户画像调整任务分解策略",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/retriever.py",
+      "description": "在RetrieverAgent中注入个性化指令：根据研究领域调整检索关键词权重",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/comparer.py",
+      "description": "在ComparerAgent中注入个性化指令：根据知识水平调整对比深度和术语使用",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/reviewer.py",
+      "description": "在ReviewerAgent中注入个性化指令：根据画像调整审核严格程度和反馈风格",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/tests/test_personalization_service.py",
+      "description": "扩展测试：新增全链路个性化注入测试、差异度验证测试、6-Agent个性化指令覆盖测试",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "增强 DIFFICULTY_MAP：从数值映射 `{beginner: 1}` 扩展为策略对象，包含 term_density（术语密度）、explanation_style（解释风格）、example_requirement（示例要求）、abstraction_level（抽象层次）、citation_depth（引用深度）5个维度",
+        "priority": "P0",
+        "acceptance_condition": "DIFFICULTY_MAP['beginner'] 包含 term_density/explanation_style/example_requirement/abstraction_level/citation_depth 5个字段"
+      },
+      {
+        "id": "FR-002",
+        "description": "增强 STYLE_MAP：为每个风格增加 structure_example（结构示例）、sentence_pattern（句式模式）、transition_style（过渡风格）、audience_awareness（受众意识）4个新维度",
+        "priority": "P0",
+        "acceptance_condition": "STYLE_MAP['balanced'] 包含 tone/paragraph/structure/structure_example/sentence_pattern/transition_style/audience_awareness 7个字段"
+      },
+      {
+        "id": "FR-003",
+        "description": "新增 get_personalization_for_agent(agent_name, user_profile) 方法：为6个Agent分别返回适配的个性化指令片段，coordinator侧重任务分解策略、retriever侧重检索关键词权重、analyzer侧重分析深度、comparer侧重对比维度、generator侧重写作风格、reviewer侧重审核严格度",
+        "priority": "P0",
+        "acceptance_condition": "调用 get_personalization_for_agent('coordinator', profile) 返回非空字符串，且6个Agent返回不同内容"
+      },
+      {
+        "id": "FR-004",
+        "description": "新增 AGENT_PERSONALIZATION_MAP：定义6个Agent的个性化指令模板，每个Agent包含 knowledge_level_instructions（按知识水平）和 education_level_instructions（按学历层次），覆盖所有4个知识水平和4个学历层次",
+        "priority": "P0",
+        "acceptance_condition": "AGENT_PERSONALIZATION_MAP 包含 coordinator/retriever/analyzer/comparer/generator/reviewer 6个key，每个key下含 knowledge_level_instructions 和 education_level_instructions"
+      },
+      {
+        "id": "FR-005",
+        "description": "增强 _build_user_profile_summary()：返回更丰富的画像摘要，包含学历层次中文名、研究方向、知识水平、风格偏好、术语密度目标",
+        "priority": "P1",
+        "acceptance_condition": "user_profile_summary 包含5个维度信息"
+      },
+      {
+        "id": "FR-006",
+        "description": "新增 get_personalization_diff() 方法：计算两个用户画像的个性化差异度（0-1），用于验收个性化差异度>60%的硬指标",
+        "priority": "P1",
+        "acceptance_condition": "get_personalization_diff(beginner_profile, expert_profile) > 0.6"
+      },
+      {
+        "id": "FR-007",
+        "description": "在 CoordinatorAgent 中注入个性化指令：根据用户画像调整任务分解策略（beginner→细化子任务+背景补充，expert→聚焦前沿+研究空白）",
+        "priority": "P1",
+        "acceptance_condition": "CoordinatorAgent.build_prompt() 输出包含个性化适配指令"
+      },
+      {
+        "id": "FR-008",
+        "description": "在 RetrieverAgent 中注入个性化指令：根据 research_field 调整检索关键词权重，根据 knowledge_level 调整检索数量（beginner→Top5, expert→Top15）",
+        "priority": "P2",
+        "acceptance_condition": "RetrieverAgent 检索时体现领域偏好"
+      },
+      {
+        "id": "FR-009",
+        "description": "在 ComparerAgent 中注入个性化指令：根据 knowledge_level 调整对比维度数量（beginner→3维度, expert→6维度），根据 education_level 调整对比深度",
+        "priority": "P2",
+        "acceptance_condition": "ComparerAgent.build_prompt() 输出包含个性化对比指令"
+      },
+      {
+        "id": "FR-010",
+        "description": "在 ReviewerAgent 中注入个性化指令：根据 knowledge_level 调整审核严格度（beginner→关注基础准确性, expert→关注前沿准确性和引用完整性）",
+        "priority": "P2",
+        "acceptance_condition": "ReviewerAgent.build_prompt() 输出包含个性化审核指令"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+          { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+          { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+          { "java": "researchField", "python": "research_field", "json": "research_field" }
+        ]
+      }
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "个性化指令注入失败时降级为默认指令（balanced/intermediate），不阻塞Agent执行",
+        "multi_agent_failure": "所有个性化映射使用默认值兜底，保障基础功能可用",
+        "review_retry_limit": 1
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py"
+      },
+      "cross_system_mapping": [
+        { "java": "educationLevel", "python": "education_level", "json": "education_level" },
+        { "java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level" },
+        { "java": "preferredStyle", "python": "preferred_style", "json": "preferred_style" },
+        { "java": "researchField", "python": "research_field", "json": "research_field" }
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，个性化失败不阻塞Agent执行",
+        "agent_error_handling": "个性化指令注入异常时返回默认指令，记录warning日志"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "用户画像", "key_pattern": "user:profile:{userId}", "ttl": "1h" }
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出用户画像敏感信息"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "破坏三层分离架构", "reason": "架构约束ADR-001", "severity": "critical" },
+    { "id": "FA-006", "action": "硬编码敏感配置", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high" },
+    { "id": "FA-010", "action": "忽略降级场景（个性化失败时需有默认兜底）", "reason": "可用性约束", "severity": "high" },
+    { "id": "FA-011", "action": "删除已有的测试用例或修改已有测试的断言逻辑", "reason": "保持向后兼容，只新增测试不修改已有测试", "severity": "high" },
+    { "id": "FA-012", "action": "在个性化映射中硬编码用户名或具体用户数据", "reason": "个性化策略应通用化，不针对特定用户", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_difficulty_map_structure",
+        "description": "验证 DIFFICULTY_MAP 每个级别包含5个策略维度（term_density/explanation_style/example_requirement/abstraction_level/citation_depth）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_style_map_structure",
+        "description": "验证 STYLE_MAP 每个风格包含7个维度（tone/paragraph/structure/structure_example/sentence_pattern/transition_style/audience_awareness）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_get_personalization_for_agent_all_six",
+        "description": "验证 get_personalization_for_agent() 为6个Agent返回不同且非空的个性化指令",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "error_flow"]
+      },
+      {
+        "test_name": "test_agent_personalization_map_coverage",
+        "description": "验证 AGENT_PERSONALIZATION_MAP 覆盖所有6个Agent和所有4个知识水平+4个学历层次",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_get_personalization_diff",
+        "description": "验证 get_personalization_diff() 计算两种极端画像的差异度>0.6",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_personalization_fallback",
+        "description": "验证个性化指令注入失败时返回默认指令，不抛异常",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "test_enhanced_user_profile_summary",
+        "description": "验证 _build_user_profile_summary() 返回包含5个维度的丰富摘要",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_personalization_in_graph_workflow",
+        "description": "验证 LangGraph 工作流中6个Agent均能正确接收个性化指令",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_personalization_service.py -v",
+        "expected_result": "所有测试通过，新增测试覆盖6-Agent个性化注入和差异度验证"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "DIFFICULTY_MAP 从数值映射扩展为5维度策略对象（term_density/explanation_style/example_requirement/abstraction_level/citation_depth）",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "STYLE_MAP 每个风格扩展为7维度（tone/paragraph/structure/structure_example/sentence_pattern/transition_style/audience_awareness）",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "get_personalization_for_agent() 为6个Agent返回不同个性化指令",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "AGENT_PERSONALIZATION_MAP 覆盖6个Agent × 4个知识水平 × 4个学历层次",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "get_personalization_diff(beginner, expert) > 0.6",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "个性化指令注入失败时返回默认指令，不抛异常，不阻塞Agent执行",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "CoordinatorAgent/RetrieverAgent/ComparerAgent/ReviewerAgent 的 build_prompt() 方法中包含个性化适配指令",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "所有已有测试保持通过，无回归问题",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "代码符合Python snake_case命名规范，跨系统字段使用snake_case",
+      "verified_by": "code_review"
+    }
+  ]
+}

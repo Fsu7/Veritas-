@@ -503,7 +503,7 @@ curl -X POST http://localhost:8000/api/agent/analyze \
 | Day 3 | ComparerAgent核心逻辑 | agents/comparer.py |
 | Day 4 | 对比Prompt + 矛盾检测基础 | prompts/comparer.txt |
 
-#### Week 7 Day 5-7：审核Agent
+#### Week 7 Day 5-7：审核Agent✅
 
 | 天数 | 任务 | 产出 |
 |------|------|------|
@@ -511,7 +511,7 @@ curl -X POST http://localhost:8000/api/agent/analyze \
 | Day 6 | 审核Prompt + 引用核查 | prompts/reviewer.txt + citation_parser.py |
 | Day 7 | 审核重试逻辑 + 集成测试 | graph.py条件边 |
 
-#### Week 8 Day 1-3：个性化引擎
+#### Week 8 Day 1-3：个性化引擎✅
 
 | 天数 | 任务 | 产出 |
 |------|------|------|

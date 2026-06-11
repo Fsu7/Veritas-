@@ -1,0 +1,290 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "AM4：6-Agent协同与个性化引擎",
+    "requirement": "增强 DIFFICULTY_MAP 和 STYLE_MAP 映射表：DIFFICULTY_MAP 从简单数值映射扩展为包含 term_density、explanation_style、example_requirement、abstraction_level、citation_depth 5个维度的完整策略对象；STYLE_MAP 从3维度扩展为包含 tone、paragraph、structure、structure_example、sentence_pattern、transition_style、audience_awareness 7个维度的完整风格定义。同时新增 EDUCATION_ADAPTATION 和 FIELD_EMPHASIS 的详细策略。",
+    "requirement_ids": ["F3.4.2", "F3.4.3"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "查阅个性化引擎模块设计（第8节），了解个性化策略的架构定义"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "查阅AM4里程碑 Week 8 Day 2 任务：难度适配 + 风格适配映射（6.3节）"
+      },
+      {
+        "path": "docs/agents/04-personalization.md",
+        "purpose": "查阅用户画像4维度定义和个性化策略设计规范"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/services/personalization_service.py",
+        "description": "个性化引擎核心：当前 DIFFICULTY_MAP 仅为数值映射 `{beginner: 1, intermediate: 2, advanced: 3, expert: 4}`，STYLE_MAP 仅含3维度(tone/paragraph/structure)"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/services/personalization_service.py#L9-L14",
+        "description": "DIFFICULTY_MAP：当前仅4个数值映射，缺少策略详情",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/personalization_service.py#L16-L32",
+        "description": "STYLE_MAP：当前含3个风格(simple/balanced/technical)，每个含3维度(tone/paragraph/structure)，需扩展",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/personalization_service.py#L34-L39",
+        "description": "EDUCATION_ADAPTATION：当前含4个学历层次适配文本，可用但需增强具体策略",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/personalization_service.py#L41-L49",
+        "description": "FIELD_EMPHASIS：当前含7个研究方向侧重文本，可用但需增强具体关键词权重",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/personalization_service.py#L51-L56",
+        "description": "TERM_DENSITY_TARGET：当前含4个级别术语密度目标值，结构完整",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "DIFFICULTY_MAP",
+      "path": "Veritas/ai-service/app/services/personalization_service.py#L9-L14",
+      "responsibility": "知识水平→难度策略映射",
+      "key_interfaces": []
+    },
+    {
+      "name": "STYLE_MAP",
+      "path": "Veritas/ai-service/app/services/personalization_service.py#L16-L32",
+      "responsibility": "风格偏好→写作风格映射",
+      "key_interfaces": []
+    },
+    {
+      "name": "EDUCATION_ADAPTATION",
+      "path": "Veritas/ai-service/app/services/personalization_service.py#L34-L39",
+      "responsibility": "学历层次→内容适配策略映射",
+      "key_interfaces": []
+    },
+    {
+      "name": "FIELD_EMPHASIS",
+      "path": "Veritas/ai-service/app/services/personalization_service.py#L41-L49",
+      "responsibility": "研究领域→领域侧重策略映射",
+      "key_interfaces": []
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/services/personalization_service.py",
+      "description": "增强 DIFFICULTY_MAP、STYLE_MAP、EDUCATION_ADAPTATION、FIELD_EMPHASIS 四个映射表，从简单映射扩展为完整策略对象",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/tests/test_personalization_service.py",
+      "description": "新增测试：DIFFICULTY_MAP 5维度验证、STYLE_MAP 7维度验证、EDUCATION_ADAPTATION 策略完整性验证、FIELD_EMPHASIS 关键词权重验证",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "增强 DIFFICULTY_MAP：将 `{beginner: 1}` 扩展为 `{beginner: {level: 1, term_density: 0.05, explanation_style: '...', example_requirement: '...', abstraction_level: '...', citation_depth: '...'}}`，每个级别包含5个策略维度",
+        "priority": "P0",
+        "acceptance_condition": "DIFFICULTY_MAP['beginner'] 是 dict 类型，包含 level/term_density/explanation_style/example_requirement/abstraction_level/citation_depth 6个key"
+      },
+      {
+        "id": "FR-002",
+        "description": "DIFFICULTY_MAP.explanation_style 定义：beginner→'通俗类比+日常例子+避免术语'，intermediate→'标准学术+术语定义+方法对比'，advanced→'专业学术+深入分析+前沿讨论'，expert→'高度专业+数学原理+创新洞察'",
+        "priority": "P0",
+        "acceptance_condition": "4个级别各有不同的 explanation_style 文本"
+      },
+      {
+        "id": "FR-003",
+        "description": "DIFFICULTY_MAP.example_requirement 定义：beginner→'每个概念至少1个日常类比'，intermediate→'关键方法需举例说明'，advanced→'仅在复杂概念时举例'，expert→'不需要示例，直接讨论'",
+        "priority": "P0",
+        "acceptance_condition": "4个级别各有不同的 example_requirement 文本"
+      },
+      {
+        "id": "FR-004",
+        "description": "DIFFICULTY_MAP.abstraction_level 定义：beginner→'具体→抽象，逐步引导'，intermediate→'具体与抽象结合'，advanced→'抽象为主，具体为辅'，expert→'纯抽象讨论，预设背景知识'",
+        "priority": "P0",
+        "acceptance_condition": "4个级别各有不同的 abstraction_level 文本"
+      },
+      {
+        "id": "FR-005",
+        "description": "DIFFICULTY_MAP.citation_depth 定义：beginner→'仅引用核心结论'，intermediate→'引用方法+结论'，advanced→'引用方法+实验+结论+局限'，expert→'完整引用含数学推导+实验细节+消融实验'",
+        "priority": "P1",
+        "acceptance_condition": "4个级别各有不同的 citation_depth 文本"
+      },
+      {
+        "id": "FR-006",
+        "description": "增强 STYLE_MAP：为每个风格新增 structure_example（结构示例，如'引言→背景→对比→趋势→结论'）、sentence_pattern（句式模式，如'短句为主，每句不超过25字'）、transition_style（过渡风格，如'使用首先/其次/最后'）、audience_awareness（受众意识，如'面向非专业读者，避免行话'）4个维度",
+        "priority": "P0",
+        "acceptance_condition": "STYLE_MAP['simple'] 包含 structure_example/sentence_pattern/transition_style/audience_awareness 4个新字段"
+      },
+      {
+        "id": "FR-007",
+        "description": "STYLE_MAP.sentence_pattern 定义：simple→'短句为主，每句不超过25字，口语化表达'，balanced→'中等句长，15-35字，逻辑连接词丰富'，technical→'长句为主，25-50字，含从句和嵌套结构'",
+        "priority": "P1",
+        "acceptance_condition": "3个风格各有不同的 sentence_pattern 文本"
+      },
+      {
+        "id": "FR-008",
+        "description": "增强 EDUCATION_ADAPTATION：从简单文本扩展为包含 background_knowledge（背景知识补充策略）、methodology_focus（方法论侧重）、innovation_emphasis（创新关注度）、teaching_applicability（教学适用性）4个维度的策略对象",
+        "priority": "P1",
+        "acceptance_condition": "EDUCATION_ADAPTATION['undergraduate'] 是 dict 类型，包含4个维度字段"
+      },
+      {
+        "id": "FR-009",
+        "description": "增强 FIELD_EMPHASIS：从简单文本扩展为包含 primary_keywords（主要关键词列表）、secondary_keywords（次要关键词列表）、methodology_bias（方法论偏好）、evaluation_focus（评估关注点）4个维度的策略对象",
+        "priority": "P2",
+        "acceptance_condition": "FIELD_EMPHASIS['NLP'] 是 dict 类型，包含4个维度字段"
+      },
+      {
+        "id": "FR-010",
+        "description": "确保所有现有方法（get_education_adaptation/get_term_density_target/get_style_guide/get_field_emphasis）在映射表结构变更后仍正常工作，向后兼容",
+        "priority": "P0",
+        "acceptance_condition": "所有已有测试保持通过，无回归"
+      }
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "映射表查询失败时使用默认值（intermediate/balanced/master），不抛异常",
+        "multi_agent_failure": "所有映射表查询使用 .get() 方法带默认值兜底"
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "config_key": "UPPER_SNAKE_CASE"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "映射表定义在模块顶层，保持为常量，不放入类内部"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "所有映射表访问使用 .get(key, default) 模式，确保未知key返回安全默认值",
+        "agent_error_handling": "映射表查询异常时记录warning日志，返回默认策略"
+      }
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-006", "action": "硬编码敏感配置", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-013", "action": "删除或重命名已有的 DIFFICULTY_MAP/STYLE_MAP/EDUCATION_ADAPTATION/FIELD_EMPHASIS 常量", "reason": "保持向后兼容，已有代码引用这些常量", "severity": "high" },
+    { "id": "FA-014", "action": "修改 get_education_adaptation/get_term_density_target/get_style_guide/get_field_emphasis 方法的返回类型签名", "reason": "保持向后兼容，这些方法被多个Agent调用", "severity": "high" },
+    { "id": "FA-015", "action": "在映射表中使用非ASCII字符作为key", "reason": "key应为英文枚举值，中文文本放在value中", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_difficulty_map_all_levels_have_5_dimensions",
+        "description": "验证 DIFFICULTY_MAP 的4个级别均包含 level/term_density/explanation_style/example_requirement/abstraction_level/citation_depth 6个key",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_style_map_all_styles_have_7_dimensions",
+        "description": "验证 STYLE_MAP 的3个风格均包含 tone/paragraph/structure/structure_example/sentence_pattern/transition_style/audience_awareness 7个key",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_education_adaptation_all_levels_have_4_dimensions",
+        "description": "验证 EDUCATION_ADAPTATION 的4个学历层次均包含4个策略维度",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_field_emphasis_all_fields_have_4_dimensions",
+        "description": "验证 FIELD_EMPHASIS 的7个研究方向均包含4个策略维度",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_backward_compatibility_all_methods",
+        "description": "验证映射表结构变更后所有已有方法（get_education_adaptation/get_term_density_target/get_style_guide/get_field_emphasis）仍正常工作",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_difficulty_map_default_fallback",
+        "description": "验证 DIFFICULTY_MAP 查询未知key时返回默认值不抛异常",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_personalization_service.py -v -k 'test_difficulty or test_style or test_education or test_field or test_helper or test_unknown or test_get_personalization_block or test_camelcase'",
+        "expected_result": "所有测试通过，新增映射表结构验证测试通过，已有测试无回归"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "DIFFICULTY_MAP 每个级别包含6个key（level/term_density/explanation_style/example_requirement/abstraction_level/citation_depth），所有value为非空字符串或数值",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "STYLE_MAP 每个风格包含7个key（tone/paragraph/structure/structure_example/sentence_pattern/transition_style/audience_awareness），所有value为非空字符串",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "EDUCATION_ADAPTATION 每个学历层次扩展为策略对象（dict），含4个维度字段",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "FIELD_EMPHASIS 每个研究方向扩展为策略对象（dict），含4个维度字段",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "所有已有方法（get_education_adaptation/get_term_density_target/get_style_guide/get_field_emphasis）在映射表结构变更后返回结果不变或更丰富",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "映射表查询失败时使用默认值兜底，不抛异常",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "代码符合Python snake_case命名规范，常量使用UPPER_SNAKE_CASE",
+      "verified_by": "code_review"
+    }
+  ]
+}

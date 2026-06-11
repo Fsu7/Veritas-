@@ -51,7 +51,7 @@ public class WebClientConfig {
     }
 
     /**
-     * SSE 流式调用 WebClient (150s 响应超时)，用于 /api/agent/analyze/stream。
+     * SSE 流式调用 WebClient (120s 响应超时，task29 从 150s 调整为 120s 对齐 JM4 检查点)，用于 /api/agent/{analyze|compare|report}/stream。
      * <p>独立连接池与超时，避免与同步客户端互相影响。
      */
     @Bean("sseWebClient")
@@ -63,9 +63,9 @@ public class WebClientConfig {
 
         HttpClient httpClient = HttpClient.create(connectionProvider)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
-                .responseTimeout(Duration.ofSeconds(150))
+                .responseTimeout(Duration.ofSeconds(120))
                 .doOnConnected(conn -> conn
-                        .addHandlerLast(new ReadTimeoutHandler(150, TimeUnit.SECONDS))
+                        .addHandlerLast(new ReadTimeoutHandler(120, TimeUnit.SECONDS))
                         .addHandlerLast(new WriteTimeoutHandler(30, TimeUnit.SECONDS)));
 
         // 注册 SSE 事件解码器（Spring 6.x 默认开启 text/event-stream 解码）

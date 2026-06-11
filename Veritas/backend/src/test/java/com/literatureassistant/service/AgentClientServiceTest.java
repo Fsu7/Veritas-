@@ -202,21 +202,16 @@ class AgentClientServiceTest {
     }
 
     @Test
-    @DisplayName("generateReport - Mono 可订阅并产生 AnalysisResultDTO")
-    void generateReport_mono_subscribable() {
-        AnalysisResultDTO expected = AnalysisResultDTO.builder()
-                .analysisId("anl_001")
-                .status(AnalysisStatus.COMPLETED)
-                .build();
-        when(pythonAIClient.analyze(any(AgentRequest.class))).thenReturn(expected);
-
-        Mono<AnalysisResultDTO> mono = service.generateReport(buildRequest());
-
-        // 触发 subscribe 才会真正执行内部 callable
-        StepVerifier.create(mono)
-                .expectNextMatches(r -> r.getAnalysisId().equals("anl_001")
-                        && r.getStatus() == AnalysisStatus.COMPLETED)
-                .verifyComplete();
-        verify(pythonAIClient, times(1)).analyze(any(AgentRequest.class));
+    @DisplayName("generateReport - Mono 已移除（task26 综述编排上移到 AnalysisService 层）")
+    void generateReport_mono_removed_in_task26() {
+        // 验证 generateReport(AgentRequest) Mono 占位方法已删除
+        try {
+            java.lang.reflect.Method method = AgentClientService.class
+                    .getMethod("generateReport", AgentRequest.class);
+            assertThat(method).as("generateReport(AgentRequest) 方法应已删除").isNull();
+        } catch (NoSuchMethodException e) {
+            // 期望：方法不存在
+            assertThat(e).isNotNull();
+        }
     }
 }

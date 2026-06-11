@@ -6,7 +6,9 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.literatureassistant.dto.common.ApiResponse;
+import com.literatureassistant.dto.request.CompareRequest;
 import com.literatureassistant.dto.request.PaperAnalysisRequest;
+import com.literatureassistant.dto.request.ReportRequest;
 import com.literatureassistant.dto.response.AnalysisTaskResponse;
 import com.literatureassistant.enums.AnalysisStatus;
 import com.literatureassistant.exception.GlobalExceptionHandler;
@@ -179,4 +181,87 @@ class AnalysisControllerTest {
                 .andExpect(jsonPath("$.data.status").value("completed"))
                 .andExpect(jsonPath("$.data.message").value(org.hamcrest.Matchers.containsString("降级")));
     }
+
+    // region task25 comparePapers 端点测试
+
+    @Test
+    @DisplayName("POST /api/analysis/compare - 正常返回 202 + analysisId")
+    void compareController_success_returns202() throws Exception {
+        when(analysisService.comparePapers(anyString(), any(CompareRequest.class)))
+                .thenReturn(buildResponse());
+
+        CompareRequest request = CompareRequest.builder()
+                .topic("对比多Agent")
+                .paperIds(List.of("p1", "p2"))
+                .build();
+
+        mockMvc.perform(post("/api/analysis/compare")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .principal(new UsernamePasswordAuthenticationToken(CURRENT_USER_ID, null, List.of())))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.analysis_id").value("anl_abcdef012345"));
+    }
+
+    @Test
+    @DisplayName("POST /api/analysis/compare - paperIds 只有 1 个 → 400")
+    void compareController_tooFew_paperIds_returns400() throws Exception {
+        CompareRequest request = CompareRequest.builder()
+                .topic("对比")
+                .paperIds(List.of("p1"))
+                .build();
+
+        mockMvc.perform(post("/api/analysis/compare")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .principal(new UsernamePasswordAuthenticationToken(CURRENT_USER_ID, null, List.of())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    // endregion
+
+    // region task26 generateReport 端点测试
+
+    @Test
+    @DisplayName("POST /api/analysis/report - 正常返回 202 + analysisId")
+    void generateReportController_success_returns202() throws Exception {
+        when(analysisService.generateReport(anyString(), any(ReportRequest.class)))
+                .thenReturn(buildResponse());
+
+        ReportRequest request = ReportRequest.builder()
+                .topic("LLM综述")
+                .paperIds(List.of("p1", "p2", "p3"))
+                .build();
+
+        mockMvc.perform(post("/api/analysis/report")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .principal(new UsernamePasswordAuthenticationToken(CURRENT_USER_ID, null, List.of())))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.analysis_id").value("anl_abcdef012345"));
+    }
+
+    @Test
+    @DisplayName("POST /api/analysis/report - paperIds 超过 20 → 400")
+    void generateReportController_tooMany_paperIds_returns400() throws Exception {
+        java.util.List<String> tooMany = java.util.stream.IntStream.range(0, 21)
+                .mapToObj(i -> "p" + i)
+                .toList();
+        ReportRequest request = ReportRequest.builder()
+                .topic("综述")
+                .paperIds(tooMany)
+                .build();
+
+        mockMvc.perform(post("/api/analysis/report")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .principal(new UsernamePasswordAuthenticationToken(CURRENT_USER_ID, null, List.of())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    // endregion
 }

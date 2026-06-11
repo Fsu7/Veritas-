@@ -68,8 +68,7 @@ public class AnalysisResultDTO implements Serializable {
     private String degradedReason;
 
     /**
-     * 降级响应静态工厂。
-     * <p>当 AI 服务不可用且无缓存可用时，返回一个表示降级的 DTO。
+     * 降级响应静态工厂（通用，PAPER_ANALYSIS 使用）。
      *
      * @param analysisId 分析任务 ID
      * @param reason     降级原因
@@ -81,6 +80,43 @@ public class AnalysisResultDTO implements Serializable {
                 .status(AnalysisStatus.FAILED)
                 .degraded(true)
                 .degradedReason(reason)
+                .build();
+    }
+
+    /**
+     * COMPARE 降级响应静态工厂（task30）。
+     * <p>返回含对比框架提示的降级 DTO，前端可展示为占位对比大纲。
+     */
+    public static AnalysisResultDTO compareDegraded(String analysisId, String reason) {
+        return AnalysisResultDTO.builder()
+                .analysisId(analysisId)
+                .status(AnalysisStatus.FAILED)
+                .degraded(true)
+                .degradedReason(reason)
+                .report("## 对比分析框架\n\n" +
+                        "### 1. 研究背景对比\n- 待AI服务恢复后展示\n\n" +
+                        "### 2. 研究方法对比\n- 待AI服务恢复后展示\n\n" +
+                        "### 3. 实验结果对比\n- 待AI服务恢复后展示\n\n" +
+                        "### 4. 结论与展望对比\n- 待AI服务恢复后展示")
+                .build();
+    }
+
+    /**
+     * REPORT 降级响应静态工厂（task30）。
+     * <p>返回含综述大纲提示的降级 DTO，前端可展示为占位综述大纲。
+     */
+    public static AnalysisResultDTO reportDegraded(String analysisId, String reason) {
+        return AnalysisResultDTO.builder()
+                .analysisId(analysisId)
+                .status(AnalysisStatus.FAILED)
+                .degraded(true)
+                .degradedReason(reason)
+                .report("## 综述大纲\n\n" +
+                        "### 1. 引言\n- 待AI服务恢复后完整展示\n\n" +
+                        "### 2. 相关工作\n- 待AI服务恢复后完整展示\n\n" +
+                        "### 3. 方法综述\n- 待AI服务恢复后完整展示\n\n" +
+                        "### 4. 讨论\n- 待AI服务恢复后完整展示\n\n" +
+                        "### 5. 结论\n- 待AI服务恢复后完整展示")
                 .build();
     }
 }

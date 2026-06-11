@@ -1,0 +1,334 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4 多Agent协同 / JM4：分析服务与SSE推送完成 (Week 7-8 Day 4-5)",
+    "requirement": "完善降级机制，支持对比分析(COMPARE)和综述生成(REPORT)的降级场景，新增 SSE 流降级处理方法 handleStreamFallback()，确保 AI 服务不可用时系统能优雅降级，降级标记(degraded/degradedReason)在响应中正确传递，Redis 缓存回退对 COMPARE/REPORT 类型优先读取历史结果。",
+    "requirement_ids": ["F2.4.6", "F2.4.7", "F2.5.6"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "7.2.3 AgentClientService 降级策略 + 7.4 对比/综述时序 + 7.5 API清单" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.4 Week 7-8 Day 4-5 任务：降级机制完善 + 缓存回退 + 降级标记" },
+      { "path": "json_prompt/backend/task21_agent_client_service/prompt.md", "purpose": "AgentClientService 三级降级基础实现（PAPER_ANALYSIS only）" },
+      { "path": "json_prompt/backend/task23_analysis_query_health/prompt.md", "purpose": "AnalysisResultDTO.degraded() 静态工厂 + handleFallback() 现有逻辑" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "purpose": "当前 handleFallback() 仅处理 PAPER_ANALYSIS；需扩展 COMPARE/REPORT + SSE 流降级" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "修改：AgentClientService — 扩展 handleFallback() 支持 COMPARE/REPORT + 新增 handleStreamFallback()"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.response",
+        "description": "修改：AnalysisResultDTO — 确保 degraded/degradedReason 在所有降级路径中正确设置；新增 compareDegraded()/reportDegraded() 工厂方法"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "修改：AnalysisService — comparePapers()/generateReport() 方法中正确处理降级响应"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "description": "JM3 实现：analyzePaper() + handleFallback(仅 PAPER_ANALYSIS) + cacheAnalysisResult() + generateReportStream()", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResultDTO.java", "description": "JM3 实现：degraded() 静态工厂（通用降级 DTO）；需新增 COMPARE/REPORT 专用降级工厂", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "JM3 实现：analyzePaper() + completeAnalysis() + buildMessage()；JM4 新增 comparePapers()/generateReport()", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AgentSseEvent.java", "description": "JM4 SSE 事件 DTO（7 种事件类型）；handleStreamFallback 需构造降级事件", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java", "description": "analysisResultKey() 缓存 key 生成；COMPARE/REPORT 缓存回退复用同一 key 模式", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/enums/AnalysisType.java", "description": "PAPER_ANALYSIS / COMPARE / REPORT 枚举", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AgentClientService (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java",
+      "responsibility": "扩展 handleFallback() 支持 COMPARE/REPORT 类型降级；新增 handleStreamFallback() 处理 SSE 流降级",
+      "key_interfaces": [
+        { "name": "handleFallback", "signature": "private AnalysisResultDTO handleFallback(AgentRequest request, Exception e)", "description": "扩展：根据 request.analysisType 区分降级策略，COMPARE 返回对比框架提示，REPORT 返回综述大纲提示" },
+        { "name": "handleStreamFallback", "signature": "Flux<AgentSseEvent> handleStreamFallback(String analysisId, Exception e)", "description": "新增：Python 不可用时发送降级 SSE 事件（event:error, data:{type:degradation, message:...}）后关闭流" },
+        { "name": "comparePapers", "signature": "AnalysisResultDTO comparePapers(AgentRequest request)", "description": "新增：对比分析入口，复用三级降级逻辑" },
+        { "name": "generateReportAsync", "signature": "Mono<AnalysisResultDTO> generateReportAsync(AgentRequest request)", "description": "修改：综述生成入口，降级时正确传递 degraded 标记" }
+      ]
+    },
+    {
+      "name": "AnalysisResultDTO (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResultDTO.java",
+      "responsibility": "新增 COMPARE/REPORT 专用降级工厂方法，确保 degraded/degradedReason 在所有路径中正确设置",
+      "key_interfaces": [
+        { "name": "compareDegraded", "signature": "static AnalysisResultDTO compareDegraded(String analysisId, String reason)", "description": "新增：COMPARE 降级工厂，返回包含对比框架提示的降级 DTO" },
+        { "name": "reportDegraded", "signature": "static AnalysisResultDTO reportDegraded(String analysisId, String reason)", "description": "新增：REPORT 降级工厂，返回包含综述大纲提示的降级 DTO" },
+        { "name": "degraded", "signature": "static AnalysisResultDTO degraded(String analysisId, String reason)", "description": "已有：通用降级工厂（PAPER_ANALYSIS 使用），保持不变" }
+      ]
+    },
+    {
+      "name": "AnalysisService (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "responsibility": "comparePapers()/generateReport() 方法中正确处理降级响应，确保 degraded 标记传递到前端",
+      "key_interfaces": [
+        { "name": "comparePapers", "signature": "AnalysisTaskResponse comparePapers(String userId, CompareRequest request)", "description": "新增：对比分析编排，降级时 completeAnalysis 传递 degraded=true" },
+        { "name": "generateReport", "signature": "AnalysisTaskResponse generateReport(String userId, ReportRequest request)", "description": "新增：综述生成编排，降级时 completeAnalysis 传递 degraded=true" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java",
+      "description": "扩展 handleFallback() 支持 COMPARE/REPORT 降级策略；新增 handleStreamFallback() SSE 流降级；新增 comparePapers() 对比分析入口",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResultDTO.java",
+      "description": "新增 compareDegraded()/reportDegraded() 降级工厂方法；确保所有降级路径正确设置 degraded=true + degradedReason",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "description": "新增 comparePapers()/generateReport() 方法，降级响应中正确传递 degraded 标记",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AgentClientServiceTest.java",
+      "description": "新增 COMPARE/REPORT 降级测试 + SSE 流降级测试",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AnalysisServiceTest.java",
+      "description": "新增 comparePapers/generateReport 降级响应测试（degraded=true 传递）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/dto/AiDtoSerializationTest.java",
+      "description": "新增 compareDegraded/reportDegraded 工厂方法序列化测试",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-030-01",
+        "description": "handleFallback() 支持 COMPARE 类型降级：当 request.analysisType==COMPARE 时，Redis 缓存未命中返回 AnalysisResultDTO.compareDegraded(analysisId, reason)，包含对比框架提示（如'对比分析框架：1.研究背景对比 2.方法对比 3.结果对比 4.结论对比'）",
+        "priority": "P0",
+        "acceptance_condition": "COMPARE 类型 AI 异常 + Redis 无缓存 → 返回 DTO 含 degraded=true + degradedReason 含'对比' + report 含对比框架提示"
+      },
+      {
+        "id": "FR-030-02",
+        "description": "handleFallback() 支持 REPORT 类型降级：当 request.analysisType==REPORT 时，Redis 缓存未命中返回 AnalysisResultDTO.reportDegraded(analysisId, reason)，包含综述大纲提示（如'综述大纲：1.引言 2.相关工作 3.方法综述 4.讨论 5.结论'）",
+        "priority": "P0",
+        "acceptance_condition": "REPORT 类型 AI 异常 + Redis 无缓存 → 返回 DTO 含 degraded=true + degradedReason 含'综述' + report 含综述大纲提示"
+      },
+      {
+        "id": "FR-030-03",
+        "description": "handleStreamFallback() SSE 流降级：Python 不可用时发送降级 SSE 事件 event:error, data:{type:degradation, message:AI服务暂时不可用，已返回缓存结果}，然后发送 event:analysis_completed, data:{status:completed, degraded:true} 关闭流",
+        "priority": "P0",
+        "acceptance_condition": "SSE 流降级：Flux 依次发出 2 个 AgentSseEvent（error + analysis_completed），客户端可识别降级状态"
+      },
+      {
+        "id": "FR-030-04",
+        "description": "AnalysisResultDTO.degraded=true 时，前端可通过 AnalysisResponse.result.degraded 识别并显示降级提示；degradedReason 明确说明降级原因",
+        "priority": "P0",
+        "acceptance_condition": "GET /api/analysis/{id} 返回的 AnalysisResponse.result 中 degraded=true + degradedReason 非空"
+      },
+      {
+        "id": "FR-030-05",
+        "description": "Redis 缓存回退：COMPARE/REPORT 类型优先从 Redis 读取历史结果（key=analysis:result:{analysisId}），命中时返回 cached DTO + degraded=true + degradedReason='AI服务暂时不可用，返回缓存结果'",
+        "priority": "P0",
+        "acceptance_condition": "COMPARE/REPORT 类型 AI 异常 + Redis 有缓存 → 返回缓存 DTO + degraded=true + degradedReason 含'缓存'"
+      },
+      {
+        "id": "FR-030-06",
+        "description": "降级响应中 degradedReason 明确说明降级原因，枚举值：timeout（Agent 30s 超时）/ service_unavailable（Python 服务不可用）/ cache_fallback（缓存回退）",
+        "priority": "P1",
+        "acceptance_condition": "degradedReason 包含具体原因关键词（超时/不可用/缓存），而非仅通用提示"
+      },
+      {
+        "id": "FR-030-07",
+        "description": "AgentClientService.comparePapers() 对比分析入口：复用三级降级逻辑（Python→Redis缓存→降级DTO），与 analyzePaper() 结构一致",
+        "priority": "P0",
+        "acceptance_condition": "comparePapers(request) 正常返回 + AI 异常时走 handleFallback(COMPARE) + 缓存回退"
+      },
+      {
+        "id": "FR-030-08",
+        "description": "generateReportStream() SSE 流降级集成：当 pythonAIClient.analyzeStream() 抛 AIServiceException 时，切换到 handleStreamFallback() 发送降级事件",
+        "priority": "P0",
+        "acceptance_condition": "Python 不可用时 SSE 流不报错中断，而是发送降级事件后正常关闭"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case（依赖全局 Jackson SNAKE_CASE）",
+        "mappings": [
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+          { "java": "degraded", "python": "degraded", "json": "degraded" },
+          { "java": "degradedReason", "python": "degraded_reason", "json": "degradedReason" },
+          { "java": "analysisType", "python": "analysis_type", "json": "analysisType" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "GET /api/analysis/{analysisId}/agent-stream (降级场景)",
+          "method": "GET",
+          "request_format": null,
+          "response_format": {
+            "event_sequence": [
+              { "event": "error", "data": { "type": "degradation", "message": "AI服务暂时不可用，已返回缓存结果" } },
+              { "event": "analysis_completed", "data": { "status": "completed", "degraded": true, "degradedReason": "AI服务暂时不可用，返回缓存结果" } }
+            ]
+          }
+        }
+      ],
+      "data_flow": "SSE 流降级：pythonAIClient.analyzeStream() → AIServiceException → handleStreamFallback(analysisId, e) → Flux.just(degradationEvent, completedEvent) → 前端识别 degraded=true 显示降级提示"
+    },
+    "security_requirements": [
+      { "category": "data_isolation", "requirement": "COMPARE/REPORT 降级缓存回退时，仅返回当前用户 analysisId 对应的缓存数据" },
+      { "category": "sensitive_info", "requirement": "降级响应中不暴露 Python 内部异常堆栈（degradedReason 仅含通用提示）" },
+      { "category": "sse_security", "requirement": "handleStreamFallback() 仅对已通过 validateAnalysisAccess 的 analysisId 发送降级事件" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "json": { "field_name": "camelCase（依赖全局 Jackson SNAKE_CASE + @JsonProperty 覆盖）" }
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → (Repository + AgentClientService)；禁止 Controller 直接调 Repository 或 AgentClientService",
+        "entity_dto_separation": true
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "Service 内部异常 → BusinessException/AIServiceException；降级不抛异常，返回 degraded DTO",
+        "degradation_rule": "三级降级：Python正常 → Redis缓存回退 → 降级DTO；禁止降级时抛异常到 Controller"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside + @Cacheable",
+      "ttl_layers": [
+        { "cache_name": "analysisResult", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" },
+        { "cache_name": "agentState", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" }
+      ],
+      "note": "COMPARE/REPORT 缓存回退复用 analysis:result:{analysisId} key，与 PAPER_ANALYSIS 一致"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["输出 report 完整内容", "在循环中打印 INFO", "降级日志中暴露 Python 异常堆栈"]
+    },
+    "degradation": {
+      "agent_timeout": "30s",
+      "three_level": "Python正常 → Redis缓存回退 → 降级DTO",
+      "sse_degradation": "Python不可用 → 发送降级SSE事件 → 关闭流"
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-030-01", "action": "降级时抛异常到 Controller（必须返回 degraded DTO）", "reason": "降级是预期行为，不应触发 GlobalExceptionHandler", "severity": "critical" },
+    { "id": "FA-030-02", "action": "handleStreamFallback() 返回 Flux.error()（必须返回包含降级事件的正常 Flux）", "reason": "SSE 流降级不应导致客户端连接异常中断", "severity": "critical" },
+    { "id": "FA-030-03", "action": "COMPARE/REPORT 降级 DTO 不含 report 字段（降级提示必须包含对比框架/综述大纲）", "reason": "前端需要展示降级内容而非空白", "severity": "high" },
+    { "id": "FA-030-04", "action": "degradedReason 暴露 Python 内部异常信息", "reason": "安全约束：不暴露内部实现细节", "severity": "high" },
+    { "id": "FA-030-05", "action": "缓存回退时修改反序列化的 cachedDto 原对象（必须创建不可变副本）", "reason": "U-002 不可变副本约束", "severity": "high" },
+    { "id": "FA-030-06", "action": "handleFallback() 不区分 analysisType（必须根据 COMPARE/REPORT 返回不同降级内容）", "reason": "不同分析类型需要不同的降级提示内容", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "comparePapers_aiServiceException_returns_compareDegraded",
+        "description": "COMPARE 类型 AI 异常 + Redis 无缓存 → 返回 compareDegraded DTO，report 含对比框架提示",
+        "framework": "junit5",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "comparePapers_cache_hit_returns_cached_with_degraded_flag",
+        "description": "COMPARE 类型 AI 异常 + Redis 有缓存 → 返回缓存 DTO + degraded=true + degradedReason 含'缓存'",
+        "framework": "junit5",
+        "coverage": ["degradation", "cache_fallback"]
+      },
+      {
+        "test_name": "report_aiServiceException_returns_reportDegraded",
+        "description": "REPORT 类型 AI 异常 + Redis 无缓存 → 返回 reportDegraded DTO，report 含综述大纲提示",
+        "framework": "junit5",
+        "coverage": ["degradation"]
+      },
+      {
+        "test_name": "report_cache_hit_returns_cached_with_degraded_flag",
+        "description": "REPORT 类型 AI 异常 + Redis 有缓存 → 返回缓存 DTO + degraded=true + degradedReason 含'缓存'",
+        "framework": "junit5",
+        "coverage": ["degradation", "cache_fallback"]
+      },
+      {
+        "test_name": "handleStreamFallback_sends_degradation_event_then_completed",
+        "description": "SSE 流降级：Flux 依次发出 error(degradation) + analysis_completed(degraded:true) 事件",
+        "framework": "junit5 + reactor-test StepVerifier",
+        "coverage": ["sse_degradation"]
+      },
+      {
+        "test_name": "handleStreamFallback_events_contain_correct_data",
+        "description": "降级 SSE 事件 data 字段：error 事件含 type=degradation + message；completed 事件含 degraded=true",
+        "framework": "junit5 + reactor-test StepVerifier",
+        "coverage": ["sse_degradation", "data_format"]
+      },
+      {
+        "test_name": "analysisService_comparePapers_degraded_marks_degraded_true",
+        "description": "AnalysisService.comparePapers() 降级时 completeAnalysis 传递 degraded=true，buildMessage 含'降级'",
+        "framework": "junit5",
+        "coverage": ["degradation_propagation"]
+      },
+      {
+        "test_name": "analysisService_generateReport_degraded_marks_degraded_true",
+        "description": "AnalysisService.generateReport() 降级时 completeAnalysis 传递 degraded=true，buildMessage 含'降级'",
+        "framework": "junit5",
+        "coverage": ["degradation_propagation"]
+      },
+      {
+        "test_name": "compareDegraded_factory_method_creates_correct_dto",
+        "description": "AnalysisResultDTO.compareDegraded() 返回 degraded=true + report 含对比框架 + status=FAILED",
+        "framework": "junit5",
+        "coverage": ["factory_method"]
+      },
+      {
+        "test_name": "reportDegraded_factory_method_creates_correct_dto",
+        "description": "AnalysisResultDTO.reportDegraded() 返回 degraded=true + report 含综述大纲 + status=FAILED",
+        "framework": "junit5",
+        "coverage": ["factory_method"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "compare_degradation_e2e",
+        "description": "MockWebServer 模拟 Python 502 → POST /api/analysis/compare → 降级响应 → GET /api/analysis/{id} 验证 degraded=true",
+        "layers_involved": ["java_backend", "python_ai_service_mock"]
+      },
+      {
+        "test_name": "sse_degradation_e2e",
+        "description": "Python 不可用 → GET /api/analysis/{id}/agent-stream → 验证降级 SSE 事件序列",
+        "layers_involved": ["java_backend", "python_ai_service_mock"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='AgentClientServiceTest,AnalysisServiceTest,AiDtoSerializationTest' test", "expected_result": "所有测试通过（含新增 10+ 降级测试）" },
+      { "layer": "java", "command": "cd Veritas/backend && mvn test", "expected_result": "272+ 现有测试 + 新增测试全部通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-030-01", "criterion": "handleFallback() 支持 COMPARE 类型降级，返回含对比框架提示的降级 DTO", "verified_by": "automated_test" },
+    { "id": "AC-030-02", "criterion": "handleFallback() 支持 REPORT 类型降级，返回含综述大纲提示的降级 DTO", "verified_by": "automated_test" },
+    { "id": "AC-030-03", "criterion": "handleStreamFallback() SSE 流降级发送正确事件序列（error + analysis_completed）", "verified_by": "automated_test" },
+    { "id": "AC-030-04", "criterion": "AnalysisResultDTO.degraded=true 在所有降级路径中正确设置，前端可识别", "verified_by": "automated_test" },
+    { "id": "AC-030-05", "criterion": "Redis 缓存回退对 COMPARE/REPORT 类型正常工作", "verified_by": "automated_test" },
+    { "id": "AC-030-06", "criterion": "degradedReason 明确说明降级原因（timeout/service_unavailable/cache_fallback）", "verified_by": "automated_test" },
+    { "id": "AC-030-07", "criterion": "Python 不可用时 SSE 流不崩溃，发送降级事件后正常关闭", "verified_by": "automated_test" },
+    { "id": "AC-030-08", "criterion": "272+ 现有测试 + 新增测试全部通过", "verified_by": "automated_test" }
+  ]
+}

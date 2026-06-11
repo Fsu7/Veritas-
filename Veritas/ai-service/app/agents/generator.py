@@ -249,10 +249,17 @@ class GeneratorAgent(BaseAgent):
 
         if self.personalization_service is not None:
             try:
+                # 优先使用 get_personalization_for_agent 获取个性化指令
+                agent_instruction = self.personalization_service.get_personalization_for_agent(
+                    "generator", user_profile
+                )
                 block = self.personalization_service.get_personalization_block(
                     user_profile
                 )
                 if block:
+                    # 如果有 agent 特定指令，追加到个性化块末尾
+                    if agent_instruction:
+                        block += f"\n【Agent个性化指令】{agent_instruction}"
                     return block
             except Exception as e:
                 logger.warning(

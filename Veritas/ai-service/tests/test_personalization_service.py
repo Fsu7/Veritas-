@@ -209,7 +209,7 @@ def test_unknown_enum_defaults(service):
     assert "【写作风格】" in block
 
     edu_adapt = service.get_education_adaptation("postdoc")
-    assert edu_adapt == EDUCATION_ADAPTATION["master"]
+    assert edu_adapt == EDUCATION_ADAPTATION["master"]["text"]
 
     density = service.get_term_density_target("guru")
     assert density == TERM_DENSITY_TARGET["intermediate"]
@@ -324,3 +324,171 @@ def test_prompt_manager_integration():
     assert "$comparison_data" not in prompt
     assert "$user_profile_summary" not in prompt
     assert "硕士" in prompt or "NLP" in prompt
+
+
+# ============================================================
+# Task 39-40 新增测试：映射表结构验证 + 个性化接口
+# ============================================================
+
+from app.services.personalization_service import AGENT_PERSONALIZATION_MAP
+
+
+DIFFICULTY_MAP_REQUIRED_KEYS = {
+    "level", "term_density", "explanation_style",
+    "example_requirement", "abstraction_level", "citation_depth",
+}
+
+STYLE_MAP_REQUIRED_KEYS = {
+    "tone", "paragraph", "structure", "structure_example",
+    "sentence_pattern", "transition_style", "audience_awareness",
+}
+
+EDUCATION_ADAPTATION_REQUIRED_KEYS = {
+    "text", "background_knowledge", "methodology_focus",
+    "innovation_emphasis", "teaching_applicability",
+}
+
+FIELD_EMPHASIS_REQUIRED_KEYS = {
+    "text", "primary_keywords", "secondary_keywords",
+    "methodology_bias", "evaluation_focus",
+}
+
+
+def test_difficulty_map_all_levels_have_6_keys():
+    """验证 DIFFICULTY_MAP 4个级别均包含6个策略维度"""
+    for level in ["beginner", "intermediate", "advanced", "expert"]:
+        assert level in DIFFICULTY_MAP, f"Missing level: {level}"
+        entry = DIFFICULTY_MAP[level]
+        assert isinstance(entry, dict), f"DIFFICULTY_MAP['{level}'] should be dict"
+        for key in DIFFICULTY_MAP_REQUIRED_KEYS:
+            assert key in entry, f"DIFFICULTY_MAP['{level}'] missing key: {key}"
+        assert isinstance(entry["term_density"], (int, float))
+        assert 0.0 <= entry["term_density"] <= 1.0
+
+
+def test_style_map_all_styles_have_7_keys():
+    """验证 STYLE_MAP 3个风格均包含7个维度"""
+    for style in ["simple", "balanced", "technical"]:
+        assert style in STYLE_MAP, f"Missing style: {style}"
+        entry = STYLE_MAP[style]
+        assert isinstance(entry, dict), f"STYLE_MAP['{style}'] should be dict"
+        for key in STYLE_MAP_REQUIRED_KEYS:
+            assert key in entry, f"STYLE_MAP['{style}'] missing key: {key}"
+        assert isinstance(entry[key], str) and len(entry[key]) > 0, \
+            f"STYLE_MAP['{style}']['{key}'] should be non-empty str"
+
+
+def test_education_adaptation_all_levels_have_strategy_dimensions():
+    """验证 EDUCATION_ADAPTATION 4个学历层次均包含5个策略维度"""
+    for level in ["undergraduate", "master", "phd", "faculty"]:
+        assert level in EDUCATION_ADAPTATION, f"Missing level: {level}"
+        entry = EDUCATION_ADAPTATION[level]
+        assert isinstance(entry, dict), f"EDUCATION_ADAPTATION['{level}'] should be dict"
+        for key in EDUCATION_ADAPTATION_REQUIRED_KEYS:
+            assert key in entry, f"EDUCATION_ADAPTATION['{level}'] missing key: {key}"
+
+
+def test_field_emphasis_all_fields_have_strategy_dimensions():
+    """验证 FIELD_EMPHASIS 7个研究方向均包含5个策略维度"""
+    for field in ["NLP", "CV", "RL", "多模态", "知识图谱", "推荐系统", "数据挖掘"]:
+        assert field in FIELD_EMPHASIS, f"Missing field: {field}"
+        entry = FIELD_EMPHASIS[field]
+        assert isinstance(entry, dict), f"FIELD_EMPHASIS['{field}'] should be dict"
+        for key in FIELD_EMPHASIS_REQUIRED_KEYS:
+            assert key in entry, f"FIELD_EMPHASIS['{field}'] missing key: {key}"
+        assert isinstance(entry["primary_keywords"], list)
+        assert isinstance(entry["secondary_keywords"], list)
+
+
+def test_get_personalization_for_agent_all_six(service):
+    """验证 get_personalization_for_agent() 为6个Agent返回不同且非空的个性化指令"""
+    profile = SAMPLE_PROFILE_MASTER
+    results = {}
+    for agent_name in ["coordinator", "retriever", "analyzer", "comparer", "generator", "reviewer"]:
+        instruction = service.get_personalization_for_agent(agent_name, profile)
+        assert isinstance(instruction, str), f"{agent_name} should return str"
+        assert len(instruction) > 0, f"{agent_name} should return non-empty str"
+        results[agent_name] = instruction
+
+    # 验证不同Agent返回不同内容
+    unique_values = set(results.values())
+    assert len(unique_values) >= 3, "At least 3 agents should have different instructions"
+
+
+def test_agent_personalization_map_coverage():
+    """验证 AGENT_PERSONALIZATION_MAP 覆盖6个Agent × 4个知识水平 × 4个学历层次"""
+    expected_agents = {"coordinator", "retriever", "analyzer", "comparer", "generator", "reviewer"}
+    assert set(AGENT_PERSONALIZATION_MAP.keys()) == expected_agents
+
+    for agent_name, agent_map in AGENT_PERSONALIZATION_MAP.items():
+        assert "knowledge_level_instructions" in agent_map, \
+            f"{agent_name} missing knowledge_level_instructions"
+        assert "education_level_instructions" in agent_map, \
+            f"{agent_name} missing education_level_instructions"
+
+        knowledge_map = agent_map["knowledge_level_instructions"]
+        for level in ["beginner", "intermediate", "advanced", "expert"]:
+            assert level in knowledge_map, \
+                f"{agent_name} knowledge_level_instructions missing {level}"
+            assert isinstance(knowledge_map[level], str) and len(knowledge_map[level]) > 0
+
+        education_map = agent_map["education_level_instructions"]
+        for level in ["undergraduate", "master", "phd", "faculty"]:
+            assert level in education_map, \
+                f"{agent_name} education_level_instructions missing {level}"
+            assert isinstance(education_map[level], str) and len(education_map[level]) > 0
+
+
+def test_get_personalization_diff(service):
+    """验证极端画像差异度 > 0.6"""
+    beginner_profile = {
+        "education_level": "undergraduate",
+        "knowledge_level": "beginner",
+        "preferred_style": "simple",
+        "research_field": "NLP",
+    }
+    expert_profile = {
+        "education_level": "phd",
+        "knowledge_level": "expert",
+        "preferred_style": "technical",
+        "research_field": "CV",
+    }
+    diff = service.get_personalization_diff(beginner_profile, expert_profile)
+    assert isinstance(diff, float)
+    assert diff > 0.6, f"Expected diff > 0.6, got {diff}"
+
+
+def test_get_personalization_diff_same_profile(service):
+    """验证相同画像差异度 = 0"""
+    diff = service.get_personalization_diff(SAMPLE_PROFILE_MASTER, SAMPLE_PROFILE_MASTER)
+    assert diff == 0.0
+
+
+def test_get_personalization_for_agent_unknown_agent(service):
+    """验证未知Agent返回空字符串"""
+    result = service.get_personalization_for_agent("nonexistent_agent", SAMPLE_PROFILE_MASTER)
+    assert result == ""
+
+
+def test_backward_compatibility_after_enhancement(service):
+    """验证增强后所有方法仍正常工作"""
+    # get_education_adaptation 返回 text 字段
+    for level in ["undergraduate", "master", "phd", "faculty"]:
+        result = service.get_education_adaptation(level)
+        assert isinstance(result, str) and len(result) > 0
+
+    # get_term_density_target 返回 float
+    for level in ["beginner", "intermediate", "advanced", "expert"]:
+        result = service.get_term_density_target(level)
+        assert isinstance(result, float)
+        assert 0.0 <= result <= 1.0
+
+    # get_style_guide 返回 str
+    for style in ["simple", "balanced", "technical"]:
+        result = service.get_style_guide(style)
+        assert isinstance(result, str) and len(result) > 0
+
+    # get_field_emphasis 返回 str
+    for field in ["NLP", "CV", "RL", "多模态"]:
+        result = service.get_field_emphasis(field)
+        assert isinstance(result, str) and len(result) > 0

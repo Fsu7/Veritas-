@@ -14,6 +14,7 @@ class RetrieverAgent(BaseAgent):
         prompt_manager,
         search_service,
         reranker=None,
+        personalization_service=None,
         timeout: int = 30,
     ) -> None:
         super().__init__(
@@ -24,13 +25,24 @@ class RetrieverAgent(BaseAgent):
         )
         self.search_service = search_service
         self.reranker = reranker
+        self.personalization_service = personalization_service
 
     def build_prompt(self, input_data: dict, context: dict) -> str:
-        return self.prompt_manager.get_prompt(
+        top_k = input_data.get("top_k", 10)
+        adjusted_top_k = self._adjust_top_k(top_k, context)
+
+        base_prompt = self.prompt_manager.get_prompt(
             "retriever",
             topic=input_data.get("topic", ""),
-            top_k=str(input_data.get("top_k", 10)),
+            top_k=str(adjusted_top_k),
         )
+
+        # 注入个性化指令
+        personalization = self._get_personalization_instruction(context)
+        if personalization:
+            base_prompt += f"\n\n【个性化适配】{personalization}"
+
+        return base_prompt
 
     async def _run(self, prompt: str, input_data: dict, context: dict) -> dict:
         top_k = input_data.get("top_k", 10)
@@ -108,3 +120,33 @@ class RetrieverAgent(BaseAgent):
                 f"Failed to parse search strategy JSON, using fallback topic: {e}"
             )
             return {"query": fallback_topic, "filters": {}}
+
+    def _adjust_top_k(self, default_top_k: int, context: dict) -> int:
+        """根据 knowledge_level 调整检索数量"""
+        if self.personalization_service is None:
+            return default_top_k
+        user_profile = context.get("user_profile")
+        if not user_profile:
+            return default_top_k
+        try:
+            profile = self.personalization_service._normalize_profile(user_profile)
+            knowledge_level = profile.get("knowledge_level", "intermediate")
+            top_k_map = {"beginner": 5, "intermediate": 10, "advanced": 15, "expert": 20}
+            return top_k_map.get(knowledge_level, default_top_k)
+        except Exception:
+            return default_top_k
+
+    def _get_personalization_instruction(self, context: dict) -> str:
+        """获取个性化指令片段（降级安全）"""
+        if self.personalization_service is None:
+            return ""
+        user_profile = context.get("user_profile")
+        if not user_profile:
+            return ""
+        try:
+            return self.personalization_service.get_personalization_for_agent(
+                "retriever", user_profile
+            )
+        except Exception as e:
+            logger.warning(f"Personalization injection failed for retriever: {e}")
+            return ""

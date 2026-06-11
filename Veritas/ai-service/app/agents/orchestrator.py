@@ -38,7 +38,7 @@ PING_INTERVAL = 15
 class AgentOrchestrator:
     """流式 Agent 编排器 — task25 产出，task30 增强"""
 
-    NODE_ORDER = ["retriever", "analyzer", "generator"]
+    NODE_ORDER = ["retriever", "analyzer", "generator", "reviewer"]
 
     def __init__(
         self,
@@ -112,6 +112,8 @@ class AgentOrchestrator:
             search_results: list = []
             analysis_results: list = []
             report: Optional[str] = None
+            review_result: Optional[Dict] = None
+            regenerate_count: int = 0
 
             # === Retriever ===
             # task30: 节点执行前检查 ping
@@ -200,6 +202,103 @@ class AgentOrchestrator:
             if generator and generator.state.status == AgentStatus.COMPLETED:
                 gen_result = self._get_last_result(generator, None, {})
                 report = gen_result.get("report") if isinstance(gen_result, dict) else None
+
+            # === Reviewer (with retry loop) ===
+            reviewer = self.agent_instances.get("reviewer")
+            if reviewer is not None and report:
+                for retry_attempt in range(2):  # 最多执行2次：首次审核 + 1次重试
+                    ping = self._maybe_ping()
+                    if ping and not self._should_skip_event(int(ping["id"])):
+                        yield ping
+
+                    # 构建重试上下文
+                    retry_context = ""
+                    if regenerate_count > 0 and review_result:
+                        issues = review_result.get("issues", [])
+                        suggestions = review_result.get("suggestions", [])
+                        if issues or suggestions:
+                            ctx_parts = []
+                            if issues:
+                                ctx_parts.append("上次审核发现的问题：")
+                                for issue in issues:
+                                    ctx_parts.append(f"- {issue.get('claim', issue.get('citation', ''))} ({issue.get('error_type', '')})")
+                            if suggestions:
+                                ctx_parts.append("修改建议：")
+                                for sug in suggestions:
+                                    ctx_parts.append(f"- [{sug.get('section', '')}] {sug.get('suggestion', '')}")
+                            retry_context = "\n".join(ctx_parts)
+
+                    async for event in self._run_node(
+                        node_name="reviewer",
+                        input_data={
+                            "report": report,
+                            "original_papers": search_results,
+                            "retry_context": retry_context,
+                        },
+                        context={"user_profile": user_profile_dict},
+                    ):
+                        if self._should_skip_event(int(event["id"])):
+                            continue
+                        self._update_event_time()
+                        yield event
+
+                    if reviewer.state.status == AgentStatus.COMPLETED:
+                        rev_result = self._get_last_result(reviewer, None, {})
+                        if isinstance(rev_result, dict):
+                            review_result = {
+                                "approved": rev_result.get("approved", False),
+                                "issues": rev_result.get("issues", []),
+                                "suggestions": rev_result.get("suggestions", []),
+                                "citation_accuracy": rev_result.get("citation_accuracy", 0.0),
+                                "fact_accuracy": rev_result.get("fact_accuracy", 0.0),
+                            }
+
+                    # 审核通过或已达重试上限，退出循环
+                    if review_result and review_result.get("approved", False):
+                        break
+                    if regenerate_count >= 1:
+                        break
+
+                    # 审核不通过，触发重新生成
+                    if review_result and not review_result.get("approved", True) and regenerate_count < 1:
+                        regenerate_count += 1
+
+                        # yield review_rejected 事件
+                        rejected_event = self._make_event("review_rejected", {
+                            "agentName": "reviewer",
+                            "analysisId": self.analysis_id,
+                            "regenerateCount": regenerate_count,
+                            "issues": review_result.get("issues", []),
+                        })
+                        if not self._should_skip_event(int(rejected_event["id"])):
+                            self._update_event_time()
+                            yield rejected_event
+
+                        # 重新执行 Generator
+                        ping = self._maybe_ping()
+                        if ping and not self._should_skip_event(int(ping["id"])):
+                            yield ping
+
+                        gen_input_data = {
+                            "analysis_results": analysis_results,
+                            "compare_result": None,
+                            "retry_context": retry_context,
+                        }
+                        async for event in self._run_node(
+                            node_name="generator",
+                            input_data=gen_input_data,
+                            context={"user_profile": user_profile_dict},
+                        ):
+                            if self._should_skip_event(int(event["id"])):
+                                continue
+                            self._update_event_time()
+                            yield event
+
+                        if generator and generator.state.status == AgentStatus.COMPLETED:
+                            gen_result = self._get_last_result(generator, None, {})
+                            report = gen_result.get("report") if isinstance(gen_result, dict) else None
+                    else:
+                        break
 
             # 最终事件
             async for event in self._yield_final(report):

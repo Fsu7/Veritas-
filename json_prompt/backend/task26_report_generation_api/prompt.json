@@ -1,0 +1,290 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4：多Agent协同 / JM4：分析服务与SSE推送完成 (Week 7-8 Day 4)",
+    "requirement": "实现综述生成API，支持基于多篇论文生成个性化综述报告。新建 ReportRequest DTO，扩展 AnalysisService.generateReport() 方法（替换现有 Mono 占位实现），新增 POST /api/analysis/report 端点。编排逻辑：buildUserProfile → 验证所有paperIds存在 → resolveOrCreateSession → savePending(REPORT) → buildAgentRequest(paperIds列表, analysisType=REPORT) → callAI → completeAnalysis。综述结果 AnalysisResultDTO.citations 必须非空。",
+    "requirement_ids": ["F2.4.3", "F2.4.6"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "7.2.3 AnalysisService.generateReport 编排逻辑 + 7.4 综述时序 + 7.5 API清单" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.4 Week 7-8 Day 4 任务：综述生成API + ReportRequest DTO" },
+      { "path": "json_prompt/backend/task22_analysis_controller_service/prompt.md", "purpose": "AnalysisService.analyzePaper 编排模式（7步编排 + 数据隔离 + 事务边界）" },
+      { "path": "json_prompt/backend/task23_analysis_query_health/prompt.md", "purpose": "AnalysisService 查询方法 + @Cacheable 缓存模式" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/PaperAnalysisRequest.java", "purpose": "已有论文分析请求 DTO 结构，ReportRequest 参照此模式" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "purpose": "现有 analyzePaper 编排 + generateReport Mono 占位 + savePending/completeAnalysis 事务方法" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/enums/AnalysisType.java", "purpose": "已有 REPORT 枚举值" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.dto.request",
+        "description": "新增：ReportRequest — 综述生成请求 DTO（topic/paperIds/sessionId）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "修改：AnalysisService — 新增 generateReport(userId, ReportRequest) 方法，替换现有 Mono 占位实现"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.controller",
+        "description": "修改：AnalysisController — 新增 POST /api/analysis/report 端点"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "task22/23 实现，含 analyzePaper(7步编排) + getAnalysisResult + getAnalysisStatus + generateReport(Mono占位)；本任务替换占位为真实编排", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "description": "task22/23 实现，POST /paper + GET /{id} + GET /{id}/status + SSE /{id}/agent-stream；本任务新增 /report 端点", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/PaperAnalysisRequest.java", "description": "论文分析请求 DTO（topic/paperId/sessionId），ReportRequest 参照此模式", "reuse_type": "reference" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "description": "analyzePaper(AgentRequest) 同步调用 + 三级降级 + Redis 状态写入", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/common/AgentRequest.java", "description": "Agent 请求体，含 paperIds(List) + analysisType + userId + userProfile + analysisId", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResultDTO.java", "description": "Python 响应体，含 citations(List<Map>) 字段", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/enums/AnalysisType.java", "description": "已有 PAPER_ANALYSIS/COMPARE/REPORT 枚举", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java", "description": "getPaperDetail(paperId) 方法，用于验证论文存在性", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "ReportRequest (新增)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/ReportRequest.java",
+      "responsibility": "综述生成请求 DTO，含 topic(必填, max500) + paperIds(必填, @NotEmpty 至少1篇) + sessionId(可选)",
+      "key_interfaces": [
+        { "name": "topic", "signature": "@NotBlank @Size(max=500) String topic", "description": "综述研究主题" },
+        { "name": "paperIds", "signature": "@NotEmpty List<@NotBlank String> paperIds", "description": "论文ID列表，至少1篇" },
+        { "name": "sessionId", "signature": "String sessionId", "description": "可选，为空时新建 Session" }
+      ]
+    },
+    {
+      "name": "AnalysisService (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "responsibility": "新增 generateReport(String userId, ReportRequest request) 方法，编排综述生成全流程",
+      "key_interfaces": [
+        { "name": "generateReport", "signature": "AnalysisTaskResponse generateReport(String userId, ReportRequest request)", "description": "综述生成编排：画像 → 验证paperIds → Session → savePending(REPORT) → buildAgentRequest → callAI → completeAnalysis" }
+      ]
+    },
+    {
+      "name": "AnalysisController (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "responsibility": "新增 POST /api/analysis/report 端点",
+      "key_interfaces": [
+        { "name": "generateReport", "signature": "ApiResponse<AnalysisTaskResponse> generateReport(@Valid @RequestBody ReportRequest request, @AuthenticationPrincipal String userId)", "description": "POST /api/analysis/report，JWT 认证 + 数据隔离" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/request/ReportRequest.java",
+      "description": "新建综述生成请求 DTO（3 字段：topic/paperIds/sessionId），参照 PaperAnalysisRequest 模式",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "description": "新增 generateReport(userId, ReportRequest) 方法（替换现有 Mono 占位），编排逻辑与 analyzePaper 类似但 AnalysisType.REPORT + paperIds 列表验证",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "description": "新增 @PostMapping(\"/report\") 端点，注入 ReportRequest + @AuthenticationPrincipal",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AnalysisServiceReportTest.java",
+      "description": "新建 generateReport 测试：正常流程 / paperId不存在 / 多篇论文 / 数据隔离",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/controller/AnalysisControllerTest.java",
+      "description": "扩展测试：POST /api/analysis/report 端点测试（验证/正常/404/403）",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-026-01",
+        "description": "ReportRequest DTO 含 topic(@NotBlank, @Size(max=500)), paperIds(@NotEmpty, 元素@NotBlank, 至少1篇), sessionId(可选)",
+        "priority": "P0",
+        "acceptance_condition": "空 topic / 空 paperIds / 超长 topic → 400 Bad Request；sessionId 可空"
+      },
+      {
+        "id": "FR-026-02",
+        "description": "generateReport 编排：1) buildUserProfile(userId) → 2) 验证所有 paperIds 存在（逐一调 paperService.getPaperDetail，任一不存在抛 404） → 3) resolveOrCreateSession(userId, request) → 4) 生成 analysisId → 5) savePending(analysisId, sessionId, AnalysisType.REPORT) → 6) buildAgentRequest(paperIds列表, analysisType=REPORT) → agentClientService.analyzePaper(agentRequest) → 7) completeAnalysis(id, result)",
+        "priority": "P0",
+        "acceptance_condition": "7 步编排完整执行；AnalysisType.REPORT 正确传入 AgentRequest；paperIds 列表正确传入"
+      },
+      {
+        "id": "FR-026-03",
+        "description": "POST /api/analysis/report 需要 JWT 认证（@AuthenticationPrincipal），数据隔离（userId 绑定 Session）",
+        "priority": "P0",
+        "acceptance_condition": "未登录 → 401；他人 sessionId → 403"
+      },
+      {
+        "id": "FR-026-04",
+        "description": "综述结果 AnalysisResultDTO.citations 必须非空（AI 返回的引用列表）；若 citations 为空则 log.warn 但不阻断",
+        "priority": "P1",
+        "acceptance_condition": "completeAnalysis 后验证 result.citations 非空时 log.info，为空时 log.warn('综述报告引用列表为空')"
+      },
+      {
+        "id": "FR-026-05",
+        "description": "paperIds 中任一论文不存在返回 404 ResourceNotFoundException",
+        "priority": "P0",
+        "acceptance_condition": "paperIds=['valid_id','invalid_id'] → ResourceNotFoundException('Paper', 'invalid_id')"
+      },
+      {
+        "id": "FR-026-06",
+        "description": "删除现有 generateReport(AgentRequest) Mono 占位方法（AgentClientService 中），替换为 AnalysisService 层的 generateReport(userId, ReportRequest) 同步编排",
+        "priority": "P0",
+        "acceptance_condition": "AgentClientService.generateReport(AgentRequest) Mono 方法移除；AnalysisService.generateReport(userId, ReportRequest) 为唯一入口"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case（依赖全局 Jackson SNAKE_CASE），但 AgentRequest/AnalysisResultDTO 等跨系统 DTO 使用 @JsonProperty 覆盖",
+        "mappings": [
+          { "java": "paperIds", "python": "paper_ids", "json": "paperIds" },
+          { "java": "sessionId", "python": "session_id", "json": "sessionId" },
+          { "java": "analysisType", "python": "analysis_type", "json": "analysisType" },
+          { "java": "userProfile", "python": "user_profile", "json": "userProfile" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/analysis/report",
+          "method": "POST",
+          "request_format": { "topic": "string (required, max500)", "paperIds": ["string (required, min=1)"], "sessionId": "string (optional)" },
+          "response_format": { "code": 200, "data": { "analysisId": "string", "status": "PENDING|COMPLETED|FAILED", "message": "string", "createdAt": "ISO8601" } }
+        }
+      ],
+      "data_flow": "前端 POST /api/analysis/report → AnalysisController → AnalysisService.generateReport → 1) buildUserProfile → 2) 验证 paperIds → 3) resolveOrCreateSession → 4) savePending(REPORT) → 5) AgentClientService.analyzePaper(AgentRequest{paperIds, analysisType=REPORT}) → Python /api/agent/analyze → 6) completeAnalysis → AnalysisTaskResponse"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "POST /api/analysis/report 必须 @AuthenticationPrincipal 取 userId；未登录返回 401" },
+      { "category": "data_isolation", "requirement": "sessionId 对应 Session.userId 必须等于当前 userId，否则 403" },
+      { "category": "input_validation", "requirement": "ReportRequest 使用 @Valid + Bean Validation；paperIds 上限建议 20 篇（@Size(max=20)）防止滥用" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "json": { "field_name": "camelCase（ReportRequest 作为前端→Java DTO，使用 camelCase）" }
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → (Repository + AgentClientService)；禁止 Controller 直接调 Repository 或 AgentClientService",
+        "entity_dto_separation": true
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "Service 内部异常 → ResourceNotFoundException(404)/BusinessException(403)/AuthenticationException(401)；GlobalExceptionHandler 统一处理"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside + @Cacheable",
+      "ttl_layers": [
+        { "cache_name": "analysisResult", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min" }
+      ],
+      "note": "generateReport 写入后 completeAnalysis 内 @CacheEvict 失效缓存"
+    },
+    "transaction_boundary": {
+      "rule": "AI 调用（agentClientService.analyzePaper）显式无 @Transactional，避免 30s 长事务；仅 savePending/completeAnalysis 使用 @Transactional"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["输出完整 report 内容", "在循环中打印 INFO", "输出 paperIds 完整列表超过 10 个"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-026-01", "action": "generateReport 方法加 @Transactional 覆盖 AI 调用", "reason": "长事务约束，AI 调用可能 30s+，事务内持有 DB 连接", "severity": "critical" },
+    { "id": "FA-026-02", "action": "Controller 直接调 AgentClientService 或 Repository", "reason": "分层约束，必须经过 AnalysisService", "severity": "critical" },
+    { "id": "FA-026-03", "action": "返回 Entity 给前端（必须 DTO 转换）", "reason": "Entity/DTO 分离", "severity": "critical" },
+    { "id": "FA-026-04", "action": "忽略 paperIds 中不存在的论文（必须 404）", "reason": "数据完整性约束，综述引用不存在的论文会导致幻觉", "severity": "critical" },
+    { "id": "FA-026-05", "action": "ReportRequest 不做 paperIds 数量上限校验", "reason": "防止滥用（大量 paperIds 导致 AI 调用超时/Token爆炸）", "severity": "high" },
+    { "id": "FA-026-06", "action": "保留 AgentClientService.generateReport(AgentRequest) Mono 占位方法", "reason": "本任务替换占位为 AnalysisService 层同步编排，Mono 占位已无用途", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "generateReport_normal_flow_returns_task_response",
+        "description": "正常流程：3 篇论文 → buildUserProfile → 验证 3 篇存在 → resolveOrCreateSession → savePending → agentClientService.analyzePaper → completeAnalysis → AnalysisTaskResponse",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "generateReport_paperId_not_found_throws404",
+        "description": "paperIds=['valid','invalid'] → paperService.getPaperDetail('invalid') 抛 ResourceNotFoundException → 整体抛 404",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "generateReport_analysisType_is_REPORT",
+        "description": "验证 AgentRequest.analysisType == REPORT 且 AgentRequest.paperIds == request.paperIds",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "cross_system"]
+      },
+      {
+        "test_name": "generateReport_reuse_session",
+        "description": "sessionId 非空 → 复用已有 Session（不调 sessionService.createSession）",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "generateReport_other_user_session_returns403",
+        "description": "sessionId 属于他人 → BusinessException(403)",
+        "framework": "junit5",
+        "coverage": ["error_flow", "data_isolation"]
+      },
+      {
+        "test_name": "reportRequest_validation_blank_topic",
+        "description": "topic 为空 → 400 Bad Request",
+        "framework": "junit5",
+        "coverage": ["validation"]
+      },
+      {
+        "test_name": "reportRequest_validation_empty_paperIds",
+        "description": "paperIds 为空列表 → 400 Bad Request",
+        "framework": "junit5",
+        "coverage": ["validation"]
+      },
+      {
+        "test_name": "generateReport_citations_empty_warns",
+        "description": "AI 返回 citations=null → completeAnalysis 成功 + log.warn('综述报告引用列表为空')",
+        "framework": "junit5",
+        "coverage": ["boundary_condition"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "generateReport_e2e_returns_analysisId",
+        "description": "TestRestTemplate POST /api/analysis/report → 200 + ApiResponse<AnalysisTaskResponse>；验证 analysisId 格式",
+        "layers_involved": ["java_backend"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='AnalysisServiceReportTest' test", "expected_result": "8+ 测试通过" },
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='AnalysisControllerTest#generateReport*' test", "expected_result": "端点测试通过" },
+      { "layer": "curl", "command": "curl -s -X POST http://localhost:8080/api/analysis/report -H 'Authorization: Bearer {jwt}' -H 'Content-Type: application/json' -d '{\"topic\":\"LLM综述\",\"paperIds\":[\"pid1\"]}' | jq .", "expected_result": "返回 {code:200, data:{analysisId, status:PENDING, message, createdAt}}" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-026-01", "criterion": "ReportRequest DTO 含 topic(@NotBlank, max500) + paperIds(@NotEmpty) + sessionId(可选)", "verified_by": "automated_test" },
+    { "id": "AC-026-02", "criterion": "generateReport 7 步编排完整执行，AnalysisType.REPORT 正确传入", "verified_by": "automated_test" },
+    { "id": "AC-026-03", "criterion": "POST /api/analysis/report JWT 认证 + 数据隔离", "verified_by": "automated_test" },
+    { "id": "AC-026-04", "criterion": "paperIds 中任一论文不存在 → 404", "verified_by": "automated_test" },
+    { "id": "AC-026-05", "criterion": "综述结果 citations 非空时 log.info，为空时 log.warn", "verified_by": "automated_test" },
+    { "id": "AC-026-06", "criterion": "AgentClientService.generateReport(AgentRequest) Mono 占位方法已移除", "verified_by": "code_review" },
+    { "id": "AC-026-07", "criterion": "8+ 个 generateReport 测试全部通过", "verified_by": "automated_test" }
+  ]
+}

@@ -1,0 +1,275 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "AM4：6-Agent协同与个性化引擎",
+    "requirement": "增强 prompts/reviewer.txt 审核Prompt模板，使其符合项目Prompt工程规范（7-Block结构）；新建 utils/citation_parser.py 引用解析器，能提取综述中的引用标注并计算引用准确率。",
+    "requirement_ids": ["F3.1.6", "F3.4.1"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "查阅Prompt工程规范（12节）、ReviewerAgent设计（5.4.6节）、引用解析位置（utils/citation_parser.py）"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "查阅AM4里程碑中审核Prompt + 引用核查的交付物（6.2节第5-7项）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "了解项目架构、命名规范"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/prompts/reviewer.txt",
+        "description": "审核Agent Prompt模板（已存在但需增强）：当前使用$变量语法，缺少7-Block结构，缺少详细的引用格式验证规则"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/prompts/generator.txt",
+        "description": "生成Agent Prompt模板（参考其7-Block结构）：Role Block / Task Block / Input Block / Chain-of-Thought / Output Schema / Constraint Block / Fallback Block"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/utils/",
+        "description": "工具函数目录，citation_parser.py 应放在此处"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/services/prompt_manager.py",
+        "description": "PromptManager：使用string.Template进行变量替换，re.sub(r'\\$\\{(\\w+)\\}', r'$\\1', template) 预处理"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/prompts/reviewer.txt",
+        "description": "审核Prompt模板（已存在）：使用$report_content和$original_papers变量，定义了4个检查维度（事实核查/引用核查/逻辑完整性/内容准确性），JSON输出格式，审核通过条件（事实准确率>90%且引用准确率>90%）",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/prompts/generator.txt",
+        "description": "生成Agent Prompt模板（参考）：完整的7-Block结构（Role Block / Task Block / Input Block / Personalization Block / Chain-of-Thought / Output Schema / Constraint Block / Fallback Block），使用${variable}语法",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/utils/text_processing.py",
+        "description": "文本处理工具（已存在），citation_parser.py 可参考其代码风格",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PromptManager",
+      "path": "Veritas/ai-service/app/services/prompt_manager.py",
+      "responsibility": "Prompt模板管理器，统一加载和渲染所有Agent Prompt模板",
+      "key_interfaces": [
+        {
+          "name": "get_prompt",
+          "signature": "def get_prompt(self, agent_name: str, **kwargs) -> str",
+          "description": "获取渲染后的Agent Prompt，支持string.Template变量替换"
+        },
+        {
+          "name": "load_templates",
+          "signature": "async def load_templates(self) -> None",
+          "description": "加载prompts/目录下所有.txt模板文件"
+        }
+      ]
+    },
+    {
+      "name": "GeneratorAgent",
+      "path": "Veritas/ai-service/app/agents/generator.py",
+      "responsibility": "生成Agent，产出citation_list（引用列表），是citation_parser的输入源",
+      "key_interfaces": [
+        {
+          "name": "citation_list",
+          "signature": "result[\"citation_list\"]: list",
+          "description": "生成结果中的引用列表，格式：[{\"paper_id\": \"...\", \"author\": \"...\", \"year\": \"...\", \"context\": \"...\"}]"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/prompts/reviewer.txt",
+      "description": "增强审核Prompt模板：采用7-Block结构，统一${variable}语法，增加引用格式校验规则、错误分类标准、重试上下文",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/utils/citation_parser.py",
+      "description": "新建引用解析器：提取综述中的引用标注，验证引用正确性，计算引用准确率",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "重构 prompts/reviewer.txt 为7-Block结构：Role Block（学术编辑身份定义）、Task Block（审核任务说明）、Input Block（${report_content}和${original_papers}变量）、Review Chain（4步审核推理链）、Output Schema（JSON Schema定义）、Constraint Block（审核约束条件）、Fallback Block（降级说明）",
+        "priority": "P0",
+        "acceptance_condition": "模板符合7-Block结构，变量使用${}语法，可被PromptManager正确渲染"
+      },
+      {
+        "id": "FR-002",
+        "description": "增强审核Prompt的引用校验规则：定义引用格式标准（[作者, 年份]），增加引用准确性校验（引用是否对应正确论文）、引用完整性校验（是否遗漏重要论文）、引用一致性校验（同一论文引用是否一致）",
+        "priority": "P0",
+        "acceptance_condition": "Prompt中包含详细的引用校验规则和错误分类"
+      },
+      {
+        "id": "FR-003",
+        "description": "增加审核Prompt的错误分类标准：事实错误（factual_error）、引用错误（citation_error）、逻辑断层（logic_gap）、信息遗漏（info_missing），每类错误有明确的判定标准和示例",
+        "priority": "P1",
+        "acceptance_condition": "Prompt中包含4类错误的判定标准和示例"
+      },
+      {
+        "id": "FR-004",
+        "description": "增加审核Prompt的重试上下文：当审核不通过时，在Prompt中保留上一次审核的问题列表，指导Generator针对性修改",
+        "priority": "P1",
+        "acceptance_condition": "Prompt支持${retry_context}变量，传递上次审核的问题"
+      },
+      {
+        "id": "FR-005",
+        "description": "新建 citation_parser.py：实现 extract_citations(report) 函数，支持正则提取 [作者, 年份] 和 (Author, Year) 两种引用格式",
+        "priority": "P0",
+        "acceptance_condition": "extract_citations() 能正确提取综述中的引用标注"
+      },
+      {
+        "id": "FR-006",
+        "description": "实现 validate_citations(extracted_citations, paper_list) 函数：比对提取的引用与论文列表中的作者和年份，返回匹配/不匹配/未找到三种状态",
+        "priority": "P0",
+        "acceptance_condition": "validate_citations() 返回准确的引用匹配结果"
+      },
+      {
+        "id": "FR-007",
+        "description": "实现 calculate_citation_accuracy(validation_result) 函数：计算引用准确率 = 准确引用数 / 总引用数",
+        "priority": "P0",
+        "acceptance_condition": "calculate_citation_accuracy() 返回0.0-1.0之间的准确率"
+      },
+      {
+        "id": "FR-008",
+        "description": "citation_parser 作为独立工具模块，不依赖Agent框架，仅依赖标准库re和typing",
+        "priority": "P1",
+        "acceptance_condition": "citation_parser.py 可独立导入使用，无Agent框架依赖"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Python内部使用 snake_case，JSON输出使用 snake_case",
+        "mappings": [
+          { "java": "citationAccuracy", "python": "citation_accuracy", "json": "citation_accuracy" },
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" }
+        ]
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py"
+      },
+      "json": {
+        "field_name": "snake_case"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，工具函数在utils/目录"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "citation_parser 函数不抛异常，返回空列表/0.0作为兜底"
+      }
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": ["在循环中打印INFO及以上级别日志"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的Prompt模板（generator.txt等）", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "citation_parser 依赖Agent框架或LLM服务", "reason": "工具模块应独立可用", "severity": "high" },
+    { "id": "FA-004", "action": "在Prompt模板中硬编码具体论文数据", "reason": "必须通过变量注入", "severity": "high" },
+    { "id": "FA-005", "action": "使用$variable语法（非${variable}）", "reason": "与PromptManager的string.Template预处理re.sub(r'\\$\\{(\\w+)\\}', r'$\\1', template)兼容", "severity": "high" },
+    { "id": "FA-006", "action": "引用校验时修改原始论文数据", "reason": "只读操作，不应修改输入", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_reviewer_prompt_structure",
+        "description": "验证reviewer.txt包含7个Block结构",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_reviewer_prompt_variable_rendering",
+        "description": "验证模板变量${report_content}和${original_papers}可被正确替换",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_reviewer_prompt_error_categories",
+        "description": "验证Prompt中包含4类错误（factual_error/citation_error/logic_gap/info_missing）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_citation_parser_extract_author_year",
+        "description": "验证extract_citations()正确提取[作者, 年份]格式",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_citation_parser_extract_parentheses",
+        "description": "验证extract_citations()正确提取(Author, Year)格式",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_citation_parser_empty_report",
+        "description": "验证空报告返回空引用列表",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_citation_parser_no_citations",
+        "description": "验证无引用标注的报告返回空列表",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_citation_validate_accuracy",
+        "description": "验证validate_citations()和calculate_citation_accuracy()正确计算准确率",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_reviewer_prompt.py tests/test_citation_parser.py -v",
+        "expected_result": "所有测试通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "reviewer.txt 符合7-Block结构，变量使用${}语法", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "Prompt中包含详细的引用校验规则和4类错误分类标准", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "Prompt支持${retry_context}变量传递重试上下文", "verified_by": "code_review" },
+    { "id": "AC-004", "criterion": "citation_parser.extract_citations() 正确提取两种引用格式", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "citation_parser.validate_citations() 正确比对引用与论文列表", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "citation_parser.calculate_citation_accuracy() 返回正确准确率", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "citation_parser 不依赖Agent框架，可独立导入使用", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "单元测试覆盖正常流程、边界条件、异常输入", "verified_by": "automated_test" }
+  ]
+}

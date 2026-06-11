@@ -1,0 +1,344 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4 多Agent协同 / JM4：分析服务与SSE推送完成 (Week 7-8 Day 6-7)",
+    "requirement": "编写 JM4 完整集成测试，覆盖对比分析、综述生成、SSE 推送、降级机制的端到端场景，修复测试中发现的 Bug。集成测试使用 @SpringBootTest + MockWebServer 模拟 Python AI 服务，SSE 测试使用 WebTestClient 验证事件流，降级测试通过使 Python AI 服务不可用触发，数据隔离测试使用不同用户上下文。",
+    "requirement_ids": ["F2.4.6", "F2.4.7", "F2.5.6", "F2.5.7"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "7.2-7.5 完整时序图 + API清单 + 降级策略 + SSE事件格式" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.4 Week 7-8 Day 6-7 任务：集成测试 + Bug修复 + JM4 验收检查点" },
+      { "path": "json_prompt/backend/task30_degradation_enhancement/prompt.md", "purpose": "task30 降级机制完善（COMPARE/REPORT降级 + SSE流降级 + 缓存回退）" },
+      { "path": "json_prompt/backend/task23_analysis_query_health/prompt.md", "purpose": "AnalysisService 查询方法 + HealthController AI状态集成" },
+      { "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AgentClientServiceTest.java", "purpose": "现有 222 行 AgentClientService 单元测试参考" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "被测：AnalysisService（analyzePaper/comparePapers/generateReport）+ AgentClientService（降级/SSE流）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.controller",
+        "description": "被测：AnalysisController（REST + SSE 端点）+ AgentController"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "test/.../integration",
+        "description": "新建：3 个集成测试类（AnalysisServiceIntegrationTest / SseIntegrationTest / AgentControllerIntegrationTest）"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "JM4 实现：analyzePaper + comparePapers + generateReport + 查询方法", "reuse_type": "test_target" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "description": "JM4 实现：analyzePaper + comparePapers + generateReportStream + handleFallback + handleStreamFallback", "reuse_type": "test_target" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "description": "JM4 实现：REST + SSE 端点", "reuse_type": "test_target" },
+      { "file_path": "Veritas/backend/src/test/java/com/literatureassistant/service/AgentClientServiceTest.java", "description": "222 行单元测试参考（Mock 模式）", "reuse_type": "reference" },
+      { "file_path": "Veritas/backend/src/test/java/com/literatureassistant/service/AnalysisServiceTest.java", "description": "316 行单元测试参考（Mock 模式）", "reuse_type": "reference" },
+      { "file_path": "Veritas/backend/src/test/java/com/literatureassistant/client/PythonAIClientTest.java", "description": "193 行 MockWebServer 测试参考", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AnalysisServiceIntegrationTest (新建)",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/integration/AnalysisServiceIntegrationTest.java",
+      "responsibility": "集成测试覆盖：论文分析完整流程 + 对比分析完整流程 + 综述生成完整流程 + 降级场景 + 数据隔离",
+      "key_interfaces": [
+        { "name": "compareAnalysis_e2e", "signature": "@Test void compareAnalysis_e2e()", "description": "POST /compare → GET /status → GET /{id} 完整流程" },
+        { "name": "reportGeneration_e2e", "signature": "@Test void reportGeneration_e2e()", "description": "POST /report → SSE stream → GET /{id} 完整流程" },
+        { "name": "degradation_e2e", "signature": "@Test void degradation_e2e()", "description": "Python 不可用 → 降级响应 → degraded=true" },
+        { "name": "dataIsolation_differentUsers", "signature": "@Test void dataIsolation_differentUsers()", "description": "用户 A 不能访问用户 B 的分析结果" }
+      ]
+    },
+    {
+      "name": "SseIntegrationTest (新建)",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/integration/SseIntegrationTest.java",
+      "responsibility": "SSE 推送集成测试：事件顺序验证 + Last-Event-ID 断线重连 + 心跳机制 + 超时处理 + 降级",
+      "key_interfaces": [
+        { "name": "sseEventOrder", "signature": "@Test void sseEventOrder()", "description": "事件顺序：agent_started → agent_state_update → agent_completed → analysis_completed" },
+        { "name": "sseLastEventId_reconnect", "signature": "@Test void sseLastEventId_reconnect()", "description": "Last-Event-ID 断线重连" },
+        { "name": "sseHeartbeat", "signature": "@Test void sseHeartbeat()", "description": "心跳机制验证" },
+        { "name": "sseTimeout_handling", "signature": "@Test void sseTimeout_handling()", "description": "120s 超时后正常关闭" },
+        { "name": "sseDegradation", "signature": "@Test void sseDegradation()", "description": "Python 不可用时 SSE 流降级" }
+      ]
+    },
+    {
+      "name": "AgentControllerIntegrationTest (新建)",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/integration/AgentControllerIntegrationTest.java",
+      "responsibility": "Agent 控制器集成测试：Agent 状态查询 + 健康检查 + 数据隔离",
+      "key_interfaces": [
+        { "name": "agentStates_query", "signature": "@Test void agentStates_query()", "description": "GET /api/analysis/{id}/status 返回 Agent 状态" },
+        { "name": "healthCheck_withAIService", "signature": "@Test void healthCheck_withAIService()", "description": "GET /health 包含 aiService 字段" },
+        { "name": "agentStream_dataIsolation", "signature": "@Test void agentStream_dataIsolation()", "description": "用户 A 不能订阅用户 B 的 SSE 流" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/integration/AnalysisServiceIntegrationTest.java",
+      "description": "新建集成测试：对比分析/综述生成/降级/数据隔离端到端测试",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/integration/SseIntegrationTest.java",
+      "description": "新建 SSE 集成测试：事件顺序/断线重连/心跳/超时/降级",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/integration/AgentControllerIntegrationTest.java",
+      "description": "新建 Agent 控制器集成测试：状态查询/健康检查/数据隔离",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "根据测试发现动态确定",
+      "description": "修复集成测试中发现的 Bug（可能涉及 Service/Controller/DTO 层）",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-031-01",
+        "description": "对比分析端到端测试：POST /api/analysis/compare → 202 → GET /api/analysis/{id}/status → 200 → GET /api/analysis/{id} → 200，验证完整流程",
+        "priority": "P0",
+        "acceptance_condition": "MockWebServer 模拟 Python 正常响应 → 3 步请求全部 200/202 + 对比结果包含 citations 数组"
+      },
+      {
+        "id": "FR-031-02",
+        "description": "综述生成端到端测试：POST /api/analysis/report → 202 → SSE stream 事件 → GET /api/analysis/{id} → 200，验证完整流程",
+        "priority": "P0",
+        "acceptance_condition": "SSE 流收到 agent_started/agent_state_update/agent_completed/analysis_completed 事件序列 + 最终结果包含 report"
+      },
+      {
+        "id": "FR-031-03",
+        "description": "SSE 事件顺序测试：验证事件顺序为 agent_started → agent_state_update → agent_completed → analysis_completed",
+        "priority": "P0",
+        "acceptance_condition": "StepVerifier 验证 Flux 事件类型顺序严格匹配"
+      },
+      {
+        "id": "FR-031-04",
+        "description": "降级端到端测试：MockWebServer 模拟 Python 502 → 请求分析 → 降级响应 → GET 结果验证 degraded=true",
+        "priority": "P0",
+        "acceptance_condition": "Python 不可用时 → 返回 202 + degraded=true + degradedReason 非空 + 不崩溃"
+      },
+      {
+        "id": "FR-031-05",
+        "description": "数据隔离测试：用户 A 创建分析 → 用户 B 请求 GET /api/analysis/{A的id} → 403",
+        "priority": "P0",
+        "acceptance_condition": "用户 B 访问用户 A 的 analysisId → 403 FORBIDDEN_ACCESS"
+      },
+      {
+        "id": "FR-031-06",
+        "description": "所有 272+ 现有测试继续通过 + 新增集成测试通过",
+        "priority": "P0",
+        "acceptance_condition": "mvn test 全量通过，无回归"
+      },
+      {
+        "id": "FR-031-07",
+        "description": "SSE Last-Event-ID 断线重连测试：客户端发送 Last-Event-ID Header → 服务端从断点续传事件",
+        "priority": "P1",
+        "acceptance_condition": "Last-Event-ID=5 → 后续事件 id > 5"
+      },
+      {
+        "id": "FR-031-08",
+        "description": "SSE 超时处理测试：120s 超时后 SSE 流正常关闭（发送 analysis_completed 或超时事件）",
+        "priority": "P1",
+        "acceptance_condition": "超时后 Flux 完成（verifyComplete），不抛异常"
+      },
+      {
+        "id": "FR-031-09",
+        "description": "SSE 降级测试：Python 不可用时 SSE 流发送降级事件（error + analysis_completed）后关闭",
+        "priority": "P0",
+        "acceptance_condition": "MockWebServer shutdown → SSE 流收到 error(degradation) + analysis_completed(degraded:true) 事件"
+      },
+      {
+        "id": "FR-031-10",
+        "description": "修复集成测试中发现的 Bug，确保所有测试通过",
+        "priority": "P0",
+        "acceptance_condition": "Bug 修复后 mvn test 全量通过"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case（依赖全局 Jackson SNAKE_CASE）",
+        "mappings": [
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+          { "java": "agentStates", "python": "agent_states", "json": "agentStates" },
+          { "java": "degradedReason", "python": "degraded_reason", "json": "degradedReason" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/analysis/compare",
+          "method": "POST",
+          "request_format": { "paperIds": ["string"], "topic": "string", "sessionId": "string?" },
+          "response_format": { "code": 202, "data": { "analysisId": "string", "status": "pending|completed", "message": "string", "createdAt": "ISO8601" } }
+        },
+        {
+          "endpoint": "POST /api/analysis/report",
+          "method": "POST",
+          "request_format": { "paperIds": ["string"], "topic": "string", "sessionId": "string?" },
+          "response_format": { "code": 202, "data": { "analysisId": "string", "status": "pending|completed", "message": "string", "createdAt": "ISO8601" } }
+        },
+        {
+          "endpoint": "GET /api/analysis/{analysisId}/agent-stream",
+          "method": "GET",
+          "request_format": null,
+          "response_format": {
+            "content_type": "text/event-stream",
+            "event_types": ["agent_started", "agent_state_update", "agent_completed", "agent_failed", "analysis_completed", "error", "ping"]
+          }
+        }
+      ],
+      "data_flow": "集成测试完整链路：TestRestTemplate/WebTestClient → Controller → Service → AgentClientService → MockWebServer(Python) → 响应断言"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "集成测试需模拟 JWT 认证上下文（@WithMockUser 或手动设置 SecurityContext）" },
+      { "category": "data_isolation", "requirement": "数据隔离测试：不同用户上下文访问同一 analysisId → 403" },
+      { "category": "sensitive_info", "requirement": "降级响应不暴露 Python 内部异常堆栈" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "test_class": "{ClassName}IntegrationTest",
+        "file_name": "PascalCaseIntegrationTest.java"
+      }
+    },
+    "test_infrastructure": {
+      "framework": "JUnit 5 + Spring Boot Test + MockWebServer (okhttp3) + WebTestClient + reactor-test",
+      "annotations": ["@SpringBootTest", "@ActiveProfiles(\"test\")", "@TestInstance(Lifecycle.PER_CLASS)"],
+      "mock_strategy": "MockWebServer 模拟 Python AI 服务（不 Mock AgentClientService，测试真实调用链）",
+      "sse_testing": "WebTestClient + StepVerifier 验证 SSE Flux 事件流"
+    },
+    "layering": {
+      "java": {
+        "rule": "集成测试通过 HTTP 调用 Controller，不直接调 Service（测试真实请求链路）",
+        "exception": "数据隔离测试可直接调 Service 验证异常抛出"
+      }
+    },
+    "test_data": {
+      "strategy": "每个测试方法使用独立 userId + analysisId，避免测试间数据污染",
+      "cleanup": "@AfterEach 清理 MockWebServer + Redis 测试数据"
+    },
+    "bug_fixing": {
+      "approach": "集成测试发现 Bug → 记录 Bug 描述 → 修复源代码 → 重新运行测试验证",
+      "scope": "仅修复测试暴露的 Bug，不做额外重构"
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-031-01", "action": "集成测试中 Mock AgentClientService（必须通过 MockWebServer 模拟 Python 服务）", "reason": "集成测试目的是验证完整调用链，Mock Service 会跳过真实编排逻辑", "severity": "critical" },
+    { "id": "FA-031-02", "action": "集成测试依赖外部 Python 服务运行（必须使用 MockWebServer）", "reason": "CI 环境无 Python 服务，测试必须自包含", "severity": "critical" },
+    { "id": "FA-031-03", "action": "修改生产代码以通过测试（测试驱动发现的 Bug 除外）", "reason": "禁止为通过测试而降低代码质量", "severity": "high" },
+    { "id": "FA-031-04", "action": "测试间共享可变状态（每个测试必须独立）", "reason": "测试隔离性约束", "severity": "high" },
+    { "id": "FA-031-05", "action": "SSE 超时测试实际等待 120s（必须使用虚拟时间或短超时配置）", "reason": "测试执行时间约束", "severity": "high" },
+    { "id": "FA-031-06", "action": "跳过失败的集成测试（@Disabled）而不修复 Bug", "reason": "所有测试必须通过", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "integration_tests": [
+      {
+        "test_name": "compareAnalysis_e2e",
+        "description": "对比分析端到端：MockWebServer 模拟 Python 正常响应 → POST /compare → GET /status → GET /{id} → 验证对比结果含 citations",
+        "framework": "junit5 + spring_boot_test + mockwebserver",
+        "layers_involved": ["java_backend", "python_ai_service_mock"]
+      },
+      {
+        "test_name": "reportGeneration_e2e",
+        "description": "综述生成端到端：POST /report → SSE stream → GET /{id} → 验证综述结果含 report + citations",
+        "framework": "junit5 + spring_boot_test + webtestclient + mockwebserver",
+        "layers_involved": ["java_backend", "python_ai_service_mock"]
+      },
+      {
+        "test_name": "degradation_compare_e2e",
+        "description": "对比分析降级端到端：MockWebServer 返回 502 → POST /compare → 降级响应 → degraded=true + report 含对比框架",
+        "framework": "junit5 + spring_boot_test + mockwebserver",
+        "layers_involved": ["java_backend", "python_ai_service_mock"]
+      },
+      {
+        "test_name": "degradation_report_e2e",
+        "description": "综述生成降级端到端：MockWebServer 返回 502 → POST /report → 降级响应 → degraded=true + report 含综述大纲",
+        "framework": "junit5 + spring_boot_test + mockwebserver",
+        "layers_involved": ["java_backend", "python_ai_service_mock"]
+      },
+      {
+        "test_name": "sseEventOrder",
+        "description": "SSE 事件顺序：agent_started → agent_state_update → agent_completed → analysis_completed",
+        "framework": "junit5 + webtestclient + stepverifier + mockwebserver",
+        "layers_involved": ["java_backend", "python_ai_service_mock"]
+      },
+      {
+        "test_name": "sseLastEventId_reconnect",
+        "description": "Last-Event-ID 断线重连：发送 Last-Event-ID=3 → 后续事件 id > 3",
+        "framework": "junit5 + webtestclient + mockwebserver",
+        "layers_involved": ["java_backend", "python_ai_service_mock"]
+      },
+      {
+        "test_name": "sseDegradation",
+        "description": "SSE 流降级：Python 不可用 → 收到 error(degradation) + analysis_completed(degraded:true) 事件",
+        "framework": "junit5 + webtestclient + stepverifier",
+        "layers_involved": ["java_backend", "python_ai_service_mock"]
+      },
+      {
+        "test_name": "sseTimeout_handling",
+        "description": "SSE 超时处理：使用短超时配置（5s）验证超时后 Flux 正常关闭",
+        "framework": "junit5 + webtestclient + stepverifier",
+        "layers_involved": ["java_backend"]
+      },
+      {
+        "test_name": "dataIsolation_differentUsers",
+        "description": "数据隔离：用户 A 创建分析 → 用户 B GET /api/analysis/{A的id} → 403",
+        "framework": "junit5 + spring_boot_test + testresttemplate",
+        "layers_involved": ["java_backend"]
+      },
+      {
+        "test_name": "agentStream_dataIsolation",
+        "description": "SSE 数据隔离：用户 A 的 analysisId → 用户 B 订阅 SSE → 403",
+        "framework": "junit5 + webtestclient",
+        "layers_involved": ["java_backend"]
+      },
+      {
+        "test_name": "healthCheck_withAIService",
+        "description": "健康检查：MockWebServer 正常 → /health aiService=UP；MockWebServer shutdown → /health aiService=DOWN",
+        "framework": "junit5 + spring_boot_test + mockwebserver",
+        "layers_involved": ["java_backend", "python_ai_service_mock"]
+      },
+      {
+        "test_name": "personalization_in_request",
+        "description": "个性化：请求中包含用户画像信息（educationLevel/researchField/knowledgeLevel/preferredStyle）",
+        "framework": "junit5 + spring_boot_test + mockwebserver",
+        "layers_involved": ["java_backend", "python_ai_service_mock"]
+      }
+    ],
+    "bug_fix_verification": {
+      "approach": "每个 Bug 修复后，新增回归测试防止再次出现",
+      "test_naming": "regression_bug_{bugId}_{description}"
+    },
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='*IntegrationTest' test", "expected_result": "12+ 集成测试通过" },
+      { "layer": "java", "command": "cd Veritas/backend && mvn test", "expected_result": "272+ 现有测试 + 12+ 集成测试全部通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-031-01", "criterion": "对比分析: POST /api/analysis/compare 返回对比结果", "verified_by": "automated_test" },
+    { "id": "AC-031-02", "criterion": "综述生成: POST /api/analysis/report 返回 analysisId", "verified_by": "automated_test" },
+    { "id": "AC-031-03", "criterion": "SSE推送: Agent 执行过程中前端实时收到状态更新", "verified_by": "automated_test" },
+    { "id": "AC-031-04", "criterion": "SSE事件格式: event:agent_state_update + data:JSON", "verified_by": "automated_test" },
+    { "id": "AC-031-05", "criterion": "Agent状态缓存: Redis 中 agent:state:{id} 正确更新", "verified_by": "automated_test" },
+    { "id": "AC-031-06", "criterion": "分析编排: 画像→论文→会话→AI调用→结果保存 完整流程", "verified_by": "automated_test" },
+    { "id": "AC-031-07", "criterion": "降级: Python 不可用时返回缓存或降级提示，不崩溃", "verified_by": "automated_test" },
+    { "id": "AC-031-08", "criterion": "个性化: 请求中包含用户画像信息", "verified_by": "automated_test" },
+    { "id": "AC-031-09", "criterion": "引用标注: 综述结果中包含 citations 数组", "verified_by": "automated_test" },
+    { "id": "AC-031-10", "criterion": "超时处理: SSE 流 120s 超时后正常关闭", "verified_by": "automated_test" },
+    { "id": "AC-031-11", "criterion": "数据隔离: 用户 A 不能访问用户 B 的分析结果", "verified_by": "automated_test" },
+    { "id": "AC-031-12", "criterion": "272+ 现有测试 + 12+ 集成测试全部通过", "verified_by": "automated_test" }
+  ]
+}

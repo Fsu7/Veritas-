@@ -1,0 +1,395 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "AM4：6-Agent协同与个性化引擎",
+    "requirement": "实现个性化Prompt片段注入到6个Agent的完整链路，并编写效果测试验证个性化差异度>60%。具体包括：(1)在Coordinator/Retriever/Analyzer/Comparer/Generator/Reviewer 6个Agent的build_prompt()中注入个性化片段；(2)编写个性化差异度测试，验证同一主题不同画像生成结果的差异度>60%；(3)编写端到端个性化效果测试，验证4维度画像全部生效。",
+    "requirement_ids": ["F3.4.3", "F3.4.4"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "查阅个性化引擎模块设计（第8节），了解Prompt片段注入机制和个性化效果验证标准"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "查阅AM4里程碑 Week 8 Day 3 任务：个性化Prompt片段注入 + 效果测试（6.3节），验收标准6.4节"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "了解项目架构、6-Agent工作流、跨系统字段映射"
+      },
+      {
+        "path": "docs/agents/04-personalization.md",
+        "purpose": "查阅用户画像4维度定义和个性化差异度计算方法"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/services/personalization_service.py",
+        "description": "个性化引擎核心：已实现基础画像解析和个性化块生成，Task39/40将增强DIFFICULTY_MAP和STYLE_MAP"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/coordinator.py",
+        "description": "协调者Agent：当前build_prompt()未注入个性化指令，需添加"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/retriever.py",
+        "description": "检索Agent：当前未使用个性化服务，需添加领域侧重和检索数量适配"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/analyzer.py",
+        "description": "分析Agent：当前通过get_extra_instruction()已部分支持个性化，需确认完整性"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/comparer.py",
+        "description": "对比Agent：当前build_prompt()未注入个性化指令，需添加对比深度适配"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/generator.py",
+        "description": "生成Agent：当前通过build_generation_prompt()已完整支持个性化，是参考实现"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/reviewer.py",
+        "description": "审核Agent：Task36将实现核心逻辑，需在build_prompt()中注入个性化审核指令"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/graph.py",
+        "description": "LangGraph工作流：在WorkflowState中传递user_profile，确保所有Agent可访问"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/generator.py",
+        "description": "GeneratorAgent：个性化注入参考实现——在build_prompt()中调用personalization_service.build_generation_prompt()，注入完整个性化块",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/analyzer.py",
+        "description": "AnalyzerAgent：个性化注入参考实现——在build_prompt()中调用personalization_service.get_extra_instruction(agent_name='analyzer')",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/tests/test_personalization_service.py",
+        "description": "个性化服务测试：16个测试用例覆盖基础功能，需新增差异度测试和端到端效果测试",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/personalization_service.py",
+        "description": "PersonalizationService：Task39/40将新增get_personalization_for_agent()和get_personalization_diff()方法",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PersonalizationService",
+      "path": "Veritas/ai-service/app/services/personalization_service.py",
+      "responsibility": "个性化引擎核心：提供get_personalization_for_agent()和get_personalization_diff()方法",
+      "key_interfaces": [
+        {
+          "name": "get_personalization_for_agent",
+          "signature": "def get_personalization_for_agent(self, agent_name: str, user_profile: dict) -> str",
+          "description": "为指定Agent返回个性化指令片段（Task39产出）"
+        },
+        {
+          "name": "get_personalization_diff",
+          "signature": "def get_personalization_diff(self, profile_a: dict, profile_b: dict) -> float",
+          "description": "计算两个用户画像的个性化差异度0-1（Task39产出）"
+        }
+      ]
+    },
+    {
+      "name": "GeneratorAgent",
+      "path": "Veritas/ai-service/app/agents/generator.py",
+      "responsibility": "生成Agent：个性化注入的参考实现",
+      "key_interfaces": [
+        {
+          "name": "build_prompt",
+          "signature": "def build_prompt(self, input_data: dict, context: dict) -> str",
+          "description": "构建生成Prompt，含个性化片段注入"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/coordinator.py",
+      "description": "在build_prompt()中注入个性化指令：调用personalization_service.get_personalization_for_agent('coordinator', user_profile)",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/retriever.py",
+      "description": "在build_prompt()中注入个性化指令：调用personalization_service.get_personalization_for_agent('retriever', user_profile)，根据research_field调整检索策略",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/analyzer.py",
+      "description": "确认并增强build_prompt()中的个性化注入：从get_extra_instruction()迁移到get_personalization_for_agent('analyzer', user_profile)",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/comparer.py",
+      "description": "在build_prompt()中注入个性化指令：调用personalization_service.get_personalization_for_agent('comparer', user_profile)",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/generator.py",
+      "description": "确认个性化注入完整性，确保使用get_personalization_for_agent()统一接口",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/reviewer.py",
+      "description": "在build_prompt()中注入个性化指令：调用personalization_service.get_personalization_for_agent('reviewer', user_profile)",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/tests/test_personalization_service.py",
+      "description": "新增个性化差异度测试和端到端效果测试",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_personalization_e2e.py",
+      "description": "新建端到端个性化效果测试文件：验证同一主题不同画像差异度>60%、4维度画像全部生效、6-Agent个性化链路完整",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "在 CoordinatorAgent.build_prompt() 中注入个性化指令：根据user_profile调用personalization_service.get_personalization_for_agent('coordinator', user_profile)，将返回的个性化片段追加到Prompt末尾，使用【个性化适配】标记",
+        "priority": "P0",
+        "acceptance_condition": "CoordinatorAgent.build_prompt() 输出包含 '【个性化适配】' 标记和个性化指令内容"
+      },
+      {
+        "id": "FR-002",
+        "description": "在 RetrieverAgent.build_prompt() 中注入个性化指令：根据research_field调整检索关键词偏好，根据knowledge_level调整检索数量（beginner→Top5, intermediate→Top10, advanced→Top15, expert→Top20）",
+        "priority": "P0",
+        "acceptance_condition": "RetrieverAgent检索结果数量随knowledge_level变化"
+      },
+      {
+        "id": "FR-003",
+        "description": "在 AnalyzerAgent.build_prompt() 中增强个性化注入：从get_extra_instruction()迁移到get_personalization_for_agent('analyzer', user_profile)，统一个性化注入接口",
+        "priority": "P0",
+        "acceptance_condition": "AnalyzerAgent.build_prompt() 调用 get_personalization_for_agent('analyzer', profile)"
+      },
+      {
+        "id": "FR-004",
+        "description": "在 ComparerAgent.build_prompt() 中注入个性化指令：根据knowledge_level调整对比维度数量（beginner→3维度, intermediate→4维度, advanced→5维度, expert→6维度），根据education_level调整对比深度",
+        "priority": "P0",
+        "acceptance_condition": "ComparerAgent.build_prompt() 输出包含 '【个性化适配】' 标记"
+      },
+      {
+        "id": "FR-005",
+        "description": "在 GeneratorAgent.build_prompt() 中统一使用get_personalization_for_agent()接口，确保与Task39产出的PersonalizationService兼容",
+        "priority": "P0",
+        "acceptance_condition": "GeneratorAgent.build_prompt() 调用 get_personalization_for_agent('generator', profile)"
+      },
+      {
+        "id": "FR-006",
+        "description": "在 ReviewerAgent.build_prompt() 中注入个性化指令：根据knowledge_level调整审核严格度（beginner→关注基础准确性，expert→关注前沿准确性+引用完整性+逻辑严谨性）",
+        "priority": "P0",
+        "acceptance_condition": "ReviewerAgent.build_prompt() 输出包含 '【个性化适配】' 标记"
+      },
+      {
+        "id": "FR-007",
+        "description": "编写个性化差异度测试 test_personalization_diversity()：使用两个极端画像（beginner+undergraduate+simple vs expert+phd+technical），通过LangGraph工作流端到端生成综述，使用文本相似度（Jaccard/余弦相似度）计算差异度，验证差异度>60%",
+        "priority": "P0",
+        "acceptance_condition": "test_personalization_diversity() 通过，差异度>0.6"
+      },
+      {
+        "id": "FR-008",
+        "description": "编写4维度画像生效测试：分别验证 education_level、knowledge_level、preferred_style、research_field 4个维度在生成结果中均有体现",
+        "priority": "P0",
+        "acceptance_condition": "4个维度的测试用例均通过"
+      },
+      {
+        "id": "FR-009",
+        "description": "编写6-Agent个性化链路完整性测试：验证Coordinator→Retriever→Analyzer→Comparer→Generator→Reviewer 6个Agent的build_prompt()输出均包含个性化片段",
+        "priority": "P1",
+        "acceptance_condition": "6个Agent的个性化链路测试通过"
+      },
+      {
+        "id": "FR-010",
+        "description": "编写个性化降级测试：当user_profile为空或缺失时，所有Agent使用默认个性化配置（master/intermediate/balanced），不抛异常",
+        "priority": "P1",
+        "acceptance_condition": "空画像降级测试通过"
+      }
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "个性化注入失败时Agent使用默认配置继续执行，不阻塞工作流",
+        "multi_agent_failure": "所有Agent的个性化注入使用try-except包裹，异常时记录warning日志并返回默认指令",
+        "review_retry_limit": 1
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，个性化逻辑在Service层，Agent层仅调用"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except包裹个性化注入调用，异常时记录warning日志并返回默认指令",
+        "agent_error_handling": "个性化注入失败不影响Agent核心功能，state['errors']中记录个性化降级信息"
+      }
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出完整用户画像数据（仅记录education_level和knowledge_level枚举值）"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "破坏三层分离架构", "reason": "架构约束ADR-001", "severity": "critical" },
+    { "id": "FA-006", "action": "硬编码敏感配置", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-010", "action": "忽略降级场景（个性化注入失败时不处理）", "reason": "可用性约束", "severity": "high" },
+    { "id": "FA-016", "action": "在Agent中直接实例化PersonalizationService（应通过依赖注入）", "reason": "保持代码可测试性，PersonalizationService通过构造函数或context注入", "severity": "high" },
+    { "id": "FA-017", "action": "修改已有Agent的execute()核心逻辑（仅修改build_prompt()添加个性化片段）", "reason": "避免引入Agent执行逻辑的回归bug", "severity": "high" },
+    { "id": "FA-018", "action": "在测试中调用真实的LLM API（应使用mock）", "reason": "测试应独立于外部服务，使用mock避免API费用和网络依赖", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_coordinator_build_prompt_has_personalization",
+        "description": "验证 CoordinatorAgent.build_prompt() 输出包含个性化适配标记",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_retriever_build_prompt_has_personalization",
+        "description": "验证 RetrieverAgent.build_prompt() 含领域侧重和检索数量适配",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_comparer_build_prompt_has_personalization",
+        "description": "验证 ComparerAgent.build_prompt() 含对比深度适配",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_reviewer_build_prompt_has_personalization",
+        "description": "验证 ReviewerAgent.build_prompt() 含审核严格度适配",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_all_six_agents_personalization_injection",
+        "description": "验证6个Agent的build_prompt()输出均包含个性化片段",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_personalization_empty_profile_fallback",
+        "description": "验证user_profile为空时所有Agent使用默认配置不抛异常",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_personalization_diversity_e2e",
+        "description": "端到端测试：两个极端画像通过LangGraph工作流生成综述，使用Jaccard相似度计算差异度，验证>0.6",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_four_dimension_effectiveness",
+        "description": "端到端测试：分别验证education_level/knowledge_level/preferred_style/research_field 4个维度在生成结果中体现",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_personalization_full_pipeline",
+        "description": "端到端测试：完整6-Agent工作流中个性化指令传递链路完整性",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_personalization_service.py tests/test_personalization_e2e.py -v",
+        "expected_result": "所有测试通过，含个性化差异度测试和端到端效果测试"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_personalization_e2e.py::test_personalization_diversity_e2e -v",
+        "expected_result": "差异度>0.6，测试通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "6个Agent（Coordinator/Retriever/Analyzer/Comparer/Generator/Reviewer）的build_prompt()输出均包含个性化适配片段",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "同一主题，beginner+undergraduate+simple画像与expert+phd+technical画像的生成结果差异度>60%",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "4个画像维度（education_level/knowledge_level/preferred_style/research_field）在生成结果中均有可验证的体现",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "6-Agent个性化链路完整：Coordinator→Retriever→Analyzer→Comparer→Generator→Reviewer 全链路个性化指令不丢失",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "user_profile为空或缺失时所有Agent使用默认配置，不抛异常，不阻塞工作流",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "个性化注入失败时记录warning日志，Agent继续执行核心功能",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "所有已有测试保持通过，无回归问题",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "测试代码使用mock避免调用真实LLM API",
+      "verified_by": "code_review"
+    }
+  ]
+}

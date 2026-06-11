@@ -1,0 +1,330 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4 多Agent协同 / JM4 分析服务与SSE推送完成 (Week 7-8 Day 9-10)",
+    "requirement": "完善 SSE 端点的事件格式标准化（7 种事件类型统一 JSON data 格式），添加心跳机制（30s ping）、超时处理（120s 无事件自动关闭）、Last-Event-ID 断线重连、CORS 配置支持 SSE 跨域请求，确保前端可正确解析所有 SSE 事件并完成联调。",
+    "requirement_ids": ["F2.4.8", "F2.4.9", "F2.5.7"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "7.2.3 AgentClientService SSE 转发 + 7.5 API清单 SSE 端点规范" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.4 Week 7-8 Day 9-10 任务：SSE 事件格式标准化 + 心跳 + 超时 + CORS" },
+      { "path": "json_prompt/backend/task28_agent_state_redis_sse_forward/prompt.md", "purpose": "AgentController SSE 转发 + writeAgentStateToRedis 7 种事件映射（本任务前置）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "purpose": "现有 toServerSentEvent 方法（待标准化事件格式）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/config/WebClientConfig.java", "purpose": "sseWebClient 150s 超时（需调整为 120s）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/config/SecurityConfig.java", "purpose": "CORS 配置（需增加 Last-Event-ID Header 支持）" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.controller",
+        "description": "修改：AgentController — SSE 事件格式标准化 + 心跳 + 超时处理"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "修改：AgentClientService — 心跳机制（ping 事件注入）+ 超时检测"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.config",
+        "description": "修改：WebClientConfig — sseWebClient 超时从 150s 调整为 120s；SecurityConfig — CORS 增加 Last-Event-ID Header"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AgentController.java", "description": "task28 新建，含 agentStream SSE 转发端点；本任务标准化事件格式 + 心跳 + 超时", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "description": "task28 扩展 writeAgentStateToRedis 7 种事件映射；本任务增加心跳机制", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AgentSseEvent.java", "description": "7 种事件类型定义（id/event/data）；本任务标准化 data 字段格式", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/WebClientConfig.java", "description": "sseWebClient 150s 超时；本任务调整为 120s 对齐检查点", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/SecurityConfig.java", "description": "CORS 已配置但缺少 Last-Event-ID Header；本任务补充", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AgentController (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AgentController.java",
+      "responsibility": "SSE 事件格式标准化：7 种事件类型的 data 字段统一为结构化 JSON",
+      "key_interfaces": [
+        { "name": "agentStream", "signature": "Flux<ServerSentEvent<Object>> agentStream(@PathVariable String analysisId, @RequestHeader(value=\"Last-Event-ID\", required=false) String lastEventId, @AuthenticationPrincipal String userId)", "description": "SSE 流转发 — 标准化事件格式 + 心跳 + 超时" },
+        { "name": "toStandardizedSseEvent", "signature": "ServerSentEvent<Object> toStandardizedSseEvent(AgentSseEvent event)", "description": "将内部 AgentSseEvent 转换为标准化 SSE 事件（统一 data JSON 格式）" }
+      ]
+    },
+    {
+      "name": "AgentClientService (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java",
+      "responsibility": "心跳机制：每 30s 注入 ping 事件；超时检测：120s 无数据事件发送 error 后关闭",
+      "key_interfaces": [
+        { "name": "generateReportStreamWithHeartbeat", "signature": "Flux<AgentSseEvent> generateReportStreamWithHeartbeat(AgentRequest request, String lastEventId)", "description": "SSE 流 + 心跳 + 超时检测（包装 generateReportStream）" }
+      ]
+    },
+    {
+      "name": "WebClientConfig (修改)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/WebClientConfig.java",
+      "responsibility": "sseWebClient 超时从 150s 调整为 120s（对齐 JM4 检查点）",
+      "key_interfaces": [
+        { "name": "sseWebClient", "signature": "@Bean(\"sseWebClient\") WebClient sseWebClient()", "description": "SSE 流式调用 WebClient，responseTimeout 150s → 120s" }
+      ]
+    },
+    {
+      "name": "SecurityConfig (修改)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/SecurityConfig.java",
+      "responsibility": "CORS 配置增加 Last-Event-ID Header 支持 SSE 断线重连",
+      "key_interfaces": [
+        { "name": "corsConfigurationSource", "signature": "CorsConfigurationSource corsConfigurationSource()", "description": "allowedHeaders 增加 Last-Event-ID" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AgentController.java",
+      "description": "SSE 事件格式标准化：toStandardizedSseEvent 方法替换 toServerSentEvent，7 种事件 data 格式统一",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java",
+      "description": "新增 generateReportStreamWithHeartbeat 方法：30s 心跳 + 120s 超时检测",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/WebClientConfig.java",
+      "description": "sseWebClient responseTimeout 150s → 120s，ReadTimeoutHandler 150s → 120s",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/SecurityConfig.java",
+      "description": "CORS allowedHeaders 增加 Last-Event-ID",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/sse/SseEventFormatTest.java",
+      "description": "SSE 事件格式验证测试：7 种事件类型 data JSON 格式标准化",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/sse/SseHeartbeatTimeoutTest.java",
+      "description": "心跳机制测试 + 超时处理测试 + Last-Event-ID 重连测试",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-029-01",
+        "description": "SSE 事件格式标准化：7 种事件类型的 data 字段统一为结构化 JSON。\n- agent_started → {agentName, analysisId, timestamp}\n- agent_state_update → {agentName, status, progress, intermediateResult, durationMs}\n- agent_completed → {agentName, analysisId, result, timestamp}\n- agent_failed → {agentName, error, timestamp}\n- analysis_completed → {analysisId, status, report, citations}\n- error → {type, message}\n- ping → {timestamp}",
+        "priority": "P0",
+        "acceptance_condition": "每种事件类型的 data 字段包含规范中定义的所有字段；timestamp 为 ISO8601 格式"
+      },
+      {
+        "id": "FR-029-02",
+        "description": "心跳机制：SSE 流中每 30s 注入 ping 事件（event: ping, data: {timestamp}），保持连接活跃",
+        "priority": "P0",
+        "acceptance_condition": "StepVerifier 验证 30s 间隔收到 ping 事件；ping 事件不写 Redis"
+      },
+      {
+        "id": "FR-029-03",
+        "description": "超时处理：120s 无数据事件（不含 ping）自动关闭 SSE 流，关闭前发送 error 事件 {type: 'timeout', message: 'SSE connection timeout'}",
+        "priority": "P0",
+        "acceptance_condition": "StepVerifier 验证 120s 无数据事件后收到 error 事件 + 流结束信号（onComplete）"
+      },
+      {
+        "id": "FR-029-04",
+        "description": "Last-Event-ID 断线重连：前端发送 Last-Event-ID Header，Python 端根据 lastEventId 从断点续传",
+        "priority": "P0",
+        "acceptance_condition": "curl 带 Last-Event-ID Header 请求 SSE 流，Python 端从指定 event id 后续传"
+      },
+      {
+        "id": "FR-029-05",
+        "description": "CORS 配置：SecurityConfig corsConfigurationSource allowedHeaders 增加 Last-Event-ID，允许前端跨域 SSE 请求",
+        "priority": "P0",
+        "acceptance_condition": "前端跨域 SSE 请求带 Last-Event-ID Header 不被 CORS 拦截"
+      },
+      {
+        "id": "FR-029-06",
+        "description": "WebClientConfig sseWebClient 超时从 150s 调整为 120s（responseTimeout + ReadTimeoutHandler），对齐 JM4 检查点",
+        "priority": "P1",
+        "acceptance_condition": "sseWebClient responseTimeout=120s, ReadTimeoutHandler=120s"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case（依赖全局 Jackson SNAKE_CASE）",
+        "mappings": [
+          { "java": "agentName", "python": "agent_name", "json": "agentName" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediateResult" },
+          { "java": "durationMs", "python": "duration_ms", "json": "durationMs" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "GET /api/agents/{analysisId}/stream",
+          "method": "GET",
+          "request_format": { "headers": { "Authorization": "Bearer {jwt}", "Last-Event-ID": "optional: {lastEventId}" } },
+          "response_format": "text/event-stream with 7 standardized event types:\n- event: agent_started\\ndata: {\"agentName\":\"...\",\"analysisId\":\"...\",\"timestamp\":\"ISO8601\"}\\n\\n- event: agent_state_update\\ndata: {\"agentName\":\"...\",\"status\":\"running\",\"progress\":0.5,\"intermediateResult\":\"...\",\"durationMs\":1234}\\n\\n- event: agent_completed\\ndata: {\"agentName\":\"...\",\"analysisId\":\"...\",\"result\":{...},\"timestamp\":\"ISO8601\"}\\n\\n- event: agent_failed\\ndata: {\"agentName\":\"...\",\"error\":\"...\",\"timestamp\":\"ISO8601\"}\\n\\n- event: analysis_completed\\ndata: {\"analysisId\":\"...\",\"status\":\"completed\",\"report\":\"...\",\"citations\":[...]}\\n\\n- event: error\\ndata: {\"type\":\"timeout|internal\",\"message\":\"...\"}\\n\\n- event: ping\\ndata: {\"timestamp\":\"ISO8601\"}"
+        }
+      ],
+      "data_flow": "前端 EventSource → AgentController.agentStream → agentClientService.generateReportStreamWithHeartbeat → [Python SSE 流 + 30s ping 心跳 + 120s 超时] → toStandardizedSseEvent → 前端接收标准化 SSE 事件"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "SSE 端点必须 JWT 认证；未登录返回 401" },
+      { "category": "data_isolation", "requirement": "analysisService.validateAnalysisAccess 校验归属" },
+      { "category": "sensitive_info", "requirement": "error 事件不暴露 Python 服务内部堆栈/URL；仅返回 {type, message}" },
+      { "category": "cors", "requirement": "CORS allowedHeaders 包含 Last-Event-ID + Authorization + Content-Type" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "json": { "field_name": "camelCase（SSE data 字段统一 camelCase）" }
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → (AgentClientService)；心跳/超时逻辑在 Service 层实现，Controller 仅做格式转换",
+        "entity_dto_separation": true
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "SSE 流内错误通过 error 事件传递（不关闭 HTTP 连接前先发 error 事件）；超时关闭前发 error:{type:timeout}"
+      }
+    },
+    "caching": {
+      "pattern": "ping 事件不写 Redis（控制事件）；其余事件写 Redis 按 task28 映射规则",
+      "note": "心跳 ping 仅保持 SSE 连接活跃，不触发 Redis 写入"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["输出 SSE event.data 完整内容（含 report/citations）", "在心跳循环中打印 INFO 日志", "输出 Python 内部错误堆栈"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-029-01", "action": "心跳 ping 事件写 Redis Hash", "reason": "ping 是连接保活事件，不对应 Agent 状态变更", "severity": "high" },
+    { "id": "FA-029-02", "action": "超时关闭 SSE 流时不发送 error 事件直接断开", "reason": "前端需要 error 事件区分正常关闭和超时关闭", "severity": "critical" },
+    { "id": "FA-029-03", "action": "error 事件 data 包含 Python 服务堆栈/URL", "reason": "安全约束：前端仅接收 {type, message}", "severity": "critical" },
+    { "id": "FA-029-04", "action": "在 Controller 层实现心跳/超时逻辑", "reason": "分层约束：心跳/超时属于 Service 层业务逻辑", "severity": "high" },
+    { "id": "FA-029-05", "action": "SSE 事件 data 使用非 JSON 格式（纯文本/非结构化字符串）", "reason": "前端需要结构化 JSON 解析事件", "severity": "critical" },
+    { "id": "FA-029-06", "action": "sseWebClient 超时设为 0 或负数", "reason": "必须为正整数秒数，当前从 150s 调整为 120s", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "sseEventFormat_agent_started_has_required_fields",
+        "description": "agent_started 事件 data 包含 agentName, analysisId, timestamp",
+        "framework": "junit5",
+        "coverage": ["event_format"]
+      },
+      {
+        "test_name": "sseEventFormat_agent_state_update_has_required_fields",
+        "description": "agent_state_update 事件 data 包含 agentName, status, progress, intermediateResult, durationMs",
+        "framework": "junit5",
+        "coverage": ["event_format"]
+      },
+      {
+        "test_name": "sseEventFormat_agent_completed_has_required_fields",
+        "description": "agent_completed 事件 data 包含 agentName, analysisId, result, timestamp",
+        "framework": "junit5",
+        "coverage": ["event_format"]
+      },
+      {
+        "test_name": "sseEventFormat_agent_failed_has_required_fields",
+        "description": "agent_failed 事件 data 包含 agentName, error, timestamp",
+        "framework": "junit5",
+        "coverage": ["event_format"]
+      },
+      {
+        "test_name": "sseEventFormat_analysis_completed_has_required_fields",
+        "description": "analysis_completed 事件 data 包含 analysisId, status, report, citations",
+        "framework": "junit5",
+        "coverage": ["event_format"]
+      },
+      {
+        "test_name": "sseEventFormat_error_has_type_and_message",
+        "description": "error 事件 data 包含 type, message（不包含堆栈/URL）",
+        "framework": "junit5",
+        "coverage": ["event_format", "security"]
+      },
+      {
+        "test_name": "sseEventFormat_ping_has_timestamp",
+        "description": "ping 事件 data 包含 timestamp（ISO8601 格式）",
+        "framework": "junit5",
+        "coverage": ["event_format"]
+      },
+      {
+        "test_name": "heartbeat_emits_ping_every_30s",
+        "description": "StepVerifier 验证 30s 间隔收到 ping 事件",
+        "framework": "junit5",
+        "coverage": ["heartbeat"]
+      },
+      {
+        "test_name": "timeout_emits_error_after_120s_no_data",
+        "description": "StepVerifier 验证 120s 无数据事件后收到 error:{type:timeout} + onComplete",
+        "framework": "junit5",
+        "coverage": ["timeout"]
+      },
+      {
+        "test_name": "timeout_resets_on_data_event",
+        "description": "收到数据事件后超时计时器重置；120s 内持续有数据事件不触发超时",
+        "framework": "junit5",
+        "coverage": ["timeout"]
+      },
+      {
+        "test_name": "lastEventId_forwarded_to_python",
+        "description": "Last-Event-ID Header 正确透传到 Python 端 /api/agent/analyze/stream",
+        "framework": "junit5",
+        "coverage": ["reconnection"]
+      },
+      {
+        "test_name": "cors_allows_last_event_id_header",
+        "description": "CORS 配置 allowedHeaders 包含 Last-Event-ID",
+        "framework": "junit5",
+        "coverage": ["cors"]
+      },
+      {
+        "test_name": "webClient_sse_timeout_is_120s",
+        "description": "sseWebClient responseTimeout=120s, ReadTimeoutHandler=120s",
+        "framework": "junit5",
+        "coverage": ["config"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "sse_stream_e2e_with_heartbeat_and_timeout",
+        "description": "完整 SSE 流：前端 EventSource 连接 → 接收 agent_started → 30s ping → agent_completed → analysis_completed → 流结束",
+        "layers_involved": ["java_backend", "python_ai_service"]
+      },
+      {
+        "test_name": "sse_reconnect_with_last_event_id",
+        "description": "SSE 流中断 → 前端带 Last-Event-ID 重连 → 从断点续传",
+        "layers_involved": ["java_backend", "python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='SseEventFormatTest,SseHeartbeatTimeoutTest' test", "expected_result": "13+ 测试通过" },
+      { "layer": "java", "command": "curl -s -N -H 'Authorization: Bearer {token}' -H 'Accept: text/event-stream' http://localhost:8080/api/agents/{analysisId}/stream", "expected_result": "收到 SSE 事件流（event: agent_started, event: ping, ...）" },
+      { "layer": "java", "command": "curl -s -N -H 'Authorization: Bearer {token}' -H 'Last-Event-ID: 5' -H 'Accept: text/event-stream' http://localhost:8080/api/agents/{analysisId}/stream", "expected_result": "从 event id=6 开始续传" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-029-01", "criterion": "7 种 SSE 事件类型 data 格式标准化，所有字段符合规范", "verified_by": "automated_test" },
+    { "id": "AC-029-02", "criterion": "每 30s 发送 ping 心跳事件保持连接", "verified_by": "automated_test" },
+    { "id": "AC-029-03", "criterion": "120s 无数据事件自动关闭 SSE 流（先发 error:{type:timeout} 再关闭）", "verified_by": "automated_test" },
+    { "id": "AC-029-04", "criterion": "Last-Event-ID 支持断线重连", "verified_by": "automated_test" },
+    { "id": "AC-029-05", "criterion": "CORS 允许前端跨域 SSE 请求（含 Last-Event-ID Header）", "verified_by": "automated_test" },
+    { "id": "AC-029-06", "criterion": "sseWebClient 超时从 150s 调整为 120s", "verified_by": "automated_test" },
+    { "id": "AC-029-07", "criterion": "error 事件不暴露 Python 内部堆栈/URL", "verified_by": "automated_test" },
+    { "id": "AC-029-08", "criterion": "13+ 个单元测试全部通过", "verified_by": "automated_test" }
+  ]
+}

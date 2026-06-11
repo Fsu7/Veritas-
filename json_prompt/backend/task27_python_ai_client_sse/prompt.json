@@ -1,0 +1,289 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4：多Agent协同 / JM4：分析服务与SSE推送完成 (Week 7-8 Day 5-6)",
+    "requirement": "扩展 PythonAIClient 的 SSE 接收能力，支持对比分析和综述生成的 SSE 流，处理 408 超时事件，确保 SSE 流的错误恢复和资源清理。新增 compareStream/reportStream 方法复用 analyzeStream 的 SSE 解析逻辑但传递不同 analysisType；处理 Python 端 408 AgentTimeout 事件转为前端可理解的降级事件；AgentClientService 新增 compareStream/reportStream 包装方法同步写入 Redis 状态。",
+    "requirement_ids": ["F2.4.7", "F2.5.3"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "7.3 SSE 推送架构 + 7.5 API清单（/api/agent/compare/stream, /api/agent/report/stream）" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.4 Week 7-8 Day 5-6 任务：PythonAIClient SSE 扩展 + 408 超时处理" },
+      { "path": "json_prompt/backend/task22_analysis_controller_service/prompt.md", "purpose": "AnalysisController SSE agent-stream 端点 + toServerSentEvent 转换模式" },
+      { "path": "json_prompt/backend/task26_report_generation_api/prompt.md", "purpose": "ReportRequest + generateReport 编排，SSE reportStream 的上游调用方" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/client/PythonAIClient.java", "purpose": "现有 analyzeStream 实现（sseWebClient + Last-Event-ID + 150s timeout）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "purpose": "现有 generateReportStream 实现（SSE + Redis 写入模式）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AgentSseEvent.java", "purpose": "7 种事件类型 DTO" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/config/WebClientConfig.java", "purpose": "sseWebClient 配置（150s timeout, 20 connections, Accept: text/event-stream）" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.client",
+        "description": "修改：PythonAIClient — 新增 compareStream/reportStream 方法 + 408 超时事件处理"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "修改：AgentClientService — 新增 compareStream/reportStream 包装方法 + Redis 状态写入"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/client/PythonAIClient.java", "description": "task19 实现，含 analyze(AgentRequest) + analyzeStream(AgentRequest, lastEventId) + search + isHealthy + getModelStatus；本任务新增 compareStream/reportStream + 408 处理", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "description": "task21 实现，含 analyzePaper + generateReportStream(Flux) + updateAgentState + writeAgentStateToRedis；本任务新增 compareStream/reportStream 包装", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AgentSseEvent.java", "description": "SSE 事件 DTO（id/event/data），7 种事件类型", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/WebClientConfig.java", "description": "sseWebClient（150s timeout, 20 connections, Accept: text/event-stream）", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "description": "agent-stream SSE 端点，未来 JM4 AgentController 会引用 compareStream/reportStream", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PythonAIClient (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/client/PythonAIClient.java",
+      "responsibility": "新增 compareStream/reportStream 方法，复用 analyzeStream SSE 解析逻辑但发送到不同 Python 端点；处理 408 超时事件",
+      "key_interfaces": [
+        { "name": "compareStream", "signature": "Flux<AgentSseEvent> compareStream(AgentRequest request, String lastEventId)", "description": "SSE 流式调用 Python /api/agent/compare/stream，复用 analyzeStream 解析逻辑" },
+        { "name": "reportStream", "signature": "Flux<AgentSseEvent> reportStream(AgentRequest request, String lastEventId)", "description": "SSE 流式调用 Python /api/agent/report/stream，复用 analyzeStream 解析逻辑" },
+        { "name": "analyzeStream (重构)", "signature": "Flux<AgentSseEvent> analyzeStream(AgentRequest request, String lastEventId)", "description": "提取公共 SSE 流逻辑为私有方法 streamSse(String endpoint, AgentRequest, String lastEventId)，三个 public 方法复用" }
+      ]
+    },
+    {
+      "name": "AgentClientService (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java",
+      "responsibility": "新增 compareStream/reportStream 包装方法，调用 PythonAIClient + 写入 Redis Agent 状态",
+      "key_interfaces": [
+        { "name": "compareStream", "signature": "Flux<AgentSseEvent> compareStream(AgentRequest request, String lastEventId)", "description": "包装 pythonAIClient.compareStream + doOnNext 写 Redis Agent 状态" },
+        { "name": "reportStream", "signature": "Flux<AgentSseEvent> reportStream(AgentRequest request, String lastEventId)", "description": "包装 pythonAIClient.reportStream + doOnNext 写 Redis Agent 状态" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/client/PythonAIClient.java",
+      "description": "新增 compareStream/reportStream 方法 + 提取公共 streamSse 私有方法 + 408 超时事件转换逻辑",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java",
+      "description": "新增 compareStream/reportStream 包装方法（PythonAIClient 调用 + Redis 状态写入）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/client/PythonAIClientTest.java",
+      "description": "扩展测试：compareStream/reportStream 构造正确请求 + 408 事件转换 + 超时自动关闭",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AgentClientServiceTest.java",
+      "description": "扩展测试：compareStream/reportStream 包装方法验证 Redis 写入",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-027-01",
+        "description": "PythonAIClient 新增 compareStream(AgentRequest, String lastEventId) 方法，SSE 流式调用 Python /api/agent/compare/stream",
+        "priority": "P0",
+        "acceptance_condition": "compareStream 使用 sseWebClient + Last-Event-ID 透传 + 150s timeout；返回 Flux<AgentSseEvent>"
+      },
+      {
+        "id": "FR-027-02",
+        "description": "PythonAIClient 新增 reportStream(AgentRequest, String lastEventId) 方法，SSE 流式调用 Python /api/agent/report/stream",
+        "priority": "P0",
+        "acceptance_condition": "reportStream 使用 sseWebClient + Last-Event-ID 透传 + 150s timeout；返回 Flux<AgentSseEvent>"
+      },
+      {
+        "id": "FR-027-03",
+        "description": "提取公共 SSE 流逻辑为私有方法 streamSse(String endpoint, AgentRequest request, String lastEventId)，analyzeStream/compareStream/reportStream 三个 public 方法复用",
+        "priority": "P0",
+        "acceptance_condition": "三个 public 方法内部均调用 streamSse(endpoint, request, lastEventId)；analyzeStream 传 ENDPOINT_ANALYZE_STREAM，compareStream 传 ENDPOINT_COMPARE_STREAM，reportStream 传 ENDPOINT_REPORT_STREAM"
+      },
+      {
+        "id": "FR-027-04",
+        "description": "408 超时事件处理：收到 Python 端 event=error + data.type=timeout 或 HTTP 408 状态码时，转为 AgentSseEvent(event=\"error\", data={\"type\":\"timeout\",\"message\":\"Agent执行超时\"}) 发送给前端",
+        "priority": "P0",
+        "acceptance_condition": "Python 返回 408 → Java 转为前端可理解的降级事件；前端收到 event=error + data.type=timeout"
+      },
+      {
+        "id": "FR-027-05",
+        "description": "AgentClientService.compareStream/reportStream 包装 PythonAIClient 调用，同时写入 Redis Agent 状态（复用 writeAgentStateToRedis 逻辑）",
+        "priority": "P0",
+        "acceptance_condition": "compareStream/reportStream 的 doOnNext 调用 writeAgentStateToRedis；与 generateReportStream 模式一致"
+      },
+      {
+        "id": "FR-027-06",
+        "description": "SSE 流超时 150s 后自动关闭，发送 analysis_completed 或 error 事件作为终止信号",
+        "priority": "P1",
+        "acceptance_condition": "Flux.timeout(Duration.ofSeconds(150)) 触发后，发送 AgentSseEvent(event=\"error\", data={\"type\":\"timeout\",\"message\":\"SSE连接超时\"}) 作为终止事件"
+      },
+      {
+        "id": "FR-027-07",
+        "description": "所有 SSE 流使用 sseWebClient（独立连接池 20 connections，不影响同步调用 webClient 的 50 connections）",
+        "priority": "P0",
+        "acceptance_condition": "compareStream/reportStream 均使用注入的 sseWebClient，不使用 webClient"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case（AgentSseEvent.data 使用 Map<String,Object>，由全局 Jackson SNAKE_CASE 处理）",
+        "mappings": [
+          { "java": "agentStarted", "python": "agent_started", "json": "agentStarted" },
+          { "java": "agentStateUpdate", "python": "agent_state_update", "json": "agentStateUpdate" },
+          { "java": "agentCompleted", "python": "agent_completed", "json": "agentCompleted" },
+          { "java": "agentFailed", "python": "agent_failed", "json": "agentFailed" },
+          { "java": "analysisCompleted", "python": "analysis_completed", "json": "analysisCompleted" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/agent/compare/stream (Python)",
+          "method": "POST",
+          "request_format": "AgentRequest { analysisId, userId, topic, paperIds, userProfile, analysisType:COMPARE }",
+          "response_format": "SSE stream: event: agent_started | agent_state_update | agent_completed | agent_failed | analysis_completed | error | ping"
+        },
+        {
+          "endpoint": "POST /api/agent/report/stream (Python)",
+          "method": "POST",
+          "request_format": "AgentRequest { analysisId, userId, topic, paperIds, userProfile, analysisType:REPORT }",
+          "response_format": "SSE stream: event: agent_started | agent_state_update | agent_completed | agent_failed | analysis_completed | error | ping"
+        }
+      ],
+      "data_flow": "前端 EventSource → AnalysisController/AgentController → AgentClientService.compareStream/reportStream → PythonAIClient.compareStream/reportStream → sseWebClient → Python /api/agent/{compare|report}/stream → SSE 事件流 → writeAgentStateToRedis → 前端"
+    },
+    "security_requirements": [
+      { "category": "resource_management", "requirement": "SSE 流 Disposable 必须在超时/错误时自动取消，避免连接泄漏" },
+      { "category": "timeout_protection", "requirement": "150s 超时后强制关闭 SSE 流，发送终止事件" },
+      { "category": "error_transparency", "requirement": "408 超时事件转为前端可理解的降级事件，不暴露 Python 内部细节" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "endpoint": {
+        "pattern": "ENDPOINT_{TYPE}_STREAM = \"/api/agent/{type}/stream\"",
+        "existing": ["ENDPOINT_ANALYZE_STREAM = /api/agent/analyze/stream"],
+        "new": ["ENDPOINT_COMPARE_STREAM = /api/agent/compare/stream", "ENDPOINT_REPORT_STREAM = /api/agent/report/stream"]
+      }
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → AgentClientService → PythonAIClient；禁止 Controller 直接调 PythonAIClient",
+        "entity_dto_separation": true
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "SSE 流内异常不抛出，转为 error 事件发送给前端；408 超时转为降级事件；连接级异常 onErrorContinue 跳过",
+        "timeout_handling": "Flux.timeout(150s) → 发送 error{type:timeout} 终止事件 → 流结束"
+      }
+    },
+    "connection_pool_isolation": {
+      "rule": "sseWebClient 独立连接池（20 connections, 150s timeout），与同步 webClient（50 connections, 30s timeout）隔离",
+      "note": "禁止 SSE 流使用同步 webClient"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["输出 SSE 事件完整 data 内容", "在 doOnNext 中打印 INFO 级别日志（使用 DEBUG）"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-027-01", "action": "compareStream/reportStream 使用同步 webClient（必须用 sseWebClient）", "reason": "连接池隔离约束，同步 webClient 30s timeout 不适合 SSE 长连接", "severity": "critical" },
+    { "id": "FA-027-02", "action": "SSE 流异常直接抛出而不转为 error 事件", "reason": "SSE 协议约束，前端 EventSource 无法处理异常，必须转为事件", "severity": "critical" },
+    { "id": "FA-027-03", "action": "408 超时事件直接透传 Python 原始错误信息给前端", "reason": "安全约束，不暴露 Python 内部细节", "severity": "high" },
+    { "id": "FA-027-04", "action": "SSE 流无超时保护（必须 150s timeout）", "reason": "资源泄漏风险，无超时则连接永不释放", "severity": "critical" },
+    { "id": "FA-027-05", "action": "compareStream/reportStream 不写 Redis Agent 状态", "reason": "GET /api/analysis/{id}/status 依赖 Redis Hash 实时状态", "severity": "high" },
+    { "id": "FA-027-06", "action": "复制 analyzeStream 完整代码到 compareStream/reportStream（必须提取公共方法）", "reason": "DRY 原则，三个方法仅 endpoint 不同", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "compareStream_constructs_correct_request",
+        "description": "MockWebServer 验证 compareStream 发送 POST /api/agent/compare/stream + AgentRequest body + Last-Event-ID header",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "reportStream_constructs_correct_request",
+        "description": "MockWebServer 验证 reportStream 发送 POST /api/agent/report/stream + AgentRequest body + Last-Event-ID header",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "compareStream_parses_sse_events",
+        "description": "MockWebServer 返回 SSE 事件流 → compareStream 正确解析为 Flux<AgentSseEvent>",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "reportStream_parses_sse_events",
+        "description": "MockWebServer 返回 SSE 事件流 → reportStream 正确解析为 Flux<AgentSseEvent>",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "sse_408_event_transformed_to_timeout_error",
+        "description": "Python 返回 408 或 event=error+data.type=timeout → 转为 AgentSseEvent(event='error', data={type:'timeout', message:'Agent执行超时'})",
+        "framework": "junit5",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "sse_timeout_150s_sends_error_event",
+        "description": "Flux 超过 150s 无事件 → timeout 触发 → 发送 error{type:timeout} 终止事件 → 流结束",
+        "framework": "junit5",
+        "coverage": ["boundary_condition", "timeout"]
+      },
+      {
+        "test_name": "agentClientService_compareStream_writes_redis",
+        "description": "AgentClientService.compareStream 的 doOnNext 调用 writeAgentStateToRedis（验证 Redis Hash 写入）",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "redis"]
+      },
+      {
+        "test_name": "agentClientService_reportStream_writes_redis",
+        "description": "AgentClientService.reportStream 的 doOnNext 调用 writeAgentStateToRedis（验证 Redis Hash 写入）",
+        "framework": "junit5",
+        "coverage": ["normal_flow", "redis"]
+      },
+      {
+        "test_name": "streamSse_reuses_common_logic",
+        "description": "验证 analyzeStream/compareStream/reportStream 均调用私有 streamSse 方法（通过 MockWebServer 验证 endpoint 差异）",
+        "framework": "junit5",
+        "coverage": ["refactoring"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "compareStream_e2e_with_python",
+        "description": "Python 返回 SSE 事件流 → Java compareStream 解析 → Redis 写入 → 前端收到事件",
+        "layers_involved": ["java_backend", "python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='PythonAIClientTest' test", "expected_result": "9+ 测试通过（含 compareStream/reportStream/408 处理）" },
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='AgentClientServiceTest' test", "expected_result": "含 compareStream/reportStream Redis 写入测试通过" },
+      { "layer": "curl", "command": "curl -s -N -H 'Authorization: Bearer {jwt}' -H 'Accept: text/event-stream' 'http://localhost:8080/api/analysis/{analysisId}/agent-stream' | head -20", "expected_result": "收到 SSE 事件流（event: agent_started, agent_state_update, ...）" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-027-01", "criterion": "PythonAIClient.compareStream 调用 /api/agent/compare/stream 并返回 Flux<AgentSseEvent>", "verified_by": "automated_test" },
+    { "id": "AC-027-02", "criterion": "PythonAIClient.reportStream 调用 /api/agent/report/stream 并返回 Flux<AgentSseEvent>", "verified_by": "automated_test" },
+    { "id": "AC-027-03", "criterion": "三个 SSE 方法复用公共 streamSse 私有方法（DRY）", "verified_by": "code_review" },
+    { "id": "AC-027-04", "criterion": "408 超时事件转为 AgentSseEvent(event='error', data={type:timeout})", "verified_by": "automated_test" },
+    { "id": "AC-027-05", "criterion": "AgentClientService.compareStream/reportStream 写入 Redis Agent 状态", "verified_by": "automated_test" },
+    { "id": "AC-027-06", "criterion": "SSE 流 150s 超时后自动关闭并发送 error 终止事件", "verified_by": "automated_test" },
+    { "id": "AC-027-07", "criterion": "所有 SSE 流使用 sseWebClient（不使用同步 webClient）", "verified_by": "code_review" },
+    { "id": "AC-027-08", "criterion": "9+ 个 SSE 扩展测试全部通过", "verified_by": "automated_test" }
+  ]
+}

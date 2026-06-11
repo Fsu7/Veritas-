@@ -61,6 +61,9 @@ class AnalysisServiceQueryTest {
     private AgentClientService agentClientService;
 
     @Mock
+    private AnalysisTransactionService analysisTransactionService;
+
+    @Mock
     private AnalysisResultRepository analysisResultRepository;
 
     @Mock
@@ -75,10 +78,6 @@ class AnalysisServiceQueryTest {
     @BeforeEach
     void setUp() {
         try {
-            java.lang.reflect.Field selfField = AnalysisService.class.getDeclaredField("self");
-            selfField.setAccessible(true);
-            selfField.set(analysisService, analysisService);
-
             java.lang.reflect.Field omField = AnalysisService.class.getDeclaredField("objectMapper");
             omField.setAccessible(true);
             omField.set(analysisService, objectMapper);

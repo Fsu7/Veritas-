@@ -1,0 +1,315 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4 多Agent协同 / JM4 分析服务与SSE推送完成 (Week 7-8 Day 7-8)",
+    "requirement": "新建 AgentController 处理 Agent 相关的 SSE 转发和状态查询，完善 Agent 状态 Redis 缓存机制（writeAgentStateToRedis 支持全部 7 种 SSE 事件类型映射），将 AnalysisController.agentStream 逻辑迁移至 AgentController，旧端点标记 @Deprecated 并 301 重定向。",
+    "requirement_ids": ["F2.4.6", "F2.4.7", "F2.5.6"],
+    "reference_docs": [
+      { "path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "7.2.3 AgentClientService SSE 转发 + 7.4 综述时序 + 7.5 API清单" },
+      { "path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "5.4 Week 7-8 Day 7-8 任务：AgentController SSE 转发 + Agent 状态 Redis 缓存完善" },
+      { "path": "json_prompt/backend/task23_analysis_query_health/prompt.md", "purpose": "AnalysisService.getAnalysisStatus + AgentClientService.getAgentStates 既有结构" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "purpose": "现有 agentStream SSE 端点（待迁移至 AgentController）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "purpose": "现有 writeAgentStateToRedis 仅处理 agent_state_update 事件（需扩展全部 7 种事件类型）" },
+      { "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AgentSseEvent.java", "purpose": "7 种 SSE 事件类型定义" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.controller",
+        "description": "新增：AgentController — Agent 专用控制器（SSE 转发 + 状态查询）；修改：AnalysisController — agentStream 标记 @Deprecated + 301 重定向"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service",
+        "description": "修改：AgentClientService — writeAgentStateToRedis 扩展支持全部 SSE 事件类型映射"
+      }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "description": "task23 实现，含 agentStream SSE 端点（GET /api/analysis/{analysisId}/agent-stream）；本任务迁移至 AgentController", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "description": "task21 实现，generateReportStream + writeAgentStateToRedis（仅处理 agent_state_update）；本任务扩展全部事件类型", "reuse_type": "extend" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AgentSseEvent.java", "description": "7 种事件类型：agent_started / agent_state_update / agent_completed / agent_failed / analysis_completed / error / ping", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AgentStateResponse.java", "description": "Agent 状态 DTO（agentName / status / progress / intermediateResult / durationMs）", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "validateAnalysisAccess(userId, analysisId) 数据隔离校验方法", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java", "description": "agentStateKey(analysisId) = agent:state:{analysisId}", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AgentController (新增)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AgentController.java",
+      "responsibility": "Agent 专用控制器：SSE 流转发 + Agent 状态查询，独立于 AnalysisController",
+      "key_interfaces": [
+        { "name": "agentStream", "signature": "Flux<ServerSentEvent<Object>> agentStream(@PathVariable String analysisId, @RequestHeader(value=\"Last-Event-ID\", required=false) String lastEventId, @AuthenticationPrincipal String userId)", "description": "GET /api/agents/{analysisId}/stream — SSE 流转发（从 AnalysisController 迁移）" },
+        { "name": "getAgentStates", "signature": "ApiResponse<List<AgentStateResponse>> getAgentStates(@PathVariable String analysisId, @AuthenticationPrincipal String userId)", "description": "GET /api/agents/{analysisId}/states — 查询所有 Agent 状态" },
+        { "name": "getAgentStatus", "signature": "ApiResponse<AgentStateResponse> getAgentStatus(@PathVariable String analysisId, @RequestParam String agentName, @AuthenticationPrincipal String userId)", "description": "GET /api/agents/{analysisId}/status?agentName=xxx — 查询单个 Agent 状态" }
+      ]
+    },
+    {
+      "name": "AgentClientService (扩展)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java",
+      "responsibility": "扩展 writeAgentStateToRedis() 支持全部 7 种 SSE 事件类型到 Redis Hash 的映射",
+      "key_interfaces": [
+        { "name": "writeAgentStateToRedis", "signature": "void writeAgentStateToRedis(String analysisId, AgentSseEvent event)", "description": "扩展：agent_started → status=running, agent_completed → status=completed, agent_failed → status=failed, agent_state_update → 完整状态更新, analysis_completed → 全部 completed, error/ping → 不写 Redis" }
+      ]
+    },
+    {
+      "name": "AnalysisController (修改)",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "responsibility": "agentStream 端点标记 @Deprecated，返回 301 重定向到 /api/agents/{analysisId}/stream",
+      "key_interfaces": [
+        { "name": "agentStream", "signature": "@Deprecated Flux<ServerSentEvent<Object>> agentStream(...)", "description": "GET /api/analysis/{analysisId}/agent-stream — 保留但 @Deprecated + 301 重定向" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AgentController.java",
+      "description": "新建 Agent 专用控制器：3 个端点（SSE 流转发 + 状态查询 + 单 Agent 状态查询）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java",
+      "description": "扩展 writeAgentStateToRedis() 支持全部 SSE 事件类型映射；新增 getAgentState(analysisId, agentName) 单 Agent 查询",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "description": "agentStream 端点标记 @Deprecated，返回 301 重定向到 AgentController 新端点",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/controller/AgentControllerTest.java",
+      "description": "AgentController 测试：SSE 流转发 + 状态查询 + 单 Agent 状态查询 + 数据隔离",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AgentClientServiceRedisTest.java",
+      "description": "AgentClientService Redis 写入映射测试：7 种事件类型 → Redis Hash 字段映射验证",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-028-01",
+        "description": "新建 AgentController，注入 AgentClientService + AnalysisService，JWT 认证 + 数据隔离（复用 analysisService.validateAnalysisAccess）",
+        "priority": "P0",
+        "acceptance_condition": "AgentController 有 @RestController + @RequestMapping(\"/api/agents\") + @RequiredArgsConstructor；所有端点校验 userId + analysisId 归属"
+      },
+      {
+        "id": "FR-028-02",
+        "description": "GET /api/agents/{analysisId}/stream — SSE 流转发，从 AnalysisController.agentStream 迁移逻辑，支持 compare/report 分析类型",
+        "priority": "P0",
+        "acceptance_condition": "MockMvc SSE 订阅成功；AgentRequest 包含 analysisType（从 AnalysisResult 查询获取）；返回 Flux<ServerSentEvent<Object>>"
+      },
+      {
+        "id": "FR-028-03",
+        "description": "GET /api/agents/{analysisId}/states — 返回 List<AgentStateResponse>，从 Redis Hash 读取（委托 agentClientService.getAgentStates）",
+        "priority": "P0",
+        "acceptance_condition": "ApiResponse<List<AgentStateResponse>>；Redis 无数据时返回空列表 []"
+      },
+      {
+        "id": "FR-028-04",
+        "description": "GET /api/agents/{analysisId}/status?agentName=xxx — 返回单个 AgentStateResponse，从 Redis Hash 读取指定 agentName 字段",
+        "priority": "P0",
+        "acceptance_condition": "ApiResponse<AgentStateResponse>；agentName 不存在时返回 404 ResourceNotFoundException"
+      },
+      {
+        "id": "FR-028-05",
+        "description": "SSE 事件到 Redis 的映射：agent_started → status=running, progress=0.0；agent_completed → status=completed, progress=1.0；agent_failed → status=failed；agent_state_update → 完整状态更新；analysis_completed → 所有 Agent status=completed；error/ping → 不写 Redis",
+        "priority": "P0",
+        "acceptance_condition": "7 种事件类型各自正确映射；Redis Hash field=agentName, value=JSON(AgentStateResponse)"
+      },
+      {
+        "id": "FR-028-06",
+        "description": "AnalysisController.agentStream 保留但标记 @Deprecated，返回 HTTP 301 重定向到 /api/agents/{analysisId}/stream",
+        "priority": "P1",
+        "acceptance_condition": "GET /api/analysis/{analysisId}/agent-stream 返回 301 + Location: /api/agents/{analysisId}/stream；日志 warn 提示旧端点已弃用"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python snake_case（依赖全局 Jackson SNAKE_CASE）",
+        "mappings": [
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+          { "java": "agentName", "python": "agent_name", "json": "agentName" },
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediateResult" },
+          { "java": "durationMs", "python": "duration_ms", "json": "durationMs" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "GET /api/agents/{analysisId}/stream",
+          "method": "GET",
+          "request_format": null,
+          "response_format": "text/event-stream: event: {eventType}\\ndata: {json}\\nid: {eventId}\\n\\n"
+        },
+        {
+          "endpoint": "GET /api/agents/{analysisId}/states",
+          "method": "GET",
+          "request_format": null,
+          "response_format": { "code": 200, "data": [{ "agentName": "string", "status": "waiting|running|completed|failed", "progress": "number (0-1)", "intermediateResult": "string|null", "durationMs": "number|null" }] }
+        },
+        {
+          "endpoint": "GET /api/agents/{analysisId}/status?agentName=xxx",
+          "method": "GET",
+          "request_format": null,
+          "response_format": { "code": 200, "data": { "agentName": "string", "status": "string", "progress": "number", "intermediateResult": "string|null", "durationMs": "number|null" } }
+        }
+      ],
+      "data_flow": "前端 EventSource → AgentController.agentStream → analysisService.validateAnalysisAccess → agentClientService.generateReportStream → pythonAIClient.analyzeStream → SSE 事件 → writeAgentStateToRedis → Redis Hash → getAgentStates / getAgentState 读取"
+    },
+    "security_requirements": [
+      { "category": "jwt_auth", "requirement": "所有端点必须 @AuthenticationPrincipal 取 userId；未登录返回 401" },
+      { "category": "data_isolation", "requirement": "analysisService.validateAnalysisAccess(userId, analysisId) 校验归属；他人 analysisId 返回 403" },
+      { "category": "sensitive_info", "requirement": "SSE 流中不暴露 Python 服务内部 URL / 堆栈信息" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java"
+      },
+      "json": { "field_name": "camelCase（AgentStateResponse 使用 @JsonProperty 覆盖全局 SNAKE_CASE）" }
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → (Repository + AgentClientService)；禁止 Controller 直接调 Repository 或 PythonAIClient",
+        "entity_dto_separation": true
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "Service 内部异常 → BusinessException/ResourceNotFoundException/AuthenticationException；GlobalExceptionHandler 统一处理"
+      }
+    },
+    "caching": {
+      "pattern": "Redis Hash (agent:state:{analysisId}, TTL=5min)",
+      "ttl_layers": [
+        { "cache_name": "agentState", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" }
+      ],
+      "note": "Agent 状态查询不使用 @Cacheable（实时性要求）；直接从 Redis Hash 读取"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["输出 SSE event.data 完整内容", "在 Flux.doOnNext 中打印 INFO 级别日志", "输出 Redis Hash 完整内容"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-028-01", "action": "AgentController 直接注入 PythonAIClient（必须通过 AgentClientService）", "reason": "分层约束：Controller 不直连 Client 层", "severity": "critical" },
+    { "id": "FA-028-02", "action": "writeAgentStateToRedis 忽略 agent_started/agent_completed/agent_failed 事件（仅处理 agent_state_update）", "reason": "当前实现仅处理 agent_state_update，导致 agent_started/agent_completed/agent_failed 事件不更新 Redis 状态", "severity": "critical" },
+    { "id": "FA-028-03", "action": "删除 AnalysisController.agentStream 端点（必须保留 @Deprecated + 301 重定向）", "reason": "向后兼容：前端旧版本可能仍在使用旧端点", "severity": "high" },
+    { "id": "FA-028-04", "action": "AgentController 直接调 Repository 查 AnalysisResult 获取 analysisType", "reason": "分层约束：必须通过 AnalysisService 或 AgentClientService", "severity": "high" },
+    { "id": "FA-028-05", "action": "SSE 流中暴露 Python 服务异常堆栈或内部 URL", "reason": "安全约束：前端仅接收标准化错误事件", "severity": "critical" },
+    { "id": "FA-028-06", "action": "在 writeAgentStateToRedis 中对 error/ping 事件写 Redis", "reason": "error/ping 是控制事件，不对应 Agent 状态变更", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "agentController_stream_returns_sse_events",
+        "description": "Mock AgentClientService.generateReportStream 返回 Flux<AgentSseEvent>，验证 SSE 流正确转发（event/data/id 字段）",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "agentController_stream_validates_data_isolation",
+        "description": "他人 analysisId → analysisService.validateAnalysisAccess 抛 BusinessException(403)",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "agentController_getAgentStates_returns_list",
+        "description": "Mock AgentClientService.getAgentStates 返回 3 个 Agent 状态，验证 ApiResponse<List<AgentStateResponse>>",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "agentController_getAgentStates_empty_returns_empty_list",
+        "description": "Redis 无数据 → 返回 ApiResponse<List<AgentStateResponse>> data=[]",
+        "framework": "junit5",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "agentController_getAgentStatus_returns_single",
+        "description": "Mock AgentClientService.getAgentState(analysisId, \"retriever\") 返回单个 AgentStateResponse",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "agentController_getAgentStatus_not_found_returns404",
+        "description": "agentName 不存在于 Redis Hash → 抛 ResourceNotFoundException",
+        "framework": "junit5",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "agentClientService_writeAgentState_agent_started_maps_running",
+        "description": "agent_started 事件 → Redis Hash 写入 status=running, progress=0.0",
+        "framework": "junit5",
+        "coverage": ["event_mapping"]
+      },
+      {
+        "test_name": "agentClientService_writeAgentState_agent_completed_maps_completed",
+        "description": "agent_completed 事件 → Redis Hash 写入 status=completed, progress=1.0",
+        "framework": "junit5",
+        "coverage": ["event_mapping"]
+      },
+      {
+        "test_name": "agentClientService_writeAgentState_agent_failed_maps_failed",
+        "description": "agent_failed 事件 → Redis Hash 写入 status=failed",
+        "framework": "junit5",
+        "coverage": ["event_mapping"]
+      },
+      {
+        "test_name": "agentClientService_writeAgentState_analysis_completed_maps_all_completed",
+        "description": "analysis_completed 事件 → Redis Hash 所有 Agent 字段 status 更新为 completed",
+        "framework": "junit5",
+        "coverage": ["event_mapping"]
+      },
+      {
+        "test_name": "agentClientService_writeAgentState_error_ping_skip_redis",
+        "description": "error/ping 事件 → 不写 Redis Hash",
+        "framework": "junit5",
+        "coverage": ["event_mapping"]
+      },
+      {
+        "test_name": "analysisController_agentStream_deprecated_redirects_301",
+        "description": "GET /api/analysis/{analysisId}/agent-stream 返回 301 + Location header",
+        "framework": "junit5",
+        "coverage": ["backward_compatibility"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "agentController_stream_e2e_with_redis_state",
+        "description": "SSE 流消费后，GET /api/agents/{analysisId}/states 返回与 SSE 事件一致的 Agent 状态",
+        "layers_involved": ["java_backend", "python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "java", "command": "cd Veritas/backend && mvn -Dtest='AgentControllerTest,AgentClientServiceRedisTest' test", "expected_result": "12+ 测试通过" },
+      { "layer": "java", "command": "curl -s -H 'Authorization: Bearer {token}' http://localhost:8080/api/agents/{analysisId}/states | jq .", "expected_result": "返回 {code:200, data:[{agentName, status, progress, ...}]}" },
+      { "layer": "java", "command": "curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer {token}' http://localhost:8080/api/analysis/{analysisId}/agent-stream", "expected_result": "301" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-028-01", "criterion": "AgentController 3 个端点均可正常访问，JWT 认证 + 数据隔离", "verified_by": "automated_test" },
+    { "id": "AC-028-02", "criterion": "GET /api/agents/{analysisId}/stream SSE 流转发成功（含 compare/report 类型）", "verified_by": "automated_test" },
+    { "id": "AC-028-03", "criterion": "GET /api/agents/{analysisId}/states 返回 List<AgentStateResponse>", "verified_by": "automated_test" },
+    { "id": "AC-028-04", "criterion": "GET /api/agents/{analysisId}/status?agentName=xxx 返回单个 AgentStateResponse", "verified_by": "automated_test" },
+    { "id": "AC-028-05", "criterion": "writeAgentStateToRedis 支持 7 种事件类型正确映射（agent_started→running, agent_completed→completed, agent_failed→failed, agent_state_update→完整更新, analysis_completed→全部completed, error/ping→跳过）", "verified_by": "automated_test" },
+    { "id": "AC-028-06", "criterion": "AnalysisController.agentStream 标记 @Deprecated + 301 重定向", "verified_by": "automated_test" },
+    { "id": "AC-028-07", "criterion": "12+ 个单元测试全部通过", "verified_by": "automated_test" }
+  ]
+}

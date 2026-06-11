@@ -63,6 +63,7 @@ class CoordinatorAgent(BaseAgent):
         self,
         llm_service,
         prompt_manager,
+        personalization_service=None,
         timeout: int = 30,
         llm_temperature: float = 0.3,
         llm_max_tokens: int = 1024,
@@ -72,6 +73,7 @@ class CoordinatorAgent(BaseAgent):
         Args:
             llm_service: LLM 服务实例（含三路降级）
             prompt_manager: PromptManager 实例（string.Template 渲染）
+            personalization_service: PersonalizationService 实例（可选，个性化指令注入）
             timeout: 单次执行超时（秒），默认 30
             llm_temperature: 任务分解需要更确定性的 JSON 输出，温度不宜过高
             llm_max_tokens: 分解结果较短，无需过大 token 预算
@@ -82,6 +84,7 @@ class CoordinatorAgent(BaseAgent):
             prompt_manager=prompt_manager,
             timeout=timeout,
         )
+        self.personalization_service = personalization_service
         self.llm_temperature = llm_temperature
         self.llm_max_tokens = llm_max_tokens
 
@@ -112,13 +115,20 @@ class CoordinatorAgent(BaseAgent):
         else:
             paper_ids_str = "（用户未指定）"
 
-        return self.prompt_manager.get_prompt(
+        base_prompt = self.prompt_manager.get_prompt(
             "coordinator",
             query=topic,
             user_profile=user_profile_str,
             paper_ids=paper_ids_str,
             analysis_type=str(analysis_type),
         )
+
+        # 注入个性化指令
+        personalization = self._get_personalization_instruction(context)
+        if personalization:
+            base_prompt += f"\n\n【个性化适配】{personalization}"
+
+        return base_prompt
 
     # ============================================================
     # FR-003 _run
@@ -540,3 +550,18 @@ class CoordinatorAgent(BaseAgent):
             if key in profile and profile[key]:
                 parts.append(f"{key}={profile[key]}")
         return " / ".join(parts) if parts else "（用户未提供画像）"
+
+    def _get_personalization_instruction(self, context: dict) -> str:
+        """获取个性化指令片段（降级安全）"""
+        if self.personalization_service is None:
+            return ""
+        user_profile = context.get("user_profile")
+        if not user_profile:
+            return ""
+        try:
+            return self.personalization_service.get_personalization_for_agent(
+                "coordinator", user_profile
+            )
+        except Exception as e:
+            logger.warning(f"Personalization injection failed for coordinator: {e}")
+            return ""

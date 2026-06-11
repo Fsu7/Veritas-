@@ -3,6 +3,7 @@ package com.literatureassistant.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.literatureassistant.dto.common.AgentRequest;
 import com.literatureassistant.dto.common.UserProfileDTO;
+import com.literatureassistant.dto.request.CompareRequest;
 import com.literatureassistant.dto.request.PaperAnalysisRequest;
 import com.literatureassistant.dto.response.AnalysisResultDTO;
 import com.literatureassistant.dto.response.AnalysisTaskResponse;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -46,6 +48,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * AnalysisService 单元测试。
+ * <p>task24 重构后：使用 {@code @Mock AnalysisTransactionService} 替代原 self 反射调用。
  *
  * @author XH-202630 Literature Assistant
  */
@@ -68,6 +71,9 @@ class AnalysisServiceTest {
     private AgentClientService agentClientService;
 
     @Mock
+    private AnalysisTransactionService analysisTransactionService;
+
+    @Mock
     private AnalysisResultRepository analysisResultRepository;
 
     @Mock
@@ -85,12 +91,8 @@ class AnalysisServiceTest {
         context.setAuthentication(new UsernamePasswordAuthenticationToken(CURRENT_USER_ID, null, List.of()));
         SecurityContextHolder.setContext(context);
 
-        // @InjectMocks 不会注入 final 字段或 @Autowired 字段，需要手动注入
+        // @InjectMocks 不会注入 final 字段或 @Autowired 字段，需要手动注入 objectMapper
         try {
-            java.lang.reflect.Field selfField = AnalysisService.class.getDeclaredField("self");
-            selfField.setAccessible(true);
-            selfField.set(analysisService, analysisService);
-
             java.lang.reflect.Field omField = AnalysisService.class.getDeclaredField("objectMapper");
             omField.setAccessible(true);
             omField.set(analysisService, objectMapper);
@@ -111,9 +113,9 @@ class AnalysisServiceTest {
                 .build();
     }
 
-    private PaperDetailResponse buildPaper() {
+    private PaperDetailResponse buildPaper(String paperId) {
         return PaperDetailResponse.builder()
-                .paperId(PAPER_ID)
+                .paperId(paperId)
                 .title("Attention Is All You Need")
                 .build();
     }
@@ -139,27 +141,40 @@ class AnalysisServiceTest {
                 .build();
     }
 
-    @Test
-    @DisplayName("analyzePaper - 正常流程：7 步执行，状态 PENDING→COMPLETED")
-    void analyzeService_normal_completes_analysisResult() {
-        AnalysisResult savedEntity = AnalysisResult.builder()
-                .id(100L)
-                .analysisId("anl_abcdef012345")
+    private AnalysisResult buildPendingEntity(Long id, AnalysisType type) {
+        return AnalysisResult.builder()
+                .id(id)
+                .analysisId("anl_" + id)
                 .sessionId(SESSION_ID)
-                .type(AnalysisType.PAPER_ANALYSIS)
+                .type(type)
                 .status(AnalysisStatus.PENDING)
                 .result("{}")
                 .createdAt(LocalDateTime.now())
                 .build();
+    }
+
+    // region analyzePaper (task22/23 既有测试)
+
+    @Test
+    @DisplayName("analyzePaper - 正常流程：7 步执行，状态 PENDING→COMPLETED")
+    void analyzeService_normal_completes_analysisResult() {
+        AnalysisResult savedEntity = buildPendingEntity(100L, AnalysisType.PAPER_ANALYSIS);
         when(userService.getProfile(CURRENT_USER_ID)).thenReturn(buildProfile());
-        when(paperService.getPaperDetail(PAPER_ID)).thenReturn(buildPaper());
+        when(paperService.getPaperDetail(PAPER_ID)).thenReturn(buildPaper(PAPER_ID));
         when(sessionService.createSession(eq(CURRENT_USER_ID), any()))
                 .thenReturn(SessionResponse.builder().sessionId(SESSION_ID).userId(CURRENT_USER_ID).build());
-        when(analysisResultRepository.save(any(AnalysisResult.class))).thenReturn(savedEntity);
-        when(analysisResultRepository.findById(100L)).thenReturn(Optional.of(savedEntity));
+        when(analysisTransactionService.savePending(anyString(), eq(SESSION_ID), eq(AnalysisType.PAPER_ANALYSIS)))
+                .thenReturn(savedEntity);
+        when(analysisTransactionService.completeAnalysis(eq(100L), any(AnalysisResultDTO.class)))
+                .thenReturn(AnalysisTaskResponse.builder()
+                        .analysisId("anl_100")
+                        .status(AnalysisStatus.COMPLETED)
+                        .message("分析完成")
+                        .createdAt(LocalDateTime.now())
+                        .build());
         when(agentClientService.analyzePaper(any(AgentRequest.class)))
                 .thenReturn(AnalysisResultDTO.builder()
-                        .analysisId("anl_abcdef012345")
+                        .analysisId("anl_100")
                         .status(AnalysisStatus.COMPLETED)
                         .report("## Report")
                         .build());
@@ -169,31 +184,34 @@ class AnalysisServiceTest {
         assertThat(response).isNotNull();
         assertThat(response.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
         assertThat(response.getMessage()).isEqualTo("分析完成");
-        verify(analysisResultRepository, times(2)).save(any(AnalysisResult.class)); // PENDING + COMPLETED
+        verify(analysisTransactionService, times(1)).savePending(anyString(), eq(SESSION_ID), eq(AnalysisType.PAPER_ANALYSIS));
+        verify(analysisTransactionService, times(1)).completeAnalysis(eq(100L), any(AnalysisResultDTO.class));
         verify(agentClientService, times(1)).analyzePaper(any(AgentRequest.class));
     }
 
     @Test
     @DisplayName("analyzePaper - AI 返回 degraded → status=COMPLETED + degraded=true")
     void analyzeService_aiFailure_marks_degraded() {
-        AnalysisResult savedEntity = AnalysisResult.builder()
-                .id(101L)
-                .analysisId("anl_aaaa")
-                .sessionId(SESSION_ID)
-                .type(AnalysisType.PAPER_ANALYSIS)
-                .status(AnalysisStatus.PENDING)
-                .result("{}")
-                .createdAt(LocalDateTime.now())
-                .build();
+        AnalysisResult savedEntity = buildPendingEntity(101L, AnalysisType.PAPER_ANALYSIS);
         when(userService.getProfile(CURRENT_USER_ID)).thenReturn(buildProfile());
-        when(paperService.getPaperDetail(PAPER_ID)).thenReturn(buildPaper());
+        when(paperService.getPaperDetail(PAPER_ID)).thenReturn(buildPaper(PAPER_ID));
         when(sessionService.createSession(eq(CURRENT_USER_ID), any()))
                 .thenReturn(SessionResponse.builder().sessionId(SESSION_ID).userId(CURRENT_USER_ID).build());
-        when(analysisResultRepository.save(any(AnalysisResult.class))).thenReturn(savedEntity);
-        when(analysisResultRepository.findById(101L)).thenReturn(Optional.of(savedEntity));
+        when(analysisTransactionService.savePending(anyString(), eq(SESSION_ID), eq(AnalysisType.PAPER_ANALYSIS)))
+                .thenReturn(savedEntity);
+        when(analysisTransactionService.completeAnalysis(eq(101L), any(AnalysisResultDTO.class)))
+                .thenAnswer(inv -> {
+                    AnalysisResultDTO r = inv.getArgument(1);
+                    return AnalysisTaskResponse.builder()
+                            .analysisId("anl_101")
+                            .status(AnalysisStatus.COMPLETED)
+                            .message("分析完成（降级）：" + r.getDegradedReason())
+                            .createdAt(LocalDateTime.now())
+                            .build();
+                });
         when(agentClientService.analyzePaper(any(AgentRequest.class)))
                 .thenReturn(AnalysisResultDTO.builder()
-                        .analysisId("anl_aaaa")
+                        .analysisId("anl_101")
                         .degraded(true)
                         .degradedReason("AI服务暂时不可用")
                         .build());
@@ -214,7 +232,7 @@ class AnalysisServiceTest {
                 .sessionId(SESSION_ID)
                 .build();
         when(userService.getProfile(CURRENT_USER_ID)).thenReturn(buildProfile());
-        when(paperService.getPaperDetail(PAPER_ID)).thenReturn(buildPaper());
+        when(paperService.getPaperDetail(PAPER_ID)).thenReturn(buildPaper(PAPER_ID));
         when(sessionRepository.findBySessionId(SESSION_ID))
                 .thenReturn(Optional.of(buildSession(OTHER_USER_ID, SessionStatus.ACTIVE)));
 
@@ -244,25 +262,23 @@ class AnalysisServiceTest {
     @Test
     @DisplayName("analyzePaper - 用户画像缺失时使用默认画像")
     void analyzeService_noProfile_usesDefault() {
-        AnalysisResult savedEntity = AnalysisResult.builder()
-                .id(102L)
-                .analysisId("anl_no_profile")
-                .sessionId(SESSION_ID)
-                .type(AnalysisType.PAPER_ANALYSIS)
-                .status(AnalysisStatus.PENDING)
-                .result("{}")
-                .createdAt(LocalDateTime.now())
-                .build();
+        AnalysisResult savedEntity = buildPendingEntity(102L, AnalysisType.PAPER_ANALYSIS);
         when(userService.getProfile(CURRENT_USER_ID))
                 .thenThrow(new ResourceNotFoundException("UserProfile", CURRENT_USER_ID));
-        when(paperService.getPaperDetail(PAPER_ID)).thenReturn(buildPaper());
+        when(paperService.getPaperDetail(PAPER_ID)).thenReturn(buildPaper(PAPER_ID));
         when(sessionService.createSession(eq(CURRENT_USER_ID), any()))
                 .thenReturn(SessionResponse.builder().sessionId(SESSION_ID).userId(CURRENT_USER_ID).build());
-        when(analysisResultRepository.save(any(AnalysisResult.class))).thenReturn(savedEntity);
-        when(analysisResultRepository.findById(102L)).thenReturn(Optional.of(savedEntity));
+        when(analysisTransactionService.savePending(anyString(), eq(SESSION_ID), eq(AnalysisType.PAPER_ANALYSIS)))
+                .thenReturn(savedEntity);
+        when(analysisTransactionService.completeAnalysis(eq(102L), any(AnalysisResultDTO.class)))
+                .thenReturn(AnalysisTaskResponse.builder()
+                        .analysisId("anl_102")
+                        .status(AnalysisStatus.COMPLETED)
+                        .message("分析完成")
+                        .build());
         when(agentClientService.analyzePaper(any(AgentRequest.class)))
                 .thenReturn(AnalysisResultDTO.builder()
-                        .analysisId("anl_no_profile")
+                        .analysisId("anl_102")
                         .status(AnalysisStatus.COMPLETED)
                         .build());
 
@@ -271,8 +287,7 @@ class AnalysisServiceTest {
         assertThat(response).isNotNull();
         assertThat(response.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
         // 验证 AgentRequest 携带默认画像
-        org.mockito.ArgumentCaptor<AgentRequest> captor =
-                org.mockito.ArgumentCaptor.forClass(AgentRequest.class);
+        ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
         verify(agentClientService).analyzePaper(captor.capture());
         assertThat(captor.getValue().getUserProfile().getEducationLevel().getDbValue()).isEqualTo("master");
         assertThat(captor.getValue().getUserProfile().getKnowledgeLevel().getDbValue()).isEqualTo("intermediate");
@@ -286,24 +301,21 @@ class AnalysisServiceTest {
                 .paperId(PAPER_ID)
                 .sessionId(SESSION_ID)
                 .build();
-        AnalysisResult savedEntity = AnalysisResult.builder()
-                .id(103L)
-                .analysisId("anl_reuse")
-                .sessionId(SESSION_ID)
-                .type(AnalysisType.PAPER_ANALYSIS)
-                .status(AnalysisStatus.PENDING)
-                .result("{}")
-                .createdAt(LocalDateTime.now())
-                .build();
+        AnalysisResult savedEntity = buildPendingEntity(103L, AnalysisType.PAPER_ANALYSIS);
         when(userService.getProfile(CURRENT_USER_ID)).thenReturn(buildProfile());
-        when(paperService.getPaperDetail(PAPER_ID)).thenReturn(buildPaper());
+        when(paperService.getPaperDetail(PAPER_ID)).thenReturn(buildPaper(PAPER_ID));
         when(sessionRepository.findBySessionId(SESSION_ID))
                 .thenReturn(Optional.of(buildSession(CURRENT_USER_ID, SessionStatus.ACTIVE)));
-        when(analysisResultRepository.save(any(AnalysisResult.class))).thenReturn(savedEntity);
-        when(analysisResultRepository.findById(103L)).thenReturn(Optional.of(savedEntity));
+        when(analysisTransactionService.savePending(anyString(), eq(SESSION_ID), eq(AnalysisType.PAPER_ANALYSIS)))
+                .thenReturn(savedEntity);
+        when(analysisTransactionService.completeAnalysis(eq(103L), any(AnalysisResultDTO.class)))
+                .thenReturn(AnalysisTaskResponse.builder()
+                        .analysisId("anl_103")
+                        .status(AnalysisStatus.COMPLETED)
+                        .build());
         when(agentClientService.analyzePaper(any(AgentRequest.class)))
                 .thenReturn(AnalysisResultDTO.builder()
-                        .analysisId("anl_reuse")
+                        .analysisId("anl_103")
                         .status(AnalysisStatus.COMPLETED)
                         .build());
 
@@ -313,4 +325,114 @@ class AnalysisServiceTest {
         // sessionService.createSession 不应被调用
         verify(sessionService, never()).createSession(anyString(), any());
     }
+
+    // endregion
+
+    // region comparePapers (task25 新增)
+
+    @Test
+    @DisplayName("comparePapers - 正常流程：3 篇论文 → 编排完整执行")
+    void comparePapers_normal_flow_completes() {
+        CompareRequest req = CompareRequest.builder()
+                .topic("对比多Agent框架")
+                .paperIds(List.of("p1", "p2", "p3"))
+                .build();
+        AnalysisResult pending = buildPendingEntity(200L, AnalysisType.COMPARE);
+        when(userService.getProfile(CURRENT_USER_ID)).thenReturn(buildProfile());
+        when(paperService.getPaperDetail("p1")).thenReturn(buildPaper("p1"));
+        when(paperService.getPaperDetail("p2")).thenReturn(buildPaper("p2"));
+        when(paperService.getPaperDetail("p3")).thenReturn(buildPaper("p3"));
+        when(sessionService.createSession(eq(CURRENT_USER_ID), any()))
+                .thenReturn(SessionResponse.builder().sessionId(SESSION_ID).userId(CURRENT_USER_ID).build());
+        when(analysisTransactionService.savePending(anyString(), eq(SESSION_ID), eq(AnalysisType.COMPARE)))
+                .thenReturn(pending);
+        when(analysisTransactionService.completeAnalysis(eq(200L), any(AnalysisResultDTO.class)))
+                .thenReturn(AnalysisTaskResponse.builder()
+                        .analysisId("anl_200")
+                        .status(AnalysisStatus.COMPLETED)
+                        .message("分析完成")
+                        .build());
+        when(agentClientService.analyzePaper(any(AgentRequest.class)))
+                .thenReturn(AnalysisResultDTO.builder()
+                        .analysisId("anl_200")
+                        .status(AnalysisStatus.COMPLETED)
+                        .build());
+
+        AnalysisTaskResponse response = analysisService.comparePapers(CURRENT_USER_ID, req);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
+        verify(analysisTransactionService).savePending(anyString(), eq(SESSION_ID), eq(AnalysisType.COMPARE));
+    }
+
+    @Test
+    @DisplayName("comparePapers - 任一 paperId 不存在 → 404，不进入 AI")
+    void comparePapers_paperId_not_found_throws404() {
+        CompareRequest req = CompareRequest.builder()
+                .topic("对比")
+                .paperIds(List.of("p1", "invalid"))
+                .build();
+        when(userService.getProfile(CURRENT_USER_ID)).thenReturn(buildProfile());
+        when(paperService.getPaperDetail("p1")).thenReturn(buildPaper("p1"));
+        when(paperService.getPaperDetail("invalid"))
+                .thenThrow(new ResourceNotFoundException("Paper", "invalid"));
+
+        assertThatThrownBy(() -> analysisService.comparePapers(CURRENT_USER_ID, req))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(agentClientService, never()).analyzePaper(any(AgentRequest.class));
+    }
+
+    @Test
+    @DisplayName("comparePapers - 他人 sessionId → 403")
+    void comparePapers_other_user_session_throws403() {
+        CompareRequest req = CompareRequest.builder()
+                .topic("对比")
+                .paperIds(List.of("p1", "p2"))
+                .sessionId(SESSION_ID)
+                .build();
+        when(userService.getProfile(CURRENT_USER_ID)).thenReturn(buildProfile());
+        when(paperService.getPaperDetail("p1")).thenReturn(buildPaper("p1"));
+        when(paperService.getPaperDetail("p2")).thenReturn(buildPaper("p2"));
+        when(sessionRepository.findBySessionId(SESSION_ID))
+                .thenReturn(Optional.of(buildSession(OTHER_USER_ID, SessionStatus.ACTIVE)));
+
+        assertThatThrownBy(() -> analysisService.comparePapers(CURRENT_USER_ID, req))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("他人会话");
+    }
+
+    @Test
+    @DisplayName("comparePapers - AgentRequest.paperIds 包含所有论文ID + analysisType=COMPARE")
+    void comparePapers_agentRequest_contains_all_paperIds() {
+        CompareRequest req = CompareRequest.builder()
+                .topic("对比")
+                .paperIds(List.of("p1", "p2", "p3", "p4"))
+                .build();
+        AnalysisResult pending = buildPendingEntity(201L, AnalysisType.COMPARE);
+        when(userService.getProfile(CURRENT_USER_ID)).thenReturn(buildProfile());
+        when(paperService.getPaperDetail(anyString())).thenAnswer(inv -> buildPaper(inv.getArgument(0)));
+        when(sessionService.createSession(eq(CURRENT_USER_ID), any()))
+                .thenReturn(SessionResponse.builder().sessionId(SESSION_ID).userId(CURRENT_USER_ID).build());
+        when(analysisTransactionService.savePending(anyString(), eq(SESSION_ID), eq(AnalysisType.COMPARE)))
+                .thenReturn(pending);
+        when(analysisTransactionService.completeAnalysis(eq(201L), any(AnalysisResultDTO.class)))
+                .thenReturn(AnalysisTaskResponse.builder()
+                        .analysisId("anl_201")
+                        .status(AnalysisStatus.COMPLETED)
+                        .build());
+        when(agentClientService.analyzePaper(any(AgentRequest.class)))
+                .thenReturn(AnalysisResultDTO.builder()
+                        .analysisId("anl_201")
+                        .status(AnalysisStatus.COMPLETED)
+                        .build());
+
+        analysisService.comparePapers(CURRENT_USER_ID, req);
+
+        ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
+        verify(agentClientService).analyzePaper(captor.capture());
+        assertThat(captor.getValue().getAnalysisType()).isEqualTo(AnalysisType.COMPARE);
+        assertThat(captor.getValue().getPaperIds()).containsExactly("p1", "p2", "p3", "p4");
+    }
+
+    // endregion
 }

@@ -1,0 +1,308 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "AM4：6-Agent协同与个性化引擎",
+    "requirement": "实现 ReviewerAgent 核心逻辑：继承 BaseAgent，接收生成Agent的综述报告和原始论文数据，调用LLM进行事实核查、引用核查、逻辑完整性审核，返回审核通过或修改建议。审核通过条件：事实准确率>90%且引用准确率>90%。",
+    "requirement_ids": ["F3.1.6"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "查阅ReviewerAgent详细设计（5.4.6节）、Agent基类设计（5.3节）、工作流定义（5.5节）"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "查阅AM4里程碑中审核Agent的交付物清单和验收标准（6.2节）"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "了解项目架构、命名规范、降级策略、统一响应格式"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "Agent基类：BaseAgent抽象类，定义execute()超时控制、AgentState状态管理、build_prompt()和_run()抽象方法"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/generator.py",
+        "description": "生成Agent：产出report字段（综述文本）和citation_list字段（引用列表），是ReviewerAgent的前置节点"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/services/llm_service.py",
+        "description": "LLM推理服务：generate()方法，三级降级（Builtin→API→Local）"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/prompts/reviewer.txt",
+        "description": "审核Agent Prompt模板（已存在但需增强）"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent基类：已实现AgentStatus枚举、AgentState数据类、execute()超时控制(30s)、_fallback_result()降级返回、_summarize_result()摘要生成",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/analyzer.py",
+        "description": "AnalyzerAgent：参考实现模式——继承BaseAgent、重写build_prompt()和_run()、LLM调用+JSON解析+降级兜底",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/generator.py",
+        "description": "GeneratorAgent：参考其如何从context获取user_profile、调用LLM生成、解析结果",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/prompts/reviewer.txt",
+        "description": "审核Prompt模板（已存在）：包含事实核查/引用核查/逻辑完整性/内容准确性4个检查维度，JSON输出格式定义",
+        "reuse_type": "extend"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "BaseAgent",
+      "path": "Veritas/ai-service/app/agents/base.py",
+      "responsibility": "Agent基类，提供execute()超时控制、状态管理、降级返回",
+      "key_interfaces": [
+        {
+          "name": "execute",
+          "signature": "async execute(self, input_data: dict, context: dict) -> dict",
+          "description": "执行Agent任务，含30s超时控制、状态管理和降级处理"
+        },
+        {
+          "name": "build_prompt",
+          "signature": "def build_prompt(self, input_data: dict, context: dict) -> str",
+          "description": "构建Agent Prompt（抽象方法，子类实现）"
+        },
+        {
+          "name": "_run",
+          "signature": "async def _run(self, prompt: str, input_data: dict, context: dict) -> dict",
+          "description": "核心执行逻辑（抽象方法，子类实现）"
+        },
+        {
+          "name": "_fallback_result",
+          "signature": "def _fallback_result(self, input_data: dict) -> dict",
+          "description": "降级时的默认返回：{\"degraded\": True, \"agent\": self.name, \"error\": ...}"
+        }
+      ]
+    },
+    {
+      "name": "LLMService",
+      "path": "Veritas/ai-service/app/services/llm_service.py",
+      "responsibility": "统一LLM推理服务，三级降级（Builtin→API→Local）",
+      "key_interfaces": [
+        {
+          "name": "generate",
+          "signature": "async generate(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> str",
+          "description": "同步调用LLM生成文本，含降级和重试"
+        }
+      ]
+    },
+    {
+      "name": "PromptManager",
+      "path": "Veritas/ai-service/app/services/prompt_manager.py",
+      "responsibility": "Prompt模板管理器，加载和管理6个Agent Prompt模板",
+      "key_interfaces": [
+        {
+          "name": "get_prompt",
+          "signature": "def get_prompt(self, agent_name: str, **kwargs) -> str",
+          "description": "获取渲染后的Agent Prompt，支持string.Template变量替换"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/app/agents/reviewer.py",
+      "description": "新建ReviewerAgent类，继承BaseAgent，实现审核核心逻辑",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "创建 ReviewerAgent 类，继承 BaseAgent，构造函数接收 name='reviewer'、llm_service、prompt_manager",
+        "priority": "P0",
+        "acceptance_condition": "ReviewerAgent 可实例化，继承链正确"
+      },
+      {
+        "id": "FR-002",
+        "description": "实现 build_prompt() 方法：从 input_data 获取 report（综述文本）和 original_papers（原始论文列表），从 context 获取 user_profile，调用 prompt_manager.get_prompt('reviewer', report_content=report, original_papers=json.dumps(papers)) 构建审核Prompt",
+        "priority": "P0",
+        "acceptance_condition": "build_prompt() 返回包含报告内容和原始论文的完整Prompt字符串"
+      },
+      {
+        "id": "FR-003",
+        "description": "实现 _run() 方法：调用 llm_service.generate(prompt) 获取审核结果，解析JSON输出为结构化字典，计算审核通过判定（approved = review_result=='通过' 或 fact_accuracy>90% 且 citation_accuracy>90%）",
+        "priority": "P0",
+        "acceptance_condition": "_run() 返回包含 approved、issues、suggestions、citation_accuracy 字段的字典"
+      },
+      {
+        "id": "FR-004",
+        "description": "实现JSON解析的4级降级：1) 标准JSON解析 2) 提取```json```代码块 3) 正则提取关键字段 4) 规则兜底（返回默认未通过结果）",
+        "priority": "P0",
+        "acceptance_condition": "LLM返回非标准JSON时也能正确解析，不崩溃"
+      },
+      {
+        "id": "FR-005",
+        "description": "审核通过条件：fact_check中accurate占比>90% AND citation_check中accuracy_rate>90%。审核不通过时返回具体issues和suggestions列表",
+        "priority": "P0",
+        "acceptance_condition": "审核判定逻辑正确，通过/不通过条件明确"
+      },
+      {
+        "id": "FR-006",
+        "description": "实现 _fallback_result() 覆盖：降级时返回 approved=False（默认不通过），标注 degraded=True，确保不阻塞后续流程",
+        "priority": "P1",
+        "acceptance_condition": "Agent超时或异常时返回降级结果，不抛异常"
+      },
+      {
+        "id": "FR-007",
+        "description": "实现 _summarize_result() 覆盖：摘要包含审核结果（通过/不通过）、问题数量、引用准确率",
+        "priority": "P1",
+        "acceptance_condition": "intermediate_result 包含审核状态摘要"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Python内部使用 snake_case，JSON输出使用 snake_case",
+        "mappings": [
+          { "java": "citationAccuracy", "python": "citation_accuracy", "json": "citation_accuracy" },
+          { "java": "factAccuracy", "python": "fact_accuracy", "json": "fact_accuracy" },
+          { "java": "reviewResult", "python": "review_result", "json": "review_result" }
+        ]
+      }
+    },
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          { "priority": 1, "name": "DeepSeek V4 Flash", "description": "当前生效的外接API（OpenAI兼容）" },
+          { "priority": 2, "name": "BuiltinLLMProvider", "description": "软件方模型（待配置）" },
+          { "priority": 3, "name": "LocalLLMProvider", "description": "本地Qwen2模型" }
+        ],
+        "trigger_conditions": ["连续3次调用失败", "响应超时30s", "HTTP 5xx"],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "ReviewerAgent失败时跳过审核，直接输出生成结果，标注'审核未完成'",
+        "multi_agent_failure": "多Agent失败时降级为单Agent模式（仅Retriever+Generator）",
+        "review_retry_limit": 1
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "citationAccuracy", "python": "citation_accuracy", "json": "citation_accuracy" },
+        { "java": "reviewResult", "python": "review_result", "json": "review_result" }
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent",
+        "agent_error_handling": "state[\"errors\"].append({\"agent\": self.name, \"error\": str(e)})，return state"
+      }
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息（密码、Token、API Key）"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "破坏BaseAgent基类接口", "reason": "所有Agent统一继承BaseAgent", "severity": "critical" },
+    { "id": "FA-004", "action": "硬编码敏感配置（密码、API Key等）", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-005", "action": "ReviewerAgent直接操作向量数据库", "reason": "职责分离，Reviewer只做审核不检索", "severity": "high" },
+    { "id": "FA-006", "action": "忽略降级场景（LLM调用失败/超时时的处理）", "reason": "可用性约束ADR-003", "severity": "high" },
+    { "id": "FA-007", "action": "审核不通过时无限重试", "reason": "最多重试1次（ADR-002）", "severity": "critical" },
+    { "id": "FA-008", "action": "在Prompt中硬编码论文数据", "reason": "必须通过变量注入", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_reviewer_agent_creation",
+        "description": "验证ReviewerAgent可正确实例化，继承BaseAgent",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_reviewer_build_prompt",
+        "description": "验证build_prompt()正确构建包含报告和原始论文的Prompt",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_reviewer_run_approved",
+        "description": "模拟LLM返回审核通过JSON，验证approved=True",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_reviewer_run_rejected",
+        "description": "模拟LLM返回审核不通过JSON，验证approved=False且包含issues",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_reviewer_json_parse_fallback",
+        "description": "模拟LLM返回非标准JSON，验证4级降级解析不崩溃",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_reviewer_timeout_fallback",
+        "description": "模拟LLM超时，验证返回降级结果（approved=False, degraded=True）",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_reviewer_accuracy_calculation",
+        "description": "验证审核通过条件判定逻辑正确（fact>90% AND citation>90%）",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_reviewer.py -v",
+        "expected_result": "所有测试通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "ReviewerAgent 继承 BaseAgent，构造函数正确", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "build_prompt() 正确构建审核Prompt，含报告和原始论文", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "_run() 能正确解析LLM返回的审核JSON，计算approved判断", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "4级JSON解析降级：标准JSON → 代码块提取 → 正则提取 → 规则兜底", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "审核通过条件正确：fact准确率>90% AND citation准确率>90%", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "超时30s后返回降级结果（approved=False, degraded=True），不抛异常", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "代码符合Python命名规范（snake_case），符合项目分层架构", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "单元测试覆盖正常流程、异常流程、降级场景、边界条件", "verified_by": "automated_test" }
+  ]
+}

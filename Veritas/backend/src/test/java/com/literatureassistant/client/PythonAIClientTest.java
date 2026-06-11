@@ -3,6 +3,7 @@ package com.literatureassistant.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.literatureassistant.dto.common.AgentRequest;
 import com.literatureassistant.dto.common.UserProfileDTO;
+import com.literatureassistant.dto.response.AgentSseEvent;
 import com.literatureassistant.dto.response.AnalysisResultDTO;
 import com.literatureassistant.dto.response.PaperSearchResultDTO;
 import com.literatureassistant.enums.AnalysisStatus;
@@ -18,9 +19,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
 import reactor.netty.http.client.HttpClient;
+import reactor.test.StepVerifier;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * PythonAIClient 单元测试：使用 MockWebServer 模拟 Python AI 服务响应。
- * <p>覆盖正常/超时/5xx/4xx/重试/AIServiceException 转换 7 个核心场景。
+ * <p>覆盖正常/超时/5xx/4xx/重试/AIServiceException 转换 + SSE compareStream/reportStream/408 事件转换 7+ 个核心场景。
  *
  * @author XH-202630 Literature Assistant
  */
@@ -144,11 +148,11 @@ class PythonAIClientTest {
     }
 
     @Test
-    @DisplayName("isHealthy - 200 + status=UP 返回 true")
+    @DisplayName("isHealthy - 200 + data.status=UP 返回 true")
     void isHealthy_returns_true_on_200() {
         mockServer.enqueue(new MockResponse()
                 .setHeader("Content-Type", "application/json")
-                .setBody("{\"status\":\"UP\",\"llm\":\"loaded\"}"));
+                .setBody("{\"code\":200,\"data\":{\"status\":\"UP\",\"llm\":\"loaded\"}}"));
 
         boolean healthy = client.isHealthy();
         assertThat(healthy).isTrue();
@@ -189,5 +193,110 @@ class PythonAIClientTest {
         assertThat(results.get(0).getPaperId()).isEqualTo("arxiv_2024_001");
         assertThat(results.get(0).getTitle()).isEqualTo("Attention Is All You Need");
         assertThat(results.get(0).getScore()).isEqualTo(0.95);
+    }
+
+    // ========================= task27 SSE 扩展测试 =========================
+
+    @Test
+    @DisplayName("analyzeStream - 正确解析 SSE 事件流为 Flux<AgentSseEvent>")
+    void analyzeStream_parses_sse_events() throws Exception {
+        // 模拟 SSE 事件流
+        String sseBody = "id:1\nevent:agent_started\ndata:{\"agentName\":\"retriever\",\"analysisId\":\"anl_001\"}\n\n"
+                + "id:2\nevent:agent_state_update\ndata:{\"agentName\":\"retriever\",\"status\":\"running\"}\n\n";
+        mockServer.enqueue(new MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody));
+
+        Flux<AgentSseEvent> flux = client.analyzeStream(buildRequest(), null);
+
+        StepVerifier.create(flux.collectList())
+                .assertNext(events -> {
+                    assertThat(events).isNotEmpty();
+                    assertThat(events.get(0).getEvent()).isEqualTo("agent_started");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    @DisplayName("compareStream - 正确调用 /api/agent/compare/stream 端点")
+    void compareStream_constructs_correct_request() throws Exception {
+        String sseBody = "id:1\nevent:analysis_completed\ndata:{\"analysisId\":\"anl_002\",\"status\":\"completed\"}\n\n";
+        mockServer.enqueue(new MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody));
+
+        Flux<AgentSseEvent> flux = client.compareStream(buildRequest(), null);
+
+        StepVerifier.create(flux.collectList())
+                .assertNext(events -> assertThat(events).isNotEmpty())
+                .verifyComplete();
+        // 验证请求路径
+        assertThat(mockServer.takeRequest().getPath()).isEqualTo("/api/agent/compare/stream");
+    }
+
+    @Test
+    @DisplayName("reportStream - 正确调用 /api/agent/report/stream 端点")
+    void reportStream_constructs_correct_request() throws Exception {
+        String sseBody = "id:1\nevent:analysis_completed\ndata:{\"analysisId\":\"anl_003\",\"status\":\"completed\"}\n\n";
+        mockServer.enqueue(new MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody));
+
+        Flux<AgentSseEvent> flux = client.reportStream(buildRequest(), null);
+
+        StepVerifier.create(flux.collectList())
+                .assertNext(events -> assertThat(events).isNotEmpty())
+                .verifyComplete();
+        assertThat(mockServer.takeRequest().getPath()).isEqualTo("/api/agent/report/stream");
+    }
+
+    @Test
+    @DisplayName("compareStream - 透传 Last-Event-ID Header")
+    void compareStream_passes_lastEventId_header() throws Exception {
+        String sseBody = "id:5\nevent:agent_state_update\ndata:{\"agentName\":\"retriever\"}\n\n";
+        mockServer.enqueue(new MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody));
+
+        client.compareStream(buildRequest(), "evt_3").collectList().block(Duration.ofSeconds(5));
+
+        okhttp3.mockwebserver.RecordedRequest request = mockServer.takeRequest();
+        assertThat(request.getHeader("Last-Event-ID")).isEqualTo("evt_3");
+    }
+
+    @Test
+    @DisplayName("reportStream - 透传 Last-Event-ID Header")
+    void reportStream_passes_lastEventId_header() throws Exception {
+        String sseBody = "id:7\nevent:agent_state_update\ndata:{\"agentName\":\"generator\"}\n\n";
+        mockServer.enqueue(new MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody));
+
+        client.reportStream(buildRequest(), "evt_5").collectList().block(Duration.ofSeconds(5));
+
+        okhttp3.mockwebserver.RecordedRequest request = mockServer.takeRequest();
+        assertThat(request.getHeader("Last-Event-ID")).isEqualTo("evt_5");
+    }
+
+    @Test
+    @DisplayName("SSE - event=error + data.type=timeout → 转为标准降级事件 (data={type:timeout, message:Agent执行超时})")
+    void sse_408_event_transformed_to_timeout_error() throws Exception {
+        // Python 端发送 408 超时事件
+        String sseBody = "id:1\nevent:error\ndata:{\"type\":\"timeout\",\"message\":\"上游超时\"}\n\n";
+        mockServer.enqueue(new MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody));
+
+        Flux<AgentSseEvent> flux = client.analyzeStream(buildRequest(), null);
+
+        StepVerifier.create(flux.collectList())
+                .assertNext(events -> {
+                    assertThat(events).hasSize(1);
+                    AgentSseEvent transformed = events.get(0);
+                    assertThat(transformed.getEvent()).isEqualTo("error");
+                    assertThat(transformed.getData()).containsEntry("type", "timeout");
+                    assertThat(transformed.getData()).containsEntry("message", "Agent执行超时");
+                })
+                .verifyComplete();
     }
 }

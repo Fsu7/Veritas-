@@ -105,6 +105,7 @@ class ComparerAgent(BaseAgent):
         self,
         llm_service,
         prompt_manager,
+        personalization_service=None,
         timeout: int = 30,
         llm_temperature: float = 0.4,
         llm_max_tokens: int = 3072,
@@ -116,6 +117,7 @@ class ComparerAgent(BaseAgent):
         Args:
             llm_service: LLM 服务实例（含三路降级）
             prompt_manager: PromptManager 实例（string.Template 渲染）
+            personalization_service: PersonalizationService 实例（可选，个性化指令注入）
             timeout: 单次执行超时（秒），默认 30
             llm_temperature: 对比任务需要适度创造性（低于 Generator 0.7 但高于 Coordinator 0.3）
             llm_max_tokens: 对比矩阵可能较长，默认 3072
@@ -128,6 +130,7 @@ class ComparerAgent(BaseAgent):
             prompt_manager=prompt_manager,
             timeout=timeout,
         )
+        self.personalization_service = personalization_service
         self.llm_temperature = llm_temperature
         self.llm_max_tokens = llm_max_tokens
         self.min_papers_for_compare = min_papers_for_compare
@@ -155,12 +158,19 @@ class ComparerAgent(BaseAgent):
         user_profile = context.get("user_profile")
         user_profile_str = self._build_user_profile_summary(user_profile)
 
-        return self.prompt_manager.get_prompt(
+        base_prompt = self.prompt_manager.get_prompt(
             "comparer",
             analysis_data=analysis_data_str,
             user_profile=user_profile_str,
             paper_count=str(paper_count),
         )
+
+        # 注入个性化指令
+        personalization = self._get_personalization_instruction(context)
+        if personalization:
+            base_prompt += f"\n\n【个性化适配】{personalization}"
+
+        return base_prompt
 
     # ============================================================
     # FR-003 _run
@@ -656,3 +666,18 @@ class ComparerAgent(BaseAgent):
             if key in user_profile and user_profile[key]:
                 parts.append(f"{key}={user_profile[key]}")
         return " / ".join(parts) if parts else "（用户未提供画像）"
+
+    def _get_personalization_instruction(self, context: dict) -> str:
+        """获取个性化指令片段（降级安全）"""
+        if self.personalization_service is None:
+            return ""
+        user_profile = context.get("user_profile")
+        if not user_profile:
+            return ""
+        try:
+            return self.personalization_service.get_personalization_for_agent(
+                "comparer", user_profile
+            )
+        except Exception as e:
+            logger.warning(f"Personalization injection failed for comparer: {e}")
+            return ""

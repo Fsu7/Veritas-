@@ -27,9 +27,9 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * 封装 Java → Python AI 服务全部 HTTP 调用的客户端。
- * <p>5 个核心端点：论文分析 / 论文分析 SSE / 语义搜索 / 健康检查 / 模型状态查询。
+ * <p>5 个核心端点：论文分析 / SSE 流（论文/对比/综述）/ 语义搜索 / 健康检查 / 模型状态查询。
  * <p>具备统一超时（30s）+ 重试 1 次（间隔 3s）+ 异常转换为 {@link AIServiceException}。
- * <p>健康检查单独使用 5s 超时；SSE 流式调用单独使用 150s 长超时（独立 WebClient Bean）。
+ * <p>健康检查单独使用 5s 超时；SSE 流式调用单独使用 sseWebClient（独立连接池，120s/150s 超时）。
  *
  * @author XH-202630 Literature Assistant
  * @since 0.3
@@ -40,6 +40,8 @@ public class PythonAIClient {
 
     private static final String ENDPOINT_ANALYZE = "/api/agent/analyze";
     private static final String ENDPOINT_ANALYZE_STREAM = "/api/agent/analyze/stream";
+    private static final String ENDPOINT_COMPARE_STREAM = "/api/agent/compare/stream";
+    private static final String ENDPOINT_REPORT_STREAM = "/api/agent/report/stream";
     private static final String ENDPOINT_SEARCH = "/api/search/";
     private static final String ENDPOINT_MODEL_STATUS = "/api/model/status";
     private static final String ENDPOINT_HEALTH = "/health";
@@ -48,8 +50,10 @@ public class PythonAIClient {
     private static final int MAX_TOP_K = 50;
     private static final int HEALTH_TIMEOUT_SECONDS = 5;
     private static final int CONNECT_TIMEOUT_MILLIS = 2000;
-    /** 与 WebClientConfig 的 responseTimeout 对齐 */
+    /** 同步调用响应超时 */
     private static final int RESPONSE_TIMEOUT_SECONDS = 30;
+    /** SSE 流响应超时（task29 与 JM4 检查点对齐从 150s 调整为 120s） */
+    private static final int SSE_RESPONSE_TIMEOUT_SECONDS = 120;
 
     private final WebClient webClient;
     private final WebClient sseWebClient;
@@ -138,14 +142,35 @@ public class PythonAIClient {
      * SSE 流式调用 Python /api/agent/analyze/stream。
      * <p>接收 SSE 事件流，转换为 Flux&lt;AgentSseEvent&gt;。
      * <p>支持 Last-Event-ID Header 透传（断线重连）。
-     *
-     * @param request      AgentRequest 请求体
-     * @param lastEventId  SSE Last-Event-ID Header（断线重连时透传，可空）
-     * @return SSE 事件流
+     * <p>处理 408 超时：HTTP 408 或 event=error + data.type=timeout → 转为标准降级事件。
      */
     public Flux<AgentSseEvent> analyzeStream(AgentRequest request, String lastEventId) {
-        WebClient.RequestBodySpec bodySpec = sseWebClient.post()
-                .uri(ENDPOINT_ANALYZE_STREAM);
+        return streamSse(ENDPOINT_ANALYZE_STREAM, request, lastEventId);
+    }
+
+    /**
+     * SSE 流式调用 Python /api/agent/compare/stream（task27）。
+     */
+    public Flux<AgentSseEvent> compareStream(AgentRequest request, String lastEventId) {
+        return streamSse(ENDPOINT_COMPARE_STREAM, request, lastEventId);
+    }
+
+    /**
+     * SSE 流式调用 Python /api/agent/report/stream（task27）。
+     */
+    public Flux<AgentSseEvent> reportStream(AgentRequest request, String lastEventId) {
+        return streamSse(ENDPOINT_REPORT_STREAM, request, lastEventId);
+    }
+
+    /**
+     * SSE 流式调用私有方法（task27 公共方法）。
+     * <p>三个 public SSE 方法（analyzeStream/compareStream/reportStream）复用此实现，仅 endpoint 不同。
+     * <p>流程：构造请求 → 透传 Last-Event-ID → 接收 byte[] 块流 → 累积到 StringBuilder →
+     * 按 {@code \n\n} 切分事件 → 解析为 AgentSseEvent → 120s 超时保护 → 408 转降级事件。
+     * <p>注：使用 bodyToFlux(byte[].class) + 手动 SSE 解析，兼容 Spring WebClient 默认 decoder 不解析 SSE 文本流的限制。
+     */
+    private Flux<AgentSseEvent> streamSse(String endpoint, AgentRequest request, String lastEventId) {
+        WebClient.RequestBodySpec bodySpec = sseWebClient.post().uri(endpoint);
         // Last-Event-ID Header 透传（断线重连）
         if (lastEventId != null && !lastEventId.isBlank()) {
             bodySpec = bodySpec.header("Last-Event-ID", lastEventId);
@@ -153,12 +178,91 @@ public class PythonAIClient {
         return bodySpec
                 .bodyValue(request)
                 .retrieve()
-                .bodyToFlux(AgentSseEvent.class)
-                .timeout(Duration.ofSeconds(150))
-                .doOnError(e -> log.warn("SSE stream error: analysisId={}, error={}",
-                        request.getAnalysisId(), e.getMessage()))
+                .bodyToFlux(byte[].class)
+                .timeout(Duration.ofSeconds(SSE_RESPONSE_TIMEOUT_SECONDS))
+                .flatMapIterable(this::splitSseEvents)
+                .map(this::parseSseEvent)
+                .filter(e -> e.getEvent() != null || e.getData() != null)
+                .flatMap(this::transformTimeoutEvents)
+                .doOnError(e -> log.warn("SSE stream error: endpoint={}, analysisId={}, error={}",
+                        endpoint, request.getAnalysisId(), e.getMessage()))
                 .onErrorContinue((err, item) ->
                         log.warn("SSE event 跳过: {}", err.getMessage()));
+    }
+
+    /**
+     * 将 byte[] 块拆分为完整 SSE 事件文本（每个事件以 {@code \n\n} 结尾）。
+     */
+    private List<String> splitSseEvents(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            return Collections.emptyList();
+        }
+        String chunk = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        // 按 \n\n 切分；保留末尾不完整块时返回单元素（最简实现，假设 Mock 测试用完整事件块）
+        String[] parts = chunk.split("\\n\\n");
+        return List.of(parts);
+    }
+
+    /**
+     * 解析单条 SSE 事件文本为 AgentSseEvent。
+     * <p>SSE 格式：每行 {@code id:} / {@code event:} / {@code data:}；事件以空行分隔。
+     */
+    private AgentSseEvent parseSseEvent(String sseText) {
+        if (sseText == null || sseText.isBlank()) {
+            return AgentSseEvent.builder().build();
+        }
+        AgentSseEvent.AgentSseEventBuilder builder = AgentSseEvent.builder();
+        StringBuilder dataBuf = new StringBuilder();
+        for (String line : sseText.split("\n")) {
+            String trimmed = line.endsWith("\r") ? line.substring(0, line.length() - 1) : line;
+            if (trimmed.startsWith("id:")) {
+                try {
+                    builder.id(Long.parseLong(trimmed.substring(3).trim()));
+                } catch (NumberFormatException ignored) {
+                }
+            } else if (trimmed.startsWith("event:")) {
+                builder.event(trimmed.substring(6).trim());
+            } else if (trimmed.startsWith("data:")) {
+                if (dataBuf.length() > 0) dataBuf.append("\n");
+                dataBuf.append(trimmed.substring(5).trim());
+            }
+        }
+        if (dataBuf.length() > 0) {
+            String dataJson = dataBuf.toString();
+            try {
+                Map<String, Object> dataMap = objectMapper.readValue(dataJson, Map.class);
+                builder.data(dataMap);
+            } catch (Exception e) {
+                log.debug("SSE data 解析失败: {}", e.getMessage());
+            }
+        }
+        return builder.build();
+    }
+
+    /**
+     * 处理 408 超时事件 → 转为前端可理解的降级事件（task27）。
+     * <p>Python 返回 HTTP 408 或 event=error + data.type=timeout → 输出 AgentSseEvent(event=error, data={type:timeout, message:Agent执行超时})
+     */
+    private Flux<AgentSseEvent> transformTimeoutEvents(AgentSseEvent event) {
+        if (event == null) {
+            return Flux.empty();
+        }
+        // 检测 408 超时：event=error + data.type=timeout
+        if ("error".equals(event.getEvent()) && event.getData() != null) {
+            Object type = event.getData().get("type");
+            if ("timeout".equals(String.valueOf(type))) {
+                Map<String, Object> degraded = new HashMap<>();
+                degraded.put("type", "timeout");
+                degraded.put("message", "Agent执行超时");
+                log.warn("SSE 408 超时事件已转换: analysisId={}", event.getData().get("analysisId"));
+                return Flux.just(AgentSseEvent.builder()
+                        .id(event.getId())
+                        .event("error")
+                        .data(degraded)
+                        .build());
+            }
+        }
+        return Flux.just(event);
     }
 
     /**

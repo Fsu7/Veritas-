@@ -4,7 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.literatureassistant.dto.common.AgentRequest;
 import com.literatureassistant.dto.common.UserProfileDTO;
+import com.literatureassistant.dto.request.CompareRequest;
 import com.literatureassistant.dto.request.PaperAnalysisRequest;
+import com.literatureassistant.dto.request.ReportRequest;
 import com.literatureassistant.dto.request.SessionCreateRequest;
 import com.literatureassistant.dto.response.AgentStateResponse;
 import com.literatureassistant.dto.response.AnalysisResponse;
@@ -28,23 +30,21 @@ import com.literatureassistant.repository.AnalysisResultRepository;
 import com.literatureassistant.repository.SessionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 /**
  * 分析服务编排层。
- * <p>完整编排论文分析任务：用户画像 → 论文校验 → Session 复用/创建 → AnalysisResult 状态机 →
- * {@link AgentClientService} → 更新 AnalysisResult + 缓存。
- * <p>事务边界：@Transactional 仅覆盖 DB 写入（savePending / completeAnalysis）；
+ * <p>完整编排 3 种分析任务：论文分析（{@code PAPER_ANALYSIS}）/对比分析（{@code COMPARE}）/综述生成（{@code REPORT}）。
+ * 7 步编排：1) 画像 → 2) 论文校验 → 3) Session 复用/创建 → 4) 生成 analysisId →
+ * 5) 存 AnalysisResult(PENDING) → 6) 调 AgentClientService → 7) 更新 AnalysisResult 状态。
+ * <p>事务边界：@Transactional 仅覆盖 DB 写入（{@link AnalysisTransactionService#savePending} / {@link AnalysisTransactionService#completeAnalysis}）；
  * AI 调用（agentClientService.analyzePaper）显式无 @Transactional，避免 30s 长事务。
+ * <p>重构历史：task24 消除 {@code @Autowired @Lazy self} 自注入反模式，事务方法迁移到 {@link AnalysisTransactionService}。
  *
  * @author XH-202630 Literature Assistant
  * @since 0.3
@@ -58,21 +58,13 @@ public class AnalysisService {
     private final PaperService paperService;
     private final SessionService sessionService;
     private final AgentClientService agentClientService;
+    private final AnalysisTransactionService analysisTransactionService;
     private final AnalysisResultRepository analysisResultRepository;
     private final SessionRepository sessionRepository;
     private final ObjectMapper objectMapper;
 
     /**
-     * 自注入（用于 @Transactional 方法间相互调用通过 Spring 代理生效）
-     */
-    @Autowired
-    @Lazy
-    private AnalysisService self;
-
-    /**
      * 论文分析入口（POST /api/analysis/paper）。
-     * <p>7 步编排：1) 画像 → 2) 论文校验 → 3) Session 复用/创建 → 4) 生成 analysisId →
-     * 5) 存 AnalysisResult(PENDING) → 6) 调 AgentClientService → 7) 更新 AnalysisResult 状态。
      */
     public AnalysisTaskResponse analyzePaper(String userId, PaperAnalysisRequest request) {
         log.info("analyzePaper start: userId={}, paperId={}, topic={}",
@@ -86,13 +78,13 @@ public class AnalysisService {
         log.debug("paper validated: paperId={}, title={}", paper.getPaperId(), paper.getTitle());
 
         // 3) Session 复用/创建
-        String sessionId = resolveOrCreateSession(userId, request);
+        String sessionId = resolveOrCreateSession(userId, request.getSessionId(), request.getTopic());
 
         // 4) 生成 analysisId
-        String analysisId = "anl_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        String analysisId = generateAnalysisId();
 
         // 5) 保存 AnalysisResult(PENDING) — 短事务
-        AnalysisResult pending = self.savePending(analysisId, sessionId, AnalysisType.PAPER_ANALYSIS);
+        AnalysisResult pending = analysisTransactionService.savePending(analysisId, sessionId, AnalysisType.PAPER_ANALYSIS);
 
         // 6) 调 AgentClientService.analyzePaper（事务外，长耗时）
         AgentRequest agentRequest = AgentRequest.builder()
@@ -106,7 +98,96 @@ public class AnalysisService {
         AnalysisResultDTO result = agentClientService.analyzePaper(agentRequest);
 
         // 7) 更新 AnalysisResult 状态 + result JSON — 短事务
-        return self.completeAnalysis(pending.getId(), result);
+        return analysisTransactionService.completeAnalysis(pending.getId(), result);
+    }
+
+    /**
+     * 对比分析入口（POST /api/analysis/compare，task25）。
+     * <p>8 步编排：buildUserProfile → 验证所有 paperIds 存在 → resolveOrCreateSession
+     * → savePending(COMPARE) → buildAgentRequest(paperIds 列表) → callAI → completeAnalysis
+     */
+    public AnalysisTaskResponse comparePapers(String userId, CompareRequest request) {
+        log.info("comparePapers start: userId={}, paperCount={}, topic={}",
+                userId, request.getPaperIds().size(), truncate(request.getTopic(), 50));
+
+        // 1) 用户画像
+        UserProfileDTO userProfile = buildUserProfile(userId);
+
+        // 2) 验证所有 paperIds 存在
+        for (String paperId : request.getPaperIds()) {
+            PaperDetailResponse paper = paperService.getPaperDetail(paperId);
+            log.debug("compare paper validated: paperId={}, title={}", paper.getPaperId(), paper.getTitle());
+        }
+
+        // 3) Session 复用/创建
+        String sessionId = resolveOrCreateSession(userId, request.getSessionId(), request.getTopic());
+
+        // 4) 生成 analysisId
+        String analysisId = generateAnalysisId();
+
+        // 5) 保存 PENDING
+        AnalysisResult pending = analysisTransactionService.savePending(analysisId, sessionId, AnalysisType.COMPARE);
+
+        // 6) 调 AI 服务
+        AgentRequest agentRequest = AgentRequest.builder()
+                .topic(request.getTopic())
+                .paperIds(new ArrayList<>(request.getPaperIds()))
+                .userId(userId)
+                .userProfile(userProfile)
+                .analysisType(AnalysisType.COMPARE)
+                .analysisId(analysisId)
+                .build();
+        AnalysisResultDTO result = agentClientService.analyzePaper(agentRequest);
+
+        // 7) 完成分析
+        return analysisTransactionService.completeAnalysis(pending.getId(), result);
+    }
+
+    /**
+     * 综述生成入口（POST /api/analysis/report，task26）。
+     * <p>7 步编排：buildUserProfile → 验证所有 paperIds 存在 → resolveOrCreateSession
+     * → savePending(REPORT) → buildAgentRequest(paperIds 列表) → callAI → completeAnalysis
+     */
+    public AnalysisTaskResponse generateReport(String userId, ReportRequest request) {
+        log.info("generateReport start: userId={}, paperCount={}, topic={}",
+                userId, request.getPaperIds().size(), truncate(request.getTopic(), 50));
+
+        // 1) 用户画像
+        UserProfileDTO userProfile = buildUserProfile(userId);
+
+        // 2) 验证所有 paperIds 存在
+        for (String paperId : request.getPaperIds()) {
+            PaperDetailResponse paper = paperService.getPaperDetail(paperId);
+            log.debug("report paper validated: paperId={}, title={}", paper.getPaperId(), paper.getTitle());
+        }
+
+        // 3) Session 复用/创建
+        String sessionId = resolveOrCreateSession(userId, request.getSessionId(), request.getTopic());
+
+        // 4) 生成 analysisId
+        String analysisId = generateAnalysisId();
+
+        // 5) 保存 PENDING
+        AnalysisResult pending = analysisTransactionService.savePending(analysisId, sessionId, AnalysisType.REPORT);
+
+        // 6) 调 AI 服务
+        AgentRequest agentRequest = AgentRequest.builder()
+                .topic(request.getTopic())
+                .paperIds(new ArrayList<>(request.getPaperIds()))
+                .userId(userId)
+                .userProfile(userProfile)
+                .analysisType(AnalysisType.REPORT)
+                .analysisId(analysisId)
+                .build();
+        AnalysisResultDTO result = agentClientService.analyzePaper(agentRequest);
+
+        // 7) 完成分析
+        if (result != null && result.getCitations() == null) {
+            log.warn("综述报告引用列表为空: analysisId={}", analysisId);
+        } else if (result != null) {
+            log.info("综述报告完成: analysisId={}, citations={}", analysisId, result.getCitations().size());
+        }
+        return analysisTransactionService.completeAnalysis(pending.getId(), result);
     }
 
     // region 查询方法（task23）
@@ -161,46 +242,11 @@ public class AnalysisService {
 
     // endregion
 
-    /**
-     * 保存 AnalysisResult(PENDING) 记录 — 短事务。
-     * <p>暴露为 public 通过 self 调用以使 Spring 事务代理生效。
-     */
-    @Transactional
-    public AnalysisResult savePending(String analysisId, String sessionId, AnalysisType type) {
-        AnalysisResult entity = AnalysisResult.builder()
-                .analysisId(analysisId)
-                .sessionId(sessionId)
-                .type(type)
-                .status(AnalysisStatus.PENDING)
-                .result("{}")
-                .build();
-        return analysisResultRepository.save(entity);
-    }
-
-    /**
-     * 更新 AnalysisResult 状态 + 持久化 result JSON — 短事务。
-     */
-    @Transactional
-    public AnalysisTaskResponse completeAnalysis(Long id, AnalysisResultDTO result) {
-        AnalysisResult entity = analysisResultRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("AnalysisResult", String.valueOf(id)));
-        AnalysisStatus newStatus = (result != null && Boolean.TRUE.equals(result.getDegraded()))
-                ? AnalysisStatus.COMPLETED
-                : mapStatus(result);
-        entity.setStatus(newStatus);
-        entity.setResult(serializeResult(result));
-        AnalysisResult saved = analysisResultRepository.save(entity);
-
-        String message = buildMessage(result);
-        return AnalysisTaskResponse.builder()
-                .analysisId(saved.getAnalysisId())
-                .status(saved.getStatus())
-                .message(message)
-                .createdAt(saved.getCreatedAt() != null ? saved.getCreatedAt() : LocalDateTime.now())
-                .build();
-    }
-
     // region 私有方法（无事务）
+
+    private String generateAnalysisId() {
+        return "anl_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+    }
 
     private UserProfileDTO buildUserProfile(String userId) {
         try {
@@ -225,10 +271,15 @@ public class AnalysisService {
         }
     }
 
-    private String resolveOrCreateSession(String userId, PaperAnalysisRequest request) {
-        if (request.getSessionId() != null && !request.getSessionId().isBlank()) {
-            Session session = sessionRepository.findBySessionId(request.getSessionId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Session", request.getSessionId()));
+    /**
+     * 解析或创建 Session：抽出公共逻辑供 analyzePaper/comparePapers/generateReport 复用。
+     * @param sessionId 可空；非空时复用并校验归属 + ACTIVE 状态
+     * @param topic 新建 Session 时使用
+     */
+    private String resolveOrCreateSession(String userId, String sessionId, String topic) {
+        if (sessionId != null && !sessionId.isBlank()) {
+            Session session = sessionRepository.findBySessionId(sessionId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Session", sessionId));
             if (!userId.equals(session.getUserId())) {
                 throw new BusinessException(403, "无权限访问他人会话", "FORBIDDEN_ACCESS");
             }
@@ -238,45 +289,9 @@ public class AnalysisService {
             }
             return session.getSessionId();
         }
-        SessionCreateRequest newSession = SessionCreateRequest.builder().topic(request.getTopic()).build();
+        SessionCreateRequest newSession = SessionCreateRequest.builder().topic(topic).build();
         SessionResponse created = sessionService.createSession(userId, newSession);
         return created.getSessionId();
-    }
-
-    private AnalysisStatus mapStatus(AnalysisResultDTO result) {
-        if (result == null || result.getStatus() == null) {
-            return AnalysisStatus.FAILED;
-        }
-        return switch (result.getStatus()) {
-            case COMPLETED -> AnalysisStatus.COMPLETED;
-            case PROCESSING -> AnalysisStatus.PROCESSING;
-            case FAILED -> AnalysisStatus.FAILED;
-            default -> result.getStatus();
-        };
-    }
-
-    private String serializeResult(AnalysisResultDTO result) {
-        try {
-            return objectMapper.writeValueAsString(result);
-        } catch (JsonProcessingException e) {
-            log.warn("result 序列化失败: {}", e.getMessage());
-            return "{}";
-        }
-    }
-
-    private String buildMessage(AnalysisResultDTO result) {
-        if (result == null) {
-            return "分析失败：响应为空";
-        }
-        if (Boolean.TRUE.equals(result.getDegraded())) {
-            return "分析完成（降级）：" + result.getDegradedReason();
-        }
-        return switch (result.getStatus()) {
-            case COMPLETED -> "分析完成";
-            case PROCESSING -> "分析进行中";
-            case FAILED -> "分析失败：" + (result.getDegradedReason() != null ? result.getDegradedReason() : "未知错误");
-            default -> "分析状态：" + result.getStatus();
-        };
     }
 
     private String truncate(String s, int max) {
@@ -303,9 +318,6 @@ public class AnalysisService {
      * 公开数据隔离校验：analysisId 对应的 Session.userId 必须等于 currentUserId。
      * <p>JM4 SSE 端点 (GET /api/analysis/{analysisId}/agent-stream) 入口使用，
      * 防止用户 A 订阅用户 B 的 analysisId。
-     *
-     * @throws ResourceNotFoundException analysisId 不存在
-     * @throws BusinessException         越权访问
      */
     public void validateAnalysisAccess(String userId, String analysisId) {
         AnalysisResult entity = analysisResultRepository.findByAnalysisId(analysisId)
