@@ -1,0 +1,147 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "FM4：综述生成与Agent可视化完成",
+    "requirement": "SearchView集成FilterPanel+SortDropdown+SearchInput（筛选+排序+防抖），ReportView集成ExportPanel+CitationLink+Agent可视化入口按钮，完善两个页面的FM4功能",
+    "requirement_ids": ["F1.2", "F1.4"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "页面布局规范" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM4交付物清单" },
+      { "path": "Veritas/frontend/src/views/SearchView.vue", "purpose": "当前搜索页面，需集成筛选排序" },
+      { "path": "Veritas/frontend/src/views/ReportView.vue", "purpose": "当前报告页面，需集成导出溯源" },
+      { "path": "Veritas/frontend/src/components/common/FilterPanel.vue", "purpose": "task39创建的筛选面板" },
+      { "path": "Veritas/frontend/src/components/common/SortDropdown.vue", "purpose": "task39创建的排序下拉框" },
+      { "path": "Veritas/frontend/src/components/common/SearchInput.vue", "purpose": "task40创建的搜索输入" },
+      { "path": "Veritas/frontend/src/components/report/ExportPanel.vue", "purpose": "task37创建的导出面板" },
+      { "path": "Veritas/frontend/src/components/report/CitationLink.vue", "purpose": "task38创建的引用溯源" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/SearchView.vue", "description": "搜索页面，需集成筛选排序防抖" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/ReportView.vue", "description": "报告页面，需集成导出溯源可视化入口" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "论文Store，已有筛选排序参数" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/views/SearchView.vue", "description": "已有搜索+PaperCard列表+分页+论文选择，需集成筛选排序", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/views/ReportView.vue", "description": "已有Markdown渲染+引用跳转+降级提示，需集成导出+溯源+可视化入口", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/components/common/FilterPanel.vue", "description": "task39创建的筛选面板", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/common/SortDropdown.vue", "description": "task39创建的排序下拉框", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/common/SearchInput.vue", "description": "task40创建的搜索输入", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/report/ExportPanel.vue", "description": "task37创建的导出面板", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/report/CitationLink.vue", "description": "task38创建的引用溯源", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "SearchView",
+      "path": "Veritas/frontend/src/views/SearchView.vue",
+      "responsibility": "检索结果页面，集成筛选+排序+防抖搜索",
+      "key_interfaces": [
+        { "name": "layout", "signature": "左侧FilterPanel(240px) + 右侧SearchInput+SortDropdown+PaperCard列表", "description": "页面布局" }
+      ]
+    },
+    {
+      "name": "ReportView",
+      "path": "Veritas/frontend/src/views/ReportView.vue",
+      "responsibility": "综述报告页面，集成导出+溯源+可视化入口",
+      "key_interfaces": [
+        { "name": "layout", "signature": "上部操作栏(ExportPanel+可视化入口) + 中部综述内容(CitationLink) + 底部元数据", "description": "页面布局" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/frontend/src/views/SearchView.vue", "description": "集成FilterPanel+SortDropdown+SearchInput", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/views/ReportView.vue", "description": "集成ExportPanel+CitationLink+Agent可视化入口", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "SearchView布局重构：左侧FilterPanel(240px固定宽度，el-aside) + 右侧主内容区(SearchInput+SortDropdown+PaperCard列表+分页)。使用el-container+el-aside+el-main布局",
+        "priority": "P0",
+        "acceptance_condition": "左侧筛选面板+右侧搜索结果布局正确"
+      },
+      {
+        "id": "FR-002",
+        "description": "SearchView集成SearchInput：替换原搜索输入框为SearchInput组件，v-model绑定搜索词，@search触发paperStore.searchPapers，@clear清空结果",
+        "priority": "P0",
+        "acceptance_condition": "SearchInput替换原输入框，搜索功能正常"
+      },
+      {
+        "id": "FR-003",
+        "description": "SearchView集成FilterPanel：FilterPanel的@update:filters事件触发paperStore.searchPapers(带筛选参数)，@reset事件清空筛选重新搜索",
+        "priority": "P0",
+        "acceptance_condition": "筛选参数正确传递给paperStore，搜索结果正确筛选"
+      },
+      {
+        "id": "FR-004",
+        "description": "SearchView集成SortDropdown：SortDropdown的@update:modelValue事件触发paperStore.searchPapers(带排序参数)，排序结果正确",
+        "priority": "P0",
+        "acceptance_condition": "排序参数正确传递，搜索结果正确排序"
+      },
+      {
+        "id": "FR-005",
+        "description": "ReportView集成ExportPanel：在报告页面操作区添加ExportPanel组件，传入analysisId，支持PDF/Word导出",
+        "priority": "P0",
+        "acceptance_condition": "ReportView中可导出PDF/Word"
+      },
+      {
+        "id": "FR-006",
+        "description": "ReportView集成CitationLink：替换原引用跳转(router.push)为CitationLink弹窗，点击引用标注弹出原文片段弹窗，弹窗中可跳转论文详情",
+        "priority": "P0",
+        "acceptance_condition": "引用点击弹出弹窗而非直接跳转"
+      },
+      {
+        "id": "FR-007",
+        "description": "ReportView添加Agent可视化入口：在操作区添加'查看Agent协同过程'按钮，点击router.push到/agent-flow/:analysisId页面",
+        "priority": "P0",
+        "acceptance_condition": "按钮跳转到AgentFlowView页面"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" },
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "SearchView: 用户筛选/排序/搜索 → paperStore.searchPapers(filters, sort) → API → 结果更新; ReportView: 用户导出/引用/可视化 → ExportPanel/CitationLink/router.push"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" }, "json": { "field_name": "snake_case" }, "cross_system_mapping": [{ "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }] },
+    "layering": { "frontend": { "rule": "View组合子组件，Store管理状态" } },
+    "error_handling": { "frontend": { "approach": "搜索失败ElMessage.error，导出失败ElMessage.error" } },
+    "caching": { "pattern": "paperStore缓存搜索结果" },
+    "logging": { "prohibited": ["console.log Token"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "破坏SearchView已有功能(论文选择/分页等)", "reason": "只新增筛选排序，不修改已有逻辑", "severity": "high" },
+    { "id": "FA-002", "action": "破坏ReportView已有功能(Markdown渲染/降级提示等)", "reason": "只新增导出溯源，不修改已有逻辑", "severity": "high" },
+    { "id": "FA-003", "action": "在View中直接调用API", "reason": "通过Store Action调用", "severity": "high" },
+    { "id": "FA-004", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "SearchView集成测试", "description": "验证筛选+排序+搜索集成正确", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "ReportView集成测试", "description": "验证导出+溯源+可视化入口集成正确", "framework": "vitest", "coverage": ["normal_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run --reporter=verbose", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "SearchView筛选+排序+防抖完整", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "SearchView布局左侧筛选+右侧结果", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "ReportView导出PDF/Word可用", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "ReportView引用点击弹出溯源弹窗", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "ReportView'查看Agent协同过程'按钮跳转正确", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "已有功能(论文选择/分页/Markdown渲染/降级提示)不受影响", "verified_by": "manual_test" }
+  ]
+}

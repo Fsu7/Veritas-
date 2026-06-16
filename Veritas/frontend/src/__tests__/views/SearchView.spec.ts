@@ -35,7 +35,7 @@ describe('SearchView', () => {
 
   it('renders search input area', () => {
     const wrapper = mount(SearchView)
-    expect(wrapper.find('.search-view__header').exists()).toBe(true)
+    expect(wrapper.find('.search-view__search-bar').exists()).toBe(true)
   })
 
   it('renders search-view container', () => {
@@ -45,7 +45,7 @@ describe('SearchView', () => {
 
   it('has BEM class names', () => {
     const wrapper = mount(SearchView)
-    expect(wrapper.find('.search-view__header').exists()).toBe(true)
+    expect(wrapper.find('.search-view__search-bar').exists()).toBe(true)
   })
 
   it('uses paperStore for search results', () => {

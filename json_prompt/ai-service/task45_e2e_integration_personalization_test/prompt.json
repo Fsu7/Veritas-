@@ -1,0 +1,591 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4 / AM4：6-Agent协同与个性化引擎",
+    "requirement": "编写端到端集成测试验证6-Agent工作流完整运行，验证个性化差异度>60%（同一主题不同画像输出差异），验证Agent级和工作流级降级机制，验证SSE事件完整性，验证跨Agent数据流正确性，产出测试报告",
+    "requirement_ids": ["F3.1.7", "F3.4.3", "F3.5.3"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "查阅LangGraph工作流定义（5.5节）、条件分支逻辑（should_compare/should_regenerate）、降级策略（5.7节）、SSE事件规范（5.6节）"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "查阅AM4里程碑 Week 8 Day 7 任务：端到端集成测试 + 个性化差异验证（6.2节），验收标准6.4节"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "了解项目架构、6-Agent工作流、降级策略、跨系统字段映射"
+      },
+      {
+        "path": "docs/agents/03-agent-system.md",
+        "purpose": "查阅6-Agent角色定义、LangGraph工作流、降级策略详细说明"
+      },
+      {
+        "path": "docs/agents/04-personalization.md",
+        "purpose": "查阅用户画像4维度定义和个性化差异度计算方法"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/graph.py",
+        "description": "LangGraph工作流定义：已实现4节点（retrieve/analyze/generate/review）+ 条件边（should_review/should_regenerate），WorkflowState包含完整字段"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/orchestrator.py",
+        "description": "流式Agent编排器：NODE_ORDER=['retriever','analyzer','generator','reviewer']，支持审核重试循环、SSE事件推送、keep-alive ping"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/services/personalization_service.py",
+        "description": "个性化引擎核心：已实现get_personalization_for_agent()、get_personalization_diff()、get_personalization_block()，AGENT_PERSONALIZATION_MAP覆盖6个Agent"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent基类：execute()含30s超时、_fallback_result()降级返回、AgentState状态管理"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/coordinator.py",
+        "description": "协调者Agent：build_prompt()已注入个性化指令，含【个性化适配】标记"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/retriever.py",
+        "description": "检索Agent：build_prompt()已注入个性化指令，top_k随knowledge_level动态调整"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/analyzer.py",
+        "description": "分析Agent：build_prompt()已注入个性化指令，使用get_personalization_for_agent()"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/comparer.py",
+        "description": "对比Agent：build_prompt()已注入个性化指令，对比维度随knowledge_level动态调整"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/generator.py",
+        "description": "生成Agent：build_prompt()已注入个性化指令，支持retry_context重试上下文"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/reviewer.py",
+        "description": "审核Agent：build_prompt()已注入个性化指令，审核严格度随knowledge_level调整"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/tests/test_graph_integration.py",
+        "description": "6-Agent全链路集成测试：已覆盖should_review/should_regenerate条件边、review_node、审核通过/不通过/重试、Reviewer不存在跳过",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/tests/test_personalization_e2e.py",
+        "description": "个性化端到端测试：已覆盖6-Agent build_prompt()个性化注入、top_k适配、极端画像差异度>0.6、4维度生效、空画像降级",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/tests/test_degradation.py",
+        "description": "降级机制验证测试：已覆盖LLM级降级、Agent超时跳过、多Agent失败degraded、全失败500、参数错误422、模型未就绪503、Agent超时408",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/tests/test_sse_basic_push.py",
+        "description": "SSE推送基础测试：已覆盖SSE事件格式、camelCase payload、事件序列完整性、Agent异常不中断流、全流程超时",
+        "reuse_type": "reference"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/graph.py",
+        "description": "LangGraph工作流：WorkflowState定义、build_agent_graph()、run_workflow()、retrieve_node/analyze_node/generate_node/review_node",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/orchestrator.py",
+        "description": "流式编排器：run_workflow_stream()、_run_node()、_make_event()、审核重试循环、review_rejected事件",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "graph.py",
+      "path": "Veritas/ai-service/app/agents/graph.py",
+      "responsibility": "LangGraph状态图定义，编排6-Agent工作流",
+      "key_interfaces": [
+        {
+          "name": "build_agent_graph",
+          "signature": "def build_agent_graph(agent_instances: Dict[str, Any]) -> StateGraph",
+          "description": "构建Agent协同工作流图（4节点+条件边），编译后返回"
+        },
+        {
+          "name": "run_workflow",
+          "signature": "async def run_workflow(request: AnalyzeRequest, agent_instances: Dict[str, Any]) -> dict",
+          "description": "执行工作流（非流式），返回最终结果含status/report/errors/degraded"
+        },
+        {
+          "name": "WorkflowState",
+          "signature": "class WorkflowState(TypedDict)",
+          "description": "工作流状态定义，含query/user_profile/search_results/analysis_results/compare_result/report/review_result/citations/errors/degraded/regenerate_count"
+        },
+        {
+          "name": "should_review",
+          "signature": "def should_review(state: WorkflowState) -> bool",
+          "description": "条件函数：report非空且非退化时返回True"
+        },
+        {
+          "name": "should_regenerate",
+          "signature": "def should_regenerate(state: WorkflowState) -> str",
+          "description": "条件函数：审核不通过且regenerate_count<1时返回'regenerate'，否则返回'end'"
+        }
+      ]
+    },
+    {
+      "name": "orchestrator.py",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "responsibility": "流式Agent编排器，SSE事件推送",
+      "key_interfaces": [
+        {
+          "name": "run_workflow_stream",
+          "signature": "async def run_workflow_stream(self, request: AnalyzeRequest) -> AsyncIterator[Dict[str, str]]",
+          "description": "流式执行工作流，yield SSE事件字典，支持审核重试循环"
+        },
+        {
+          "name": "NODE_ORDER",
+          "signature": "NODE_ORDER = ['retriever', 'analyzer', 'generator', 'reviewer']",
+          "description": "节点执行顺序列表"
+        },
+        {
+          "name": "_make_event",
+          "signature": "def _make_event(self, event_type: str, data: Dict[str, Any]) -> Dict[str, str]",
+          "description": "构造SSE事件字典，data字段为JSON字符串（camelCase）"
+        }
+      ]
+    },
+    {
+      "name": "PersonalizationService",
+      "path": "Veritas/ai-service/app/services/personalization_service.py",
+      "responsibility": "个性化引擎核心：提供6-Agent个性化指令和差异度计算",
+      "key_interfaces": [
+        {
+          "name": "get_personalization_for_agent",
+          "signature": "def get_personalization_for_agent(self, agent_name: str, user_profile: dict) -> str",
+          "description": "为指定Agent返回个性化指令片段，基于AGENT_PERSONALIZATION_MAP"
+        },
+        {
+          "name": "get_personalization_diff",
+          "signature": "def get_personalization_diff(self, profile_a: dict, profile_b: dict) -> float",
+          "description": "计算两个用户画像的个性化差异度0-1，基于4维度维度差异比例"
+        },
+        {
+          "name": "get_personalization_block",
+          "signature": "def get_personalization_block(self, user_profile: dict) -> str",
+          "description": "返回完整个性化块，含学历适配/术语密度目标/写作风格/领域侧重"
+        }
+      ]
+    },
+    {
+      "name": "BaseAgent",
+      "path": "Veritas/ai-service/app/agents/base.py",
+      "responsibility": "Agent基类：统一执行框架、超时控制、降级返回",
+      "key_interfaces": [
+        {
+          "name": "execute",
+          "signature": "async def execute(self, input_data: dict, context: dict) -> dict",
+          "description": "Agent执行入口，含30s超时和异常降级"
+        },
+        {
+          "name": "_fallback_result",
+          "signature": "def _fallback_result(self, input_data: dict) -> dict",
+          "description": "降级返回结果，含degraded=True和error信息"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_6agent_e2e.py",
+      "description": "新建6-Agent端到端集成测试：验证完整工作流（coordinator→retriever→analyzer→[comparer]→generator→reviewer）、条件分支（paper_count<2跳过comparer）、审核重试闭环、跨Agent数据流正确性",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_personalization_difference.py",
+      "description": "新建个性化差异验证测试：同一主题不同画像（beginner+undergraduate+simple+NLP vs phd+expert+technical+CV）通过完整工作流生成结果，验证文本相似度<40%（差异度>60%）、PersonalizationService.get_personalization_diff()>0.5、术语密度差异、风格差异",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/tests/test_degradation.py",
+      "description": "扩展降级集成测试：新增Agent级降级（mock单个Agent失败工作流继续）、工作流级降级（mock 2+Agent失败降级结果）、Agent超时30s跳过继续、Reviewer降级自动通过",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_sse_6agent_completeness.py",
+      "description": "新建SSE事件完整性测试：验证6-Agent工作流中所有Agent均emit agent_started+agent_completed事件、comparer跳过时无事件、workflow_degraded事件、review_rejected事件、事件顺序正确性",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "编写6-Agent端到端集成测试 test_6agent_e2e.py：使用mock Agent实例（mock LLM和search service），通过LangGraph工作流（build_agent_graph + compiled_graph.ainvoke）执行完整pipeline，验证WorkflowState字段正确流转：coordinator→retriever→analyzer→[comparer]→generator→reviewer",
+        "priority": "P0",
+        "acceptance_condition": "test_full_6agent_pipeline 通过，WorkflowState中search_results/analysis_results/report/review_result均非空"
+      },
+      {
+        "id": "FR-002",
+        "description": "编写条件分支测试：当paper_count<2时comparer被跳过（compare_result=None），当paper_count>=2时comparer执行（compare_result非空）。当前graph.py未包含comparer节点，需在测试中验证此条件分支的预期行为，或在graph.py中添加comparer节点",
+        "priority": "P0",
+        "acceptance_condition": "test_comparer_skipped_when_few_papers 和 test_comparer_executed_when_enough_papers 通过"
+      },
+      {
+        "id": "FR-003",
+        "description": "编写审核重试闭环测试：mock Reviewer首次返回approved=False+issues，验证Generator重新生成（regenerate_count=1），Reviewer二次审核返回approved=True，验证最终结果正确",
+        "priority": "P0",
+        "acceptance_condition": "test_review_retry_loop 通过，reviewer被调用2次，generator被调用2次，最终approved=True"
+      },
+      {
+        "id": "FR-004",
+        "description": "编写跨Agent数据流验证测试：验证coordinator output (sub_tasks) → retriever使用query检索；retriever output (papers) → analyzer输入；analyzer output (analysis_results) → generator输入；generator output (report) → reviewer输入；reviewer output (issues/suggestions) → generator重试时retry_context",
+        "priority": "P0",
+        "acceptance_condition": "test_cross_agent_data_flow 通过，每个Agent的input_data包含上游Agent的输出"
+      },
+      {
+        "id": "FR-005",
+        "description": "编写个性化差异验证测试 test_personalization_difference.py：使用两个极端画像（Profile A: undergraduate+beginner+simple+NLP, Profile B: phd+expert+technical+CV），通过完整LangGraph工作流生成结果，使用Jaccard距离计算文本差异度，验证差异度>60%（即相似度<40%）",
+        "priority": "P0",
+        "acceptance_condition": "test_personalization_diversity_e2e 通过，Jaccard差异度>0.6"
+      },
+      {
+        "id": "FR-006",
+        "description": "验证PersonalizationService.get_personalization_diff()返回值>0.5（极端画像4维度全不同，理论值1.0）",
+        "priority": "P0",
+        "acceptance_condition": "test_personalization_diff_extreme_profiles 通过，get_personalization_diff()>0.5"
+      },
+      {
+        "id": "FR-007",
+        "description": "验证术语密度差异：beginner画像生成结果术语密度应接近5%，expert画像应接近50%，差异>30个百分点",
+        "priority": "P1",
+        "acceptance_condition": "test_term_density_difference 通过，两画像术语密度差>0.3"
+      },
+      {
+        "id": "FR-008",
+        "description": "验证风格差异：simple画像生成结果应含短句和日常类比，technical画像应含长句和学术引用，使用文本特征提取验证",
+        "priority": "P1",
+        "acceptance_condition": "test_style_difference 通过，simple结果平均句长<technical结果平均句长"
+      },
+      {
+        "id": "FR-009",
+        "description": "扩展test_degradation.py：新增Agent级降级测试（mock单个Agent execute抛异常，验证工作流继续执行，最终status='degraded'），工作流级降级测试（mock 2+Agent失败，验证降级结果），Agent超时30s测试（mock Agent execute耗时>30s，验证跳过继续），Reviewer降级自动通过测试（mock Reviewer失败，验证review_result.approved=True）",
+        "priority": "P0",
+        "acceptance_condition": "4个新增降级测试通过"
+      },
+      {
+        "id": "FR-010",
+        "description": "编写SSE事件完整性测试 test_sse_6agent_completeness.py：通过AgentOrchestrator.run_workflow_stream()收集所有SSE事件，验证每个Agent均emit agent_started+agent_completed事件，验证事件顺序正确（started→state_update→completed），验证analysis_completed为最后一个事件",
+        "priority": "P0",
+        "acceptance_condition": "test_sse_event_completeness 通过，4个Agent各有started+completed事件"
+      },
+      {
+        "id": "FR-011",
+        "description": "验证comparer跳过时SSE无comparer事件：当paper_count<2时，SSE事件流中不应出现comparer的agent_started/agent_completed事件",
+        "priority": "P1",
+        "acceptance_condition": "test_sse_no_comparer_when_skipped 通过"
+      },
+      {
+        "id": "FR-012",
+        "description": "验证workflow_degraded事件：当Agent失败导致降级时，analysis_completed事件的status='degraded'且degraded=True",
+        "priority": "P0",
+        "acceptance_condition": "test_sse_workflow_degraded_event 通过"
+      },
+      {
+        "id": "FR-013",
+        "description": "验证review_rejected事件：当Reviewer审核不通过时，SSE事件流中应包含review_rejected事件，含agentName/regenerateCount/issues字段",
+        "priority": "P0",
+        "acceptance_condition": "test_sse_review_rejected_event 通过"
+      },
+      {
+        "id": "FR-014",
+        "description": "验证SSE事件顺序：agent_started必须在agent_completed之前，agent_completed必须在analysis_completed之前，事件ID单调递增",
+        "priority": "P1",
+        "acceptance_condition": "test_sse_event_ordering 通过"
+      },
+      {
+        "id": "FR-015",
+        "description": "编写WorkflowState转换验证测试：验证initial_state → retrieve后search_results更新 → analyze后analysis_results更新 → generate后report/citations更新 → review后review_result更新 → 最终completed_at非空",
+        "priority": "P1",
+        "acceptance_condition": "test_workflow_state_transitions 通过，每个阶段state字段正确更新"
+      }
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "单个Agent失败时工作流继续，state['errors']记录失败信息，state['degraded']=True",
+        "multi_agent_failure": "2+Agent失败时status='degraded'，degraded_reason含失败Agent列表",
+        "agent_timeout": "Agent执行超过30s时BaseAgent.execute()返回_fallback_result()，state.status=FAILED",
+        "reviewer_degradation": "Reviewer失败时review_result.approved=True（自动通过），不阻塞流程",
+        "review_retry_limit": 1
+      },
+      "workflow_degradation": {
+        "full_timeout": "全流程超时（settings.AGENT_FULL_TIMEOUT）时返回status='failed'",
+        "error_threshold": "errors>=2时status='degraded'"
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "测试文件仅依赖app层模块，不修改app层代码（除test_degradation.py扩展外）"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "mock Agent异常时验证降级行为，不捕获测试中的AssertionError",
+        "agent_error_handling": "Agent execute异常→_fallback_result()→state.status=FAILED→工作流继续"
+      }
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在测试中打印INFO及以上级别日志",
+        "在测试中输出完整用户画像数据"
+      ]
+    },
+    "testing": {
+      "framework": "pytest + pytest-asyncio",
+      "mock_strategy": "使用unittest.mock.AsyncMock/MagicMock模拟Agent和Service",
+      "determinism": "所有测试必须确定性（mock LLM返回固定输出，无随机性）",
+      "no_real_api": "禁止调用真实LLM API或搜索服务"
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行测试代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块（除test_degradation.py扩展外不修改app层代码）", "reason": "本任务仅编写测试，不修改业务代码", "severity": "high" },
+    { "id": "FA-003", "action": "在测试中调用真实LLM API或搜索服务", "reason": "测试必须独立于外部服务，使用mock", "severity": "critical" },
+    { "id": "FA-004", "action": "测试结果依赖随机性（如LLM随机输出）", "reason": "测试必须确定性，mock返回固定值", "severity": "critical" },
+    { "id": "FA-005", "action": "破坏三层分离架构", "reason": "架构约束ADR-001", "severity": "critical" },
+    { "id": "FA-006", "action": "硬编码敏感配置", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-007", "action": "忽略降级场景测试", "reason": "降级是核心验收标准", "severity": "high" },
+    { "id": "FA-008", "action": "测试间存在执行顺序依赖", "reason": "pytest应支持任意顺序执行", "severity": "medium" },
+    { "id": "FA-009", "action": "修改已有测试用例的断言逻辑", "reason": "扩展test_degradation.py时仅新增测试类/方法，不修改已有断言", "severity": "high" },
+    { "id": "FA-010", "action": "在graph.py中添加comparer节点（超出测试任务范围）", "reason": "comparer条件分支应在后续任务中实现，本任务仅测试已有行为", "severity": "medium" }
+  ],
+  "test_requirements": {
+    "unit_tests": [],
+    "integration_tests": [
+      {
+        "test_name": "test_full_6agent_pipeline",
+        "description": "6-Agent端到端全链路：mock所有Agent，通过LangGraph工作流执行，验证WorkflowState字段正确流转",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_comparer_skipped_when_few_papers",
+        "description": "条件分支：paper_count<2时comparer不执行（当前graph无comparer节点，验证compare_result=None）",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_review_retry_loop",
+        "description": "审核重试闭环：Reviewer首次不通过→Generator重试→Reviewer二次通过",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_cross_agent_data_flow",
+        "description": "跨Agent数据流验证：验证每个Agent的input_data包含上游Agent的输出",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_personalization_diversity_e2e",
+        "description": "个性化差异端到端：两个极端画像通过完整工作流，Jaccard差异度>60%",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_personalization_diff_extreme_profiles",
+        "description": "PersonalizationService.get_personalization_diff()极端画像返回>0.5",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_term_density_difference",
+        "description": "术语密度差异验证：beginner vs expert术语密度差>30个百分点",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_style_difference",
+        "description": "风格差异验证：simple vs technical平均句长和表达方式差异",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_single_agent_failure_workflow_continues",
+        "description": "Agent级降级：mock单个Agent失败，工作流继续，status='degraded'",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_multi_agent_failure_degraded_result",
+        "description": "工作流级降级：mock 2+Agent失败，降级结果",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_agent_timeout_skip_continue",
+        "description": "Agent超时30s跳过继续执行",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_reviewer_failure_auto_approve",
+        "description": "Reviewer降级自动通过：mock Reviewer失败，review_result.approved=True",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_sse_event_completeness",
+        "description": "SSE事件完整性：4个Agent各有agent_started+agent_completed事件",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_sse_workflow_degraded_event",
+        "description": "SSE降级事件：Agent失败时analysis_completed的status='degraded'",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_sse_review_rejected_event",
+        "description": "SSE审核拒绝事件：Reviewer不通过时emit review_rejected事件",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_sse_event_ordering",
+        "description": "SSE事件顺序：started→completed→analysis_completed，ID单调递增",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_workflow_state_transitions",
+        "description": "WorkflowState转换验证：每个阶段state字段正确更新",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_6agent_e2e.py -v",
+        "expected_result": "6-Agent端到端集成测试全部通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_personalization_difference.py -v",
+        "expected_result": "个性化差异验证测试全部通过，差异度>60%"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_degradation.py -v",
+        "expected_result": "降级测试全部通过（含新增4个测试）"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_sse_6agent_completeness.py -v",
+        "expected_result": "SSE事件完整性测试全部通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/ -v --tb=short",
+        "expected_result": "所有测试通过，无回归"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "6-Agent端到端集成测试通过：coordinator→retriever→analyzer→generator→reviewer全链路WorkflowState字段正确流转",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "审核重试闭环测试通过：Reviewer首次不通过→Generator重试→Reviewer二次通过，regenerate_count=1",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "跨Agent数据流验证通过：每个Agent的input_data包含上游Agent的输出",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "个性化差异度>60%：同一主题，beginner+undergraduate+simple+NLP vs phd+expert+technical+CV，Jaccard差异度>0.6",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "PersonalizationService.get_personalization_diff()极端画像返回>0.5",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "术语密度差异验证：beginner vs expert术语密度差>30个百分点",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "Agent级降级测试通过：单个Agent失败时工作流继续，status='degraded'",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "工作流级降级测试通过：2+Agent失败时降级结果，degraded_reason含失败Agent列表",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "Agent超时测试通过：Agent执行>30s时跳过继续，_fallback_result()降级返回",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-010",
+      "criterion": "Reviewer降级测试通过：Reviewer失败时review_result.approved=True，不阻塞流程",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-011",
+      "criterion": "SSE事件完整性测试通过：4个Agent各有agent_started+agent_completed事件",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-012",
+      "criterion": "SSE降级事件测试通过：Agent失败时analysis_completed的status='degraded'",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-013",
+      "criterion": "SSE审核拒绝事件测试通过：Reviewer不通过时emit review_rejected事件",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-014",
+      "criterion": "SSE事件顺序测试通过：started→completed→analysis_completed，ID单调递增",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-015",
+      "criterion": "所有已有测试保持通过，无回归问题",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-016",
+      "criterion": "测试代码使用mock避免调用真实LLM API和搜索服务",
+      "verified_by": "code_review"
+    }
+  ]
+}

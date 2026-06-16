@@ -1,4 +1,49 @@
 import type { Citation } from '@/types/analysis'
+import type { Paper } from '@/types/paper'
+
+/**
+ * CitationLink 弹窗所需数据
+ */
+export interface CitationPopupData {
+  paperId: string
+  title?: string
+  authors?: string[]
+  year?: number
+  text: string
+  venue?: string
+}
+
+/**
+ * 从 [Author, Year] 引用文本 + Citation/Papers 列表中提取弹窗数据
+ * @param raw - 原始引用文本（如 "[Zhang, 2024]"）
+ * @param citations - 分析结果中的 Citation 列表
+ * @param papers - 可选的论文列表（用于填充 title/authors/year/venue）
+ */
+export function extractCitationData(
+  raw: string,
+  citations: Citation[] = [],
+  papers: Paper[] = []
+): CitationPopupData | null {
+  if (!raw) return null
+  const match = new RegExp(CITATION_PATTERN.source).exec(raw)
+  if (!match) return null
+  const [, authors, year] = match
+  const matchedCitation = citations.find(c =>
+    c.text.includes(authors) && c.text.includes(year)
+  )
+  if (!matchedCitation) return null
+
+  const matchedPaper = papers.find(p => p.paperId === matchedCitation.paperId)
+
+  return {
+    paperId: matchedCitation.paperId,
+    title: matchedPaper?.title,
+    authors: matchedPaper?.authors,
+    year: matchedPaper?.year ?? Number.parseInt(year, 10),
+    text: matchedCitation.text,
+    venue: matchedPaper?.venue
+  }
+}
 
 /**
  * 解析后的引用片段

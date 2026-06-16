@@ -2,24 +2,33 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { View, Connection } from '@element-plus/icons-vue'
+import { View, Connection, Download } from '@element-plus/icons-vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useUserStore } from '@/stores/userStore'
+import { usePaperStore } from '@/stores/paperStore'
 import { renderMarkdown } from '@/utils/markdown'
-import { splitReportSegments } from '@/utils/citation'
+import { splitReportSegments, extractCitationData } from '@/utils/citation'
 import { formatDate } from '@/utils/format'
+import ExportPanel from '@/components/report/ExportPanel.vue'
+import CitationLink from '@/components/report/CitationLink.vue'
 import type { AnalysisResult, Citation } from '@/types/analysis'
+import type { CitationPopupData } from '@/utils/citation'
 
 const route = useRoute()
 const router = useRouter()
 const sessionStore = useSessionStore()
 const userStore = useUserStore()
+const paperStore = usePaperStore()
 
 const analysisId = computed(() => route.params.analysisId as string)
 
 const result = ref<AnalysisResult | null>(null)
 const loading = ref(true)
 const loadError = ref<string | null>(null)
+
+/** CitationLink 弹窗状态 */
+const citePopupVisible = ref(false)
+const selectedCitation = ref<CitationPopupData | null>(null)
 
 const reportMarkdown = computed(() => {
   if (!result.value?.result?.report) return ''
@@ -30,6 +39,10 @@ const reportSegments = computed(() => {
   if (!result.value?.result?.report) return []
   const citations = (result.value.result.citations ?? []) as Citation[]
   return splitReportSegments(result.value.result.report, citations)
+})
+
+const reportTitle = computed(() => {
+  return result.value?.result?.analysis?.researchQuestion ?? '文献综述报告'
 })
 
 const profileTags = computed(() => {
@@ -51,7 +64,6 @@ const paperCount = computed(() => {
 
 const generatedAt = computed<string | undefined>(() => {
   if (!result.value) return undefined
-  // 综述加载完成的当前时间作为显示用时间戳
   return new Date().toISOString()
 })
 
@@ -74,8 +86,25 @@ async function loadResult() {
   }
 }
 
-function handleCitationClick(paperId?: string) {
+/** 点击引用 → 弹窗展示详情 */
+function handleCitationClick(paperId?: string, rawText?: string) {
   if (!paperId) return
+  const citations = (result.value?.result?.citations ?? []) as Citation[]
+  const data = extractCitationData(
+    rawText ?? `[]`,
+    citations,
+    paperStore.searchResults
+  )
+  if (!data) {
+    ElMessage.info('引用信息不可用')
+    return
+  }
+  selectedCitation.value = data
+  citePopupVisible.value = true
+}
+
+/** 引弹窗内查看论文详情 */
+function handleGoDetail(paperId: string) {
   router.push({ name: 'PaperDetail', params: { paperId } })
 }
 
@@ -143,9 +172,7 @@ onMounted(() => {
       <el-card class="report-view__meta">
         <template #header>
           <div class="report-view__meta-header">
-            <h2 class="report-view__title">
-              {{ result.result?.analysis?.researchQuestion ?? '文献综述报告' }}
-            </h2>
+            <h2 class="report-view__title">{{ reportTitle }}</h2>
             <el-tag
               v-if="result.degraded"
               type="warning"
@@ -188,8 +215,15 @@ onMounted(() => {
 
         <div class="report-view__meta-actions">
           <el-button :icon="View" @click="goAgentFlow">查看 Agent 协同过程</el-button>
-          <el-button @click="copyMarkdown">复制 Markdown</el-button>
+          <el-button :icon="Download" @click="copyMarkdown">复制 Markdown</el-button>
         </div>
+
+        <!-- FM4 导出面板 -->
+        <ExportPanel
+          :analysis-id="analysisId"
+          :report-title="reportTitle"
+          class="report-view__export"
+        />
       </el-card>
 
       <!-- 综述内容主体 -->
@@ -198,7 +232,7 @@ onMounted(() => {
           <div class="report-view__content-header">
             <span>综述内容</span>
             <el-text type="info" size="small">
-              <span style="margin-left: 4px">点击引用 [Author, Year] 可跳转原文</span>
+              <span style="margin-left: 4px">点击引用 [Author, Year] 查看详情</span>
             </el-text>
           </div>
         </template>
@@ -212,14 +246,14 @@ onMounted(() => {
               :underline="false"
               :disabled="!segment.paperId"
               class="report-view__citation"
-              @click="handleCitationClick(segment.paperId)"
+              @click="handleCitationClick(segment.paperId, segment.value)"
             >
               [{{ segment.authors }}, {{ segment.year }}]
             </el-link>
           </template>
         </div>
 
-        <!-- Markdown 渲染备份（用于显示标题/列表/代码块等格式） -->
+        <!-- Markdown 渲染备份 -->
         <div
           v-if="reportMarkdown"
           class="markdown-body report-view__markdown"
@@ -236,6 +270,13 @@ onMounted(() => {
 
       <el-empty v-else description="综述内容为空" />
     </template>
+
+    <!-- 引用弹窗 -->
+    <CitationLink
+      v-model:visible="citePopupVisible"
+      :citation="selectedCitation"
+      @go-detail="handleGoDetail"
+    />
   </div>
 </template>
 
@@ -279,6 +320,12 @@ onMounted(() => {
   display: flex;
   gap: var(--spacing-sm, 8px);
   flex-wrap: wrap;
+}
+
+.report-view__export {
+  margin-top: var(--spacing-md, 16px);
+  padding-top: var(--spacing-md, 16px);
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 
 .report-view__content {

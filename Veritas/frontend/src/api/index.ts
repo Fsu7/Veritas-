@@ -55,6 +55,10 @@ http.interceptors.request.use(
 
 http.interceptors.response.use(
   (response) => {
+    // Blob / ArrayBuffer 响应：跳过 JSON 转换和 code 校验，直接返回原始数据
+    if (response.config.responseType === 'blob' || response.config.responseType === 'arraybuffer') {
+      return response.data
+    }
     const data = snakeToCamel(response.data) as ApiResponse<unknown>
     if (data.code === 200) {
       return data.data as ReturnType<typeof response.data>

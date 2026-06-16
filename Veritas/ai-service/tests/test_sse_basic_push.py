@@ -47,15 +47,22 @@ class MockAgent(BaseAgent):
 
 
 def _make_mock_agents(
+    coordinator_result=None,
     retriever_result=None,
     analyzer_result=None,
     generator_result=None,
+    coordinator_fail=False,
     retriever_fail=False,
     analyzer_fail=False,
     generator_fail=False,
 ) -> Dict[str, MockAgent]:
     """创建一组 Mock Agent"""
     return {
+        "coordinator": MockAgent(
+            "coordinator",
+            result=coordinator_result or {"requires_compare": False, "requires_review": True, "sub_tasks": []},
+            should_fail=coordinator_fail,
+        ),
         "retriever": MockAgent(
             "retriever",
             result=retriever_result or {"papers": [{"title": "Test Paper"}]},
@@ -326,9 +333,14 @@ class TestSSEAgentFailureEvent:
 
         failed_events = [e for e in events if e["event"] == "agent_failed"]
         assert len(failed_events) >= 1
-        data = json.loads(failed_events[0]["data"])
+        # 查找 analyzer 的 failed 事件
+        analyzer_failed = [
+            e for e in failed_events
+            if json.loads(e["data"]).get("agentName") == "analyzer"
+        ]
+        assert len(analyzer_failed) >= 1
+        data = json.loads(analyzer_failed[0]["data"])
         assert "errorMessage" in data
-        assert data["agentName"] == "analyzer"
 
     @pytest.mark.asyncio
     async def test_error_event_has_error_code(self):

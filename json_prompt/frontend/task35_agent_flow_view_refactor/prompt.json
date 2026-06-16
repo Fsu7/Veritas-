@@ -1,0 +1,160 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "FM4：综述生成与Agent可视化完成",
+    "requirement": "重构AgentFlowView.vue，组合AgentFlowChart+AgentStatusPanel+IntermediateResult+TimeStats四个子组件，实现SSE→agentStore→ECharts更新联调，上部流程图(60%)+下部面板(40%)布局，loading/empty/error状态完整",
+    "requirement_ids": ["F1.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "Agent可视化页面布局规范" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM4交付物清单与验收标准" },
+      { "path": "AGENTS.md", "purpose": "6-Agent角色定义和SSE事件格式" },
+      { "path": "Veritas/frontend/src/views/AgentFlowView.vue", "purpose": "当前AgentFlowView实现，需重构" },
+      { "path": "Veritas/frontend/src/stores/agentStore.ts", "purpose": "agentStore状态管理" },
+      { "path": "Veritas/frontend/src/stores/sessionStore.ts", "purpose": "sessionStore SSE连接管理" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/AgentFlowView.vue", "description": "当前Agent可视化页面，所有逻辑内联" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/agent/", "description": "Agent子组件目录（task32-34已创建）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "Agent状态管理" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "SSE连接管理" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/views/AgentFlowView.vue", "description": "已有ECharts Graph+SSE连接+Drawer详情，需重构为组合子组件", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/components/agent/AgentFlowChart.vue", "description": "task32创建的流程图组件", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/agent/AgentStatusPanel.vue", "description": "task33创建的状态面板组件", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/agent/IntermediateResult.vue", "description": "task34创建的中间结果组件", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/agent/TimeStats.vue", "description": "task34创建的耗时统计组件", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "已有agentStates/flowData/progress/updateAgentState/resetStates", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "已有connectAgentStream/disconnectSSE/startAnalysis", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AgentFlowView",
+      "path": "Veritas/frontend/src/views/AgentFlowView.vue",
+      "responsibility": "Agent协同可视化页面，组合4个子组件，管理SSE连接和状态",
+      "key_interfaces": [
+        { "name": "Route Params", "signature": "{ analysisId: string }", "description": "路由参数，关联具体分析任务" }
+      ]
+    },
+    {
+      "name": "agentStore",
+      "path": "Veritas/frontend/src/stores/agentStore.ts",
+      "responsibility": "Agent状态管理",
+      "key_interfaces": [
+        { "name": "agentStates", "signature": "Record<string, AgentState>", "description": "6个Agent状态" },
+        { "name": "resetStates", "signature": "() => void", "description": "重置所有Agent状态" }
+      ]
+    },
+    {
+      "name": "sessionStore",
+      "path": "Veritas/frontend/src/stores/sessionStore.ts",
+      "responsibility": "SSE连接管理",
+      "key_interfaces": [
+        { "name": "connectAgentStream", "signature": "(analysisId: string) => void", "description": "建立SSE连接" },
+        { "name": "disconnectSSE", "signature": "() => void", "description": "断开SSE连接" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "modify", "path": "Veritas/frontend/src/views/AgentFlowView.vue", "description": "重构：移除内联ECharts/SSE逻辑，改用4个子组件组合", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "页面布局：上部AgentFlowChart(60%高度，ECharts Graph流程图) + 下部AgentStatusPanel + IntermediateResult + TimeStats(40%高度)。下部区域使用el-tabs或el-row+el-col分区",
+        "priority": "P0",
+        "acceptance_condition": "页面正确组合4个子组件，布局比例正确"
+      },
+      {
+        "id": "FR-002",
+        "description": "SSE连接管理：进入页面时通过sessionStore.connectAgentStream(analysisId)建立SSE连接，SSE事件触发agentStore.updateAgentState，agentStates变化自动传递给子组件Props",
+        "priority": "P0",
+        "acceptance_condition": "SSE事件正确更新agentStore，子组件响应式更新"
+      },
+      {
+        "id": "FR-003",
+        "description": "组件卸载清理：onUnmounted中断开SSE连接(sessionStore.disconnectSSE) + 重置agentStore(agentStore.resetStates)，防止内存泄漏和幽灵连接",
+        "priority": "P0",
+        "acceptance_condition": "组件卸载后SSE连接断开，agentStore状态重置"
+      },
+      {
+        "id": "FR-004",
+        "description": "Loading状态：首次加载/SSE连接建立前显示el-skeleton骨架屏或v-loading，提示'正在连接Agent服务...'",
+        "priority": "P0",
+        "acceptance_condition": "加载中显示骨架屏/loading提示"
+      },
+      {
+        "id": "FR-005",
+        "description": "Empty状态：首次进入无analysisId或agentStates全为空时显示'等待开始分析'提示",
+        "priority": "P1",
+        "acceptance_condition": "空状态显示友好提示"
+      },
+      {
+        "id": "FR-006",
+        "description": "Error状态：SSE连接失败时显示ElMessage.error提示+'重试'按钮，点击重试重新建立SSE连接",
+        "priority": "P1",
+        "acceptance_condition": "连接失败有错误提示和重试按钮"
+      },
+      {
+        "id": "FR-007",
+        "description": "节点点击联动：AgentFlowChart emit node-click事件时，AgentStatusPanel高亮对应Agent标签，IntermediateResult滚动到对应Agent结果",
+        "priority": "P2",
+        "acceptance_condition": "点击流程图节点，状态面板和中间结果联动响应"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/analysis/{analysisId}/agent-stream?token=xxx",
+          "method": "GET(SSE)",
+          "request_format": { "token": "JWT Token" },
+          "response_format": { "event": "agent_state_update", "data": { "agent_name": "string", "status": "string", "progress": "number" } }
+        }
+      ],
+      "data_flow": "SSE事件 → sessionStore.connectAgentStream() → agentStore.updateAgentState() → 子组件Props(agentStates) → UI更新"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" }, "json": { "field_name": "snake_case" }, "cross_system_mapping": [{ "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }] },
+    "layering": { "frontend": { "rule": "View组合子组件，Store管理状态和SSE连接" } },
+    "error_handling": { "frontend": { "approach": "SSE连接失败ElMessage.error+重试按钮" } },
+    "caching": { "pattern": "agentStore作为前端缓存" },
+    "logging": { "prohibited": ["console.log Token/API Key"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "在View组件内直接new EventSource", "reason": "SSE连接由sessionStore管理", "severity": "critical" },
+    { "id": "FA-002", "action": "组件卸载未断开SSE和重置agentStore", "reason": "内存泄漏和幽灵连接", "severity": "critical" },
+    { "id": "FA-003", "action": "在View组件内直接调用API", "reason": "通过Store Action调用", "severity": "high" },
+    { "id": "FA-004", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "AgentFlowView组合测试", "description": "验证4个子组件正确渲染", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "SSE连接测试", "description": "验证SSE连接建立和断开", "framework": "vitest", "coverage": ["normal_flow", "error_flow"] },
+      { "test_name": "组件卸载清理测试", "description": "验证卸载时SSE断开和状态重置", "framework": "vitest", "coverage": ["normal_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run --reporter=verbose", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "页面正确组合4个子组件，布局60%+40%", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "SSE实时更新流程图和状态面板", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "组件卸载无内存泄漏", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "Loading/Empty/Error状态完整", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "节点点击联动状态面板和中间结果", "verified_by": "manual_test" }
+  ]
+}

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.agents.graph import (
     WorkflowState,
     build_agent_graph,
+    should_compare,
     should_review,
     should_regenerate,
     review_node,
@@ -29,6 +30,25 @@ def _make_mock_agent(name: str, result: dict) -> MagicMock:
     agent.execute = AsyncMock(return_value=result)
     agent._last_result = result
     return agent
+
+
+class TestShouldCompare:
+    """测试 should_compare 条件函数"""
+
+    def test_should_compare_true(self):
+        """requires_compare=True 且 search_results 有 2+ 项时返回 'compare'"""
+        state = {"requires_compare": True, "search_results": [{"paper_id": "p1"}, {"paper_id": "p2"}]}
+        assert should_compare(state) == "compare"
+
+    def test_should_compare_false_no_flag(self):
+        """requires_compare=False 时返回 'generate'"""
+        state = {"requires_compare": False, "search_results": [{"paper_id": "p1"}, {"paper_id": "p2"}]}
+        assert should_compare(state) == "generate"
+
+    def test_should_compare_false_insufficient_papers(self):
+        """requires_compare=True 但 search_results 不足 2 项时返回 'generate'"""
+        state = {"requires_compare": True, "search_results": [{"paper_id": "p1"}]}
+        assert should_compare(state) == "generate"
 
 
 class TestShouldReview:
@@ -104,12 +124,16 @@ class TestBuildAgentGraph:
         mock_analyzer = _make_mock_agent("analyzer", {"analysis_results": []})
         mock_generator = _make_mock_agent("generator", {"report": "综述", "citation_list": []})
         mock_reviewer = _make_mock_agent("reviewer", {"approved": True, "issues": [], "suggestions": []})
+        mock_coordinator = _make_mock_agent("coordinator", {"sub_tasks": [], "requires_compare": False, "requires_review": True, "task_count": 0, "reasoning": "test"})
+        mock_comparer = _make_mock_agent("comparer", {"comparison_matrix": {"dimensions": [], "papers": [], "similarities": [], "differences": [], "contradictions": []}, "summary": "", "contradictions": [], "paper_count": 0})
 
         agent_instances = {
             "retriever": mock_retriever,
             "analyzer": mock_analyzer,
             "generator": mock_generator,
             "reviewer": mock_reviewer,
+            "coordinator": mock_coordinator,
+            "comparer": mock_comparer,
         }
 
         graph = build_agent_graph(agent_instances)
@@ -120,11 +144,15 @@ class TestBuildAgentGraph:
         mock_retriever = _make_mock_agent("retriever", {"papers": []})
         mock_analyzer = _make_mock_agent("analyzer", {"analysis_results": []})
         mock_generator = _make_mock_agent("generator", {"report": "综述", "citation_list": []})
+        mock_coordinator = _make_mock_agent("coordinator", {"sub_tasks": [], "requires_compare": False, "requires_review": True, "task_count": 0, "reasoning": "test"})
+        mock_comparer = _make_mock_agent("comparer", {"comparison_matrix": {"dimensions": [], "papers": [], "similarities": [], "differences": [], "contradictions": []}, "summary": "", "contradictions": [], "paper_count": 0})
 
         agent_instances = {
             "retriever": mock_retriever,
             "analyzer": mock_analyzer,
             "generator": mock_generator,
+            "coordinator": mock_coordinator,
+            "comparer": mock_comparer,
         }
 
         graph = build_agent_graph(agent_instances)
@@ -224,12 +252,16 @@ class TestFullWorkflow:
         mock_analyzer = _make_mock_agent("analyzer", {"analysis_results": [{"paper_id": "p1", "paper_title": "Paper1"}]})
         mock_generator = _make_mock_agent("generator", {"report": "## 引言\n综述内容", "citation_list": []})
         mock_reviewer = _make_mock_agent("reviewer", {"approved": True, "issues": [], "suggestions": [], "citation_accuracy": 1.0, "fact_accuracy": 1.0})
+        mock_coordinator = _make_mock_agent("coordinator", {"sub_tasks": [], "requires_compare": False, "requires_review": True, "task_count": 0, "reasoning": "test"})
+        mock_comparer = _make_mock_agent("comparer", {"comparison_matrix": {"dimensions": [], "papers": [], "similarities": [], "differences": [], "contradictions": []}, "summary": "", "contradictions": [], "paper_count": 0})
 
         agent_instances = {
             "retriever": mock_retriever,
             "analyzer": mock_analyzer,
             "generator": mock_generator,
             "reviewer": mock_reviewer,
+            "coordinator": mock_coordinator,
+            "comparer": mock_comparer,
         }
 
         compiled_graph = build_agent_graph(agent_instances)
@@ -253,6 +285,11 @@ class TestFullWorkflow:
             "regenerate_count": 0,
             "started_at": "2026-01-01T00:00:00",
             "completed_at": None,
+            "requires_compare": False,
+            "requires_review": False,
+            "coordinator_result": None,
+            "degraded_agents": [],
+            "degradation_level": "none",
         }
 
         result = await compiled_graph.ainvoke(initial_state)
@@ -303,11 +340,16 @@ class TestFullWorkflow:
         mock_reviewer.state.to_dict.return_value = {"name": "reviewer", "status": "completed"}
         mock_reviewer.execute = reviewer_execute
 
+        mock_coordinator = _make_mock_agent("coordinator", {"sub_tasks": [], "requires_compare": False, "requires_review": True, "task_count": 0, "reasoning": "test"})
+        mock_comparer = _make_mock_agent("comparer", {"comparison_matrix": {"dimensions": [], "papers": [], "similarities": [], "differences": [], "contradictions": []}, "summary": "", "contradictions": [], "paper_count": 0})
+
         agent_instances = {
             "retriever": mock_retriever,
             "analyzer": mock_analyzer,
             "generator": mock_generator,
             "reviewer": mock_reviewer,
+            "coordinator": mock_coordinator,
+            "comparer": mock_comparer,
         }
 
         compiled_graph = build_agent_graph(agent_instances)
@@ -331,6 +373,11 @@ class TestFullWorkflow:
             "regenerate_count": 0,
             "started_at": "2026-01-01T00:00:00",
             "completed_at": None,
+            "requires_compare": False,
+            "requires_review": False,
+            "coordinator_result": None,
+            "degraded_agents": [],
+            "degradation_level": "none",
         }
 
         result = await compiled_graph.ainvoke(initial_state)
@@ -347,11 +394,15 @@ class TestFullWorkflow:
         mock_retriever = _make_mock_agent("retriever", {"papers": []})
         mock_analyzer = _make_mock_agent("analyzer", {"analysis_results": []})
         mock_generator = _make_mock_agent("generator", {"report": "综述内容", "citation_list": []})
+        mock_coordinator = _make_mock_agent("coordinator", {"sub_tasks": [], "requires_compare": False, "requires_review": True, "task_count": 0, "reasoning": "test"})
+        mock_comparer = _make_mock_agent("comparer", {"comparison_matrix": {"dimensions": [], "papers": [], "similarities": [], "differences": [], "contradictions": []}, "summary": "", "contradictions": [], "paper_count": 0})
 
         agent_instances = {
             "retriever": mock_retriever,
             "analyzer": mock_analyzer,
             "generator": mock_generator,
+            "coordinator": mock_coordinator,
+            "comparer": mock_comparer,
         }
 
         compiled_graph = build_agent_graph(agent_instances)
@@ -375,6 +426,11 @@ class TestFullWorkflow:
             "regenerate_count": 0,
             "started_at": "2026-01-01T00:00:00",
             "completed_at": None,
+            "requires_compare": False,
+            "requires_review": False,
+            "coordinator_result": None,
+            "degraded_agents": [],
+            "degradation_level": "none",
         }
 
         result = await compiled_graph.ainvoke(initial_state)

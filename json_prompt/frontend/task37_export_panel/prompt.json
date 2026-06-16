@@ -1,0 +1,136 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "FM4：综述生成与Agent可视化完成",
+    "requirement": "创建ExportPanel.vue组件，支持PDF/Word两种格式导出综述报告，点击导出触发API调用+文件下载，导出中loading状态，导出失败ElMessage.error提示，AI生成内容标注'AI生成，仅供参考'",
+    "requirement_ids": ["F1.4"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "报告组件规范" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM4交付物清单" },
+      { "path": "AGENTS.md", "purpose": "API契约和导出接口" },
+      { "path": "Veritas/frontend/src/api/analysis.ts", "purpose": "分析API，需新增导出接口" },
+      { "path": "Veritas/frontend/src/views/ReportView.vue", "purpose": "当前报告页面，需集成ExportPanel" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/report/", "description": "报告业务组件目录" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/api/analysis.ts", "description": "分析API模块" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/api/analysis.ts", "description": "已有generateReport/getResult/getStatus，需新增exportPdf/exportWord", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/views/ReportView.vue", "description": "已有综述展示，需集成导出面板", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "ExportPanel",
+      "path": "Veritas/frontend/src/components/report/ExportPanel.vue",
+      "responsibility": "导出面板组件，PDF/Word格式导出",
+      "key_interfaces": [
+        { "name": "Props", "signature": "{ analysisId: string; reportTitle?: string }", "description": "分析ID和报告标题" },
+        { "name": "Emits", "signature": "{ 'export-success': [format: string]; 'export-error': [error: string] }", "description": "导出成功/失败事件" }
+      ]
+    },
+    {
+      "name": "analysisApi",
+      "path": "Veritas/frontend/src/api/analysis.ts",
+      "responsibility": "分析API模块",
+      "key_interfaces": [
+        { "name": "exportPdf", "signature": "(analysisId: string) => Promise<Blob>", "description": "导出PDF" },
+        { "name": "exportWord", "signature": "(analysisId: string) => Promise<Blob>", "description": "导出Word" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/report/ExportPanel.vue", "description": "新建导出面板组件", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/api/analysis.ts", "description": "新增exportPdf/exportWord API方法", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "PDF导出：点击'导出PDF'按钮，调用analysisApi.exportPdf(analysisId)，接收Blob响应，使用URL.createObjectURL+<a>标签触发下载，文件名格式：综述报告_{topic}_{date}.pdf",
+        "priority": "P0",
+        "acceptance_condition": "点击导出PDF，文件下载正确，文件名规范"
+      },
+      {
+        "id": "FR-002",
+        "description": "Word导出：点击'导出Word'按钮，调用analysisApi.exportWord(analysisId)，接收Blob响应，触发下载，文件名格式：综述报告_{topic}_{date}.docx",
+        "priority": "P0",
+        "acceptance_condition": "点击导出Word，文件下载正确"
+      },
+      {
+        "id": "FR-003",
+        "description": "导出中loading状态：导出过程中按钮显示loading状态(:loading=true)，禁用其他导出按钮，防止重复点击",
+        "priority": "P0",
+        "acceptance_condition": "导出中按钮loading+禁用"
+      },
+      {
+        "id": "FR-004",
+        "description": "导出失败处理：API调用失败时ElMessage.error提示导出失败原因，恢复按钮可用状态",
+        "priority": "P0",
+        "acceptance_condition": "导出失败有错误提示，按钮恢复可用"
+      },
+      {
+        "id": "FR-005",
+        "description": "AI内容标注：导出面板底部显示'AI生成，仅供参考'提示文字，使用el-text type='info' size='small'",
+        "priority": "P1",
+        "acceptance_condition": "面板底部显示AI内容标注"
+      },
+      {
+        "id": "FR-006",
+        "description": "API方法实现：analysis.ts新增exportPdf和exportWord方法，使用Axios实例发送GET请求，responseType设为'blob'，路径：/api/analysis/{analysisId}/export/pdf 和 /api/analysis/{analysisId}/export/word",
+        "priority": "P0",
+        "acceptance_condition": "API方法正确发送请求并返回Blob"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }
+        ]
+      },
+      "api_contracts": [
+        { "endpoint": "/api/analysis/{analysisId}/export/pdf", "method": "GET", "request_format": { "Authorization": "Bearer JWT" }, "response_format": "application/pdf Blob" },
+        { "endpoint": "/api/analysis/{analysisId}/export/word", "method": "GET", "request_format": { "Authorization": "Bearer JWT" }, "response_format": "application/vnd.openxmlformats-officedocument.wordprocessingml.document Blob" }
+      ],
+      "data_flow": "用户点击导出 → ExportPanel调用analysisApi → Java后端 → 文件Blob → 前端触发下载"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" }, "json": { "field_name": "snake_case" }, "cross_system_mapping": [{ "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }] },
+    "layering": { "frontend": { "rule": "ExportPanel通过analysisApi调用后端，不直接操作Axios" } },
+    "error_handling": { "frontend": { "approach": "导出失败ElMessage.error提示" } },
+    "caching": { "pattern": "不缓存导出结果，每次实时请求" },
+    "logging": { "prohibited": ["console.log Token"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "前端直接调Python导出API", "reason": "必须通过Java后端代理(三层分离架构)", "severity": "critical" },
+    { "id": "FA-002", "action": "导出中允许重复点击", "reason": "必须loading+禁用防止重复请求", "severity": "high" },
+    { "id": "FA-003", "action": "缺少AI内容标注", "reason": "安全规范要求AI生成内容必须标注", "severity": "high" },
+    { "id": "FA-004", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "ExportPanel渲染测试", "description": "验证PDF/Word导出按钮正确渲染", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "导出loading测试", "description": "验证导出中按钮loading+禁用", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "导出失败测试", "description": "验证API失败时错误提示", "framework": "vitest", "coverage": ["error_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run --reporter=verbose", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "点击导出PDF文件下载正确", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "点击导出Word文件下载正确", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "导出中按钮loading+禁用", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "导出失败有ElMessage.error提示", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "AI内容标注'AI生成，仅供参考'显示", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "API方法responseType为blob", "verified_by": "code_review" }
+  ]
+}

@@ -31,5 +31,13 @@ export const analysisApi = {
     // 后端需同步支持 ?token=xxx 鉴权方式
     const token = localStorage.getItem('token') || ''
     return `/api/analysis/${analysisId}/agent-stream?token=${encodeURIComponent(token)}`
-  }
+  },
+
+  /** 导出综述报告为 PDF（返回 Blob） */
+  exportPdf: (analysisId: string): Promise<Blob> =>
+    http.get(`/analysis/${analysisId}/export/pdf`, { responseType: 'blob' }),
+
+  /** 导出综述报告为 Word（返回 Blob） */
+  exportWord: (analysisId: string): Promise<Blob> =>
+    http.get(`/analysis/${analysisId}/export/word`, { responseType: 'blob' })
 }

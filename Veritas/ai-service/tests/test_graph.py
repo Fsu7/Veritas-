@@ -12,9 +12,12 @@ from app.agents.graph import (
     _serialize_agent_state,
     analyze_node,
     build_agent_graph,
+    compare_node,
+    coordinator_node,
     generate_node,
     retrieve_node,
     run_workflow,
+    should_compare,
 )
 from app.models.schemas import AnalyzeRequest, UserProfile
 
@@ -53,6 +56,11 @@ def _make_initial_state(**overrides) -> WorkflowState:
         "regenerate_count": 0,
         "started_at": datetime.now().isoformat(),
         "completed_at": None,
+        "requires_compare": False,
+        "requires_review": False,
+        "coordinator_result": None,
+        "degraded_agents": [],
+        "degradation_level": "none",
     }
     base.update(overrides)
     return base
@@ -68,6 +76,8 @@ class TestWorkflowStateFields:
             "compare_result", "report", "review_result", "citations",
             "final_output", "agent_states", "errors", "degraded",
             "regenerate_count", "started_at", "completed_at",
+            "requires_compare", "requires_review", "coordinator_result",
+            "degraded_agents", "degradation_level",
         ]
         for key in required_keys:
             assert key in state, f"Missing key: {key}"
@@ -86,6 +96,11 @@ class TestWorkflowStateFields:
         assert state["errors"] == []
         assert state["degraded"] is False
         assert state["regenerate_count"] == 0
+        assert state["requires_compare"] is False
+        assert state["requires_review"] is False
+        assert state["coordinator_result"] is None
+        assert state["degraded_agents"] == []
+        assert state["degradation_level"] == "none"
 
 
 class TestRetrieveNode:
@@ -189,11 +204,17 @@ class TestBuildAgentGraph:
         mock_retriever = _make_mock_agent("retriever", {"papers": [], "total_found": 0})
         mock_analyzer = _make_mock_agent("analyzer", {"analysis_results": [], "total_analyzed": 0, "degraded_papers": [], "extraction_quality": 0.0})
         mock_generator = _make_mock_agent("generator", {"report": "test", "citation_list": [], "term_density_actual": 0.0, "personalization_applied": {}})
+        mock_coordinator = _make_mock_agent("coordinator", {"sub_tasks": [], "requires_compare": False, "requires_review": True, "task_count": 0, "reasoning": "test"})
+        mock_comparer = _make_mock_agent("comparer", {"comparison_matrix": {"dimensions": [], "papers": [], "similarities": [], "differences": [], "contradictions": []}, "summary": "", "contradictions": [], "paper_count": 0})
+        mock_reviewer = _make_mock_agent("reviewer", {"approved": True, "issues": [], "suggestions": [], "citation_accuracy": 1.0, "fact_accuracy": 1.0})
 
         agent_instances = {
             "retriever": mock_retriever,
             "analyzer": mock_analyzer,
             "generator": mock_generator,
+            "coordinator": mock_coordinator,
+            "comparer": mock_comparer,
+            "reviewer": mock_reviewer,
         }
 
         graph = build_agent_graph(agent_instances)
@@ -203,12 +224,15 @@ class TestBuildAgentGraph:
         mock_retriever = _make_mock_agent("retriever", {"papers": [], "total_found": 0})
         mock_analyzer = _make_mock_agent("analyzer", {"analysis_results": [], "total_analyzed": 0, "degraded_papers": [], "extraction_quality": 0.0})
         mock_generator = _make_mock_agent("generator", {"report": "test", "citation_list": [], "term_density_actual": 0.0, "personalization_applied": {}})
+        mock_coordinator = _make_mock_agent("coordinator", {"sub_tasks": [], "requires_compare": False, "requires_review": True, "task_count": 0, "reasoning": "test"})
+        mock_comparer = _make_mock_agent("comparer", {"comparison_matrix": {"dimensions": [], "papers": [], "similarities": [], "differences": [], "contradictions": []}, "summary": "", "contradictions": [], "paper_count": 0})
+        mock_reviewer = _make_mock_agent("reviewer", {"approved": True, "issues": [], "suggestions": [], "citation_accuracy": 1.0, "fact_accuracy": 1.0})
 
-        agent_instances = {"retriever": mock_retriever, "analyzer": mock_analyzer, "generator": mock_generator}
+        agent_instances = {"retriever": mock_retriever, "analyzer": mock_analyzer, "generator": mock_generator, "coordinator": mock_coordinator, "comparer": mock_comparer, "reviewer": mock_reviewer}
         graph = build_agent_graph(agent_instances)
 
         node_names = list(graph.nodes.keys()) if hasattr(graph, 'nodes') else []
-        expected_nodes = {"retrieve", "analyze", "generate", "__start__"}
+        expected_nodes = {"coordinator", "compare", "retrieve", "analyze", "generate", "__start__"}
         actual_nodes = set(node_names)
         assert expected_nodes.issubset(actual_nodes), f"Missing nodes: {expected_nodes - actual_nodes}"
 
@@ -220,8 +244,11 @@ class TestRunWorkflow:
         mock_retriever = _make_mock_agent("retriever", {"papers": [{"paper_id": "p1", "title": "Test"}], "total_found": 1})
         mock_analyzer = _make_mock_agent("analyzer", {"analysis_results": [{"paper_id": "p1"}], "total_analyzed": 1, "degraded_papers": [], "extraction_quality": 0.8})
         mock_generator = _make_mock_agent("generator", {"report": "## 综述\nTest", "citation_list": [], "term_density_actual": 0.1, "personalization_applied": {}})
+        mock_coordinator = _make_mock_agent("coordinator", {"sub_tasks": [], "requires_compare": False, "requires_review": True, "task_count": 0, "reasoning": "test"})
+        mock_comparer = _make_mock_agent("comparer", {"comparison_matrix": {"dimensions": [], "papers": [], "similarities": [], "differences": [], "contradictions": []}, "summary": "", "contradictions": [], "paper_count": 0})
+        mock_reviewer = _make_mock_agent("reviewer", {"approved": True, "issues": [], "suggestions": [], "citation_accuracy": 1.0, "fact_accuracy": 1.0})
 
-        agent_instances = {"retriever": mock_retriever, "analyzer": mock_analyzer, "generator": mock_generator}
+        agent_instances = {"retriever": mock_retriever, "analyzer": mock_analyzer, "generator": mock_generator, "coordinator": mock_coordinator, "comparer": mock_comparer, "reviewer": mock_reviewer}
 
         request = AnalyzeRequest(
             topic="Multi-Agent",
@@ -249,8 +276,11 @@ class TestRunWorkflow:
         mock_retriever.execute = slow_execute
         mock_analyzer = _make_mock_agent("analyzer", {"analysis_results": [], "total_analyzed": 0, "degraded_papers": [], "extraction_quality": 0.0})
         mock_generator = _make_mock_agent("generator", {"report": "test", "citation_list": [], "term_density_actual": 0.0, "personalization_applied": {}})
+        mock_coordinator = _make_mock_agent("coordinator", {"sub_tasks": [], "requires_compare": False, "requires_review": True, "task_count": 0, "reasoning": "test"})
+        mock_comparer = _make_mock_agent("comparer", {"comparison_matrix": {"dimensions": [], "papers": [], "similarities": [], "differences": [], "contradictions": []}, "summary": "", "contradictions": [], "paper_count": 0})
+        mock_reviewer = _make_mock_agent("reviewer", {"approved": True, "issues": [], "suggestions": [], "citation_accuracy": 1.0, "fact_accuracy": 1.0})
 
-        agent_instances = {"retriever": mock_retriever, "analyzer": mock_analyzer, "generator": mock_generator}
+        agent_instances = {"retriever": mock_retriever, "analyzer": mock_analyzer, "generator": mock_generator, "coordinator": mock_coordinator, "comparer": mock_comparer, "reviewer": mock_reviewer}
 
         request = AnalyzeRequest(
             topic="Multi-Agent",
@@ -279,8 +309,11 @@ class TestRunWorkflow:
         mock_analyzer.state.error = "Analyzer failed"
 
         mock_generator = _make_mock_agent("generator", {"report": "Fallback report", "citation_list": [], "term_density_actual": 0.0, "personalization_applied": {}})
+        mock_coordinator = _make_mock_agent("coordinator", {"sub_tasks": [], "requires_compare": False, "requires_review": True, "task_count": 0, "reasoning": "test"})
+        mock_comparer = _make_mock_agent("comparer", {"comparison_matrix": {"dimensions": [], "papers": [], "similarities": [], "differences": [], "contradictions": []}, "summary": "", "contradictions": [], "paper_count": 0})
+        mock_reviewer = _make_mock_agent("reviewer", {"approved": True, "issues": [], "suggestions": [], "citation_accuracy": 1.0, "fact_accuracy": 1.0})
 
-        agent_instances = {"retriever": mock_retriever, "analyzer": mock_analyzer, "generator": mock_generator}
+        agent_instances = {"retriever": mock_retriever, "analyzer": mock_analyzer, "generator": mock_generator, "coordinator": mock_coordinator, "comparer": mock_comparer, "reviewer": mock_reviewer}
 
         request = AnalyzeRequest(
             topic="Multi-Agent",
@@ -293,6 +326,74 @@ class TestRunWorkflow:
         assert result["degraded"] is True
         assert result["degraded_reason"] is not None
         assert len(result["errors"]) >= 2
+
+
+class TestCoordinatorNode:
+
+    @pytest.mark.asyncio
+    async def test_coordinator_node_success(self):
+        mock_coordinator = _make_mock_agent("coordinator", {"sub_tasks": ["task1", "task2"], "requires_compare": True, "requires_review": True, "task_count": 2, "reasoning": "multi-paper analysis"})
+
+        state = _make_initial_state()
+        result = await coordinator_node(state, {"coordinator": mock_coordinator})
+
+        assert result["requires_compare"] is True
+        assert result["requires_review"] is True
+        assert result["sub_tasks"] == ["task1", "task2"]
+        assert result["coordinator_result"] is not None
+        assert "coordinator" in result["agent_states"]
+        mock_coordinator.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_coordinator_node_failure(self):
+        mock_coordinator = _make_mock_agent("coordinator", {})
+        mock_coordinator.execute = AsyncMock(side_effect=Exception("Coordinator failed"))
+        mock_coordinator.state.status = AgentStatus.FAILED
+        mock_coordinator.state.error = "Coordinator failed"
+
+        state = _make_initial_state()
+        result = await coordinator_node(state, {"coordinator": mock_coordinator})
+
+        assert result["requires_compare"] is False
+        assert result["requires_review"] is True
+        assert result["degraded"] is True
+        assert "coordinator" in [e["agent"] for e in result["errors"]]
+
+
+class TestCompareNode:
+
+    @pytest.mark.asyncio
+    async def test_compare_node_success(self):
+        comparison_result = {
+            "comparison_matrix": {"dimensions": ["method"], "papers": ["p1", "p2"], "similarities": [], "differences": [], "contradictions": []},
+            "summary": "Two papers compared",
+            "contradictions": [],
+            "paper_count": 2,
+        }
+        mock_comparer = _make_mock_agent("comparer", comparison_result)
+
+        state = _make_initial_state(analysis_results=[{"paper_id": "p1"}, {"paper_id": "p2"}])
+        result = await compare_node(state, {"comparer": mock_comparer})
+
+        assert result["compare_result"] is not None
+        assert result["compare_result"]["paper_count"] == 2
+        assert "comparer" in result["agent_states"]
+        mock_comparer.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_compare_node_failure(self):
+        mock_comparer = _make_mock_agent("comparer", {})
+        mock_comparer.execute = AsyncMock(side_effect=Exception("Compare failed"))
+        mock_comparer.state.status = AgentStatus.FAILED
+        mock_comparer.state.error = "Compare failed"
+
+        state = _make_initial_state(analysis_results=[{"paper_id": "p1"}, {"paper_id": "p2"}])
+        result = await compare_node(state, {"comparer": mock_comparer})
+
+        assert result["compare_result"] is None
+        assert result["degraded"] is True
+        assert "comparer" in result.get("degraded_agents", [])
+        assert any(e["agent"] == "comparer" for e in result["errors"])
 
 
 class TestAgentStateSerialization:

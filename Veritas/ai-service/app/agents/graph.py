@@ -28,10 +28,24 @@ class WorkflowState(TypedDict):
     regenerate_count: int
     started_at: Optional[str]
     completed_at: Optional[str]
+    # Task 42: 6-Agent 工作流新增字段
+    requires_compare: bool
+    requires_review: bool
+    coordinator_result: Optional[Dict]
+    # Task 43: 降级机制新增字段
+    degraded_agents: List[str]
+    degradation_level: str
 
 
 def _serialize_agent_state(agent) -> Dict[str, Any]:
     return agent.state.to_dict()
+
+
+def should_compare(state: WorkflowState) -> str:
+    """判断是否需要对比：requires_compare=True 且论文数>=2 时进入对比节点"""
+    if state.get("requires_compare", False) and len(state.get("search_results", [])) >= 2:
+        return "compare"
+    return "generate"
 
 
 def should_review(state: WorkflowState) -> bool:
@@ -61,6 +75,66 @@ def should_regenerate(state: WorkflowState) -> str:
     return "end"
 
 
+async def coordinator_node(state: WorkflowState, agent_instances: Dict[str, Any]) -> dict:
+    """协调者节点：调用 CoordinatorAgent 进行任务分解，设置 requires_compare/requires_review 标记"""
+    coordinator = agent_instances.get("coordinator")
+    if coordinator is None:
+        logger.warning("CoordinatorAgent not found, using default flags")
+        return {
+            "requires_compare": False,
+            "requires_review": True,
+            "sub_tasks": [],
+            "coordinator_result": None,
+            "degraded": True,
+            "errors": state.get("errors", []) + [{"agent": "coordinator", "error": "Agent not found"}],
+            "agent_states": {**state.get("agent_states", {}), "coordinator": {"name": "coordinator", "status": "failed", "error": "Agent not found"}},
+        }
+
+    try:
+        result = await coordinator.execute(
+            input_data={
+                "topic": state["query"],
+                "analysis_type": state.get("analysis_type", "report"),
+                "paper_ids": state.get("user_profile", {}).get("paper_ids", []),
+            },
+            context={"user_profile": state.get("user_profile", {})},
+        )
+
+        requires_compare = result.get("requires_compare", False)
+        requires_review = result.get("requires_review", True)
+        sub_tasks = result.get("sub_tasks", [])
+
+        update: Dict[str, Any] = {
+            "requires_compare": requires_compare,
+            "requires_review": requires_review,
+            "sub_tasks": sub_tasks,
+            "coordinator_result": result,
+            "agent_states": {**state.get("agent_states", {}), "coordinator": _serialize_agent_state(coordinator)},
+        }
+
+        # 检查 coordinator 是否降级
+        if result.get("degraded", False):
+            update["degraded"] = True
+            update["degraded_agents"] = state.get("degraded_agents", []) + ["coordinator"]
+            update["degradation_level"] = "agent"
+            update["errors"] = state.get("errors", []) + [{"agent": "coordinator", "error": result.get("error", "coordinator degraded")}]
+
+        return update
+    except Exception as e:
+        logger.error(f"coordinator_node failed: {e}")
+        return {
+            "requires_compare": False,
+            "requires_review": True,
+            "sub_tasks": [],
+            "coordinator_result": None,
+            "degraded": True,
+            "degraded_agents": state.get("degraded_agents", []) + ["coordinator"],
+            "degradation_level": "agent",
+            "errors": state.get("errors", []) + [{"agent": "coordinator", "error": str(e)}],
+            "agent_states": {**state.get("agent_states", {}), "coordinator": _serialize_agent_state(coordinator)},
+        }
+
+
 async def retrieve_node(state: WorkflowState, agent_instances: Dict[str, Any]) -> dict:
     retriever = agent_instances.get("retriever")
     if retriever is None:
@@ -77,6 +151,18 @@ async def retrieve_node(state: WorkflowState, agent_instances: Dict[str, Any]) -
             context={"user_profile": state.get("user_profile", {})},
         )
         papers = result.get("papers", [])
+
+        # 检查 retriever 是否降级
+        if result.get("degraded", False):
+            return {
+                "search_results": [],
+                "degraded": True,
+                "degraded_agents": state.get("degraded_agents", []) + ["retriever"],
+                "degradation_level": "agent",
+                "errors": state.get("errors", []) + [{"agent": "retriever", "error": result.get("error", "retriever degraded")}],
+                "agent_states": {**state.get("agent_states", {}), "retriever": _serialize_agent_state(retriever)},
+            }
+
         return {
             "search_results": papers,
             "agent_states": {**state.get("agent_states", {}), "retriever": _serialize_agent_state(retriever)},
@@ -107,6 +193,18 @@ async def analyze_node(state: WorkflowState, agent_instances: Dict[str, Any]) ->
             context={"user_profile": state.get("user_profile", {})},
         )
         analysis_results = result.get("analysis_results", [])
+
+        # 检查 analyzer 是否降级
+        if result.get("degraded", False):
+            return {
+                "analysis_results": [],
+                "degraded": True,
+                "degraded_agents": state.get("degraded_agents", []) + ["analyzer"],
+                "degradation_level": "agent",
+                "errors": state.get("errors", []) + [{"agent": "analyzer", "error": result.get("error", "analyzer degraded")}],
+                "agent_states": {**state.get("agent_states", {}), "analyzer": _serialize_agent_state(analyzer)},
+            }
+
         return {
             "analysis_results": analysis_results,
             "agent_states": {**state.get("agent_states", {}), "analyzer": _serialize_agent_state(analyzer)},
@@ -118,6 +216,51 @@ async def analyze_node(state: WorkflowState, agent_instances: Dict[str, Any]) ->
             "errors": state.get("errors", []) + [{"agent": "analyzer", "error": str(e)}],
             "degraded": True,
             "agent_states": {**state.get("agent_states", {}), "analyzer": _serialize_agent_state(analyzer)},
+        }
+
+
+async def compare_node(state: WorkflowState, agent_instances: Dict[str, Any]) -> dict:
+    """对比节点：调用 ComparerAgent 进行多论文对比与矛盾发现"""
+    comparer = agent_instances.get("comparer")
+    if comparer is None:
+        logger.warning("ComparerAgent not found, skipping comparison")
+        return {
+            "compare_result": None,
+            "degraded": True,
+            "degraded_agents": state.get("degraded_agents", []) + ["comparer"],
+            "degradation_level": "agent",
+            "errors": state.get("errors", []) + [{"agent": "comparer", "error": "Agent not found"}],
+            "agent_states": {**state.get("agent_states", {}), "comparer": {"name": "comparer", "status": "failed", "error": "Agent not found"}},
+        }
+
+    try:
+        result = await comparer.execute(
+            input_data={"analysis_results": state.get("analysis_results", [])},
+            context={"user_profile": state.get("user_profile", {})},
+        )
+
+        update: Dict[str, Any] = {
+            "compare_result": result,
+            "agent_states": {**state.get("agent_states", {}), "comparer": _serialize_agent_state(comparer)},
+        }
+
+        # 检查 comparer 是否降级
+        if result.get("degraded", False):
+            update["degraded"] = True
+            update["degraded_agents"] = state.get("degraded_agents", []) + ["comparer"]
+            update["degradation_level"] = "agent"
+            update["errors"] = state.get("errors", []) + [{"agent": "comparer", "error": result.get("error", "comparer degraded")}]
+
+        return update
+    except Exception as e:
+        logger.error(f"compare_node failed: {e}")
+        return {
+            "compare_result": None,
+            "degraded": True,
+            "degraded_agents": state.get("degraded_agents", []) + ["comparer"],
+            "degradation_level": "agent",
+            "errors": state.get("errors", []) + [{"agent": "comparer", "error": str(e)}],
+            "agent_states": {**state.get("agent_states", {}), "comparer": _serialize_agent_state(comparer)},
         }
 
 
@@ -167,6 +310,18 @@ async def generate_node(state: WorkflowState, agent_instances: Dict[str, Any]) -
         )
         report = result.get("report", "")
         citations = result.get("citation_list", [])
+
+        # 检查 generator 是否降级
+        if result.get("degraded", False):
+            return {
+                "report": result.get("report", "综述生成过程中发生降级，返回部分结果。"),
+                "citations": citations,
+                "degraded": True,
+                "degraded_agents": state.get("degraded_agents", []) + ["generator"],
+                "degradation_level": "agent",
+                "errors": state.get("errors", []) + [{"agent": "generator", "error": result.get("error", "generator degraded")}],
+                "agent_states": {**state.get("agent_states", {}), "generator": _serialize_agent_state(generator)},
+            }
 
         update: Dict[str, Any] = {
             "report": report,
@@ -250,6 +405,8 @@ async def review_node(state: WorkflowState, agent_instances: Dict[str, Any]) -> 
         # Reviewer 降级处理
         if result.get("degraded", False):
             update["degraded"] = True
+            update["degraded_agents"] = state.get("degraded_agents", []) + ["reviewer"]
+            update["degradation_level"] = "agent"
             update["errors"] = state.get("errors", []) + [{"agent": "reviewer", "error": "审核降级，跳过审核"}]
             # 降级时标记审核通过，不阻塞流程
             review_result["approved"] = True
@@ -262,22 +419,38 @@ async def review_node(state: WorkflowState, agent_instances: Dict[str, Any]) -> 
             "review_result": {"approved": True, "issues": [], "suggestions": [], "citation_accuracy": 0.0, "fact_accuracy": 0.0},
             "errors": state.get("errors", []) + [{"agent": "reviewer", "error": str(e)}],
             "degraded": True,
+            "degraded_agents": state.get("degraded_agents", []) + ["reviewer"],
+            "degradation_level": "agent",
             "agent_states": {**state.get("agent_states", {}), "reviewer": _serialize_agent_state(reviewer)},
         }
 
 
+def _should_degrade_workflow(state: WorkflowState) -> bool:
+    """判断是否需要工作流级降级：2个及以上Agent失败时返回True"""
+    return len(state.get("errors", [])) >= 2
+
+
 def build_agent_graph(agent_instances: Dict[str, Any]) -> StateGraph:
+    async def _coordinator(state: WorkflowState) -> dict:
+        return await coordinator_node(state, agent_instances)
+
     async def _retrieve(state: WorkflowState) -> dict:
         return await retrieve_node(state, agent_instances)
 
     async def _analyze(state: WorkflowState) -> dict:
         return await analyze_node(state, agent_instances)
 
+    async def _compare(state: WorkflowState) -> dict:
+        return await compare_node(state, agent_instances)
+
     async def _generate(state: WorkflowState) -> dict:
         return await generate_node(state, agent_instances)
 
     async def _review(state: WorkflowState) -> dict:
         return await review_node(state, agent_instances)
+
+    def _should_compare(state: WorkflowState) -> str:
+        return should_compare(state)
 
     def _should_review(state: WorkflowState) -> str:
         if should_review(state):
@@ -289,23 +462,37 @@ def build_agent_graph(agent_instances: Dict[str, Any]) -> StateGraph:
 
     graph = StateGraph(WorkflowState)
 
+    # 6-Agent 节点
+    graph.add_node("coordinator", _coordinator)
     graph.add_node("retrieve", _retrieve)
     graph.add_node("analyze", _analyze)
+    graph.add_node("compare", _compare)
     graph.add_node("generate", _generate)
     graph.add_node("review", _review)
 
-    graph.set_entry_point("retrieve")
-    graph.add_edge("retrieve", "analyze")
-    graph.add_edge("analyze", "generate")
+    # 入口节点为 coordinator
+    graph.set_entry_point("coordinator")
 
-    # generate → review 条件判断
+    # 固定边
+    graph.add_edge("coordinator", "retrieve")
+    graph.add_edge("retrieve", "analyze")
+    graph.add_edge("compare", "generate")
+
+    # 条件边：analyzer → [compare | generate]
+    graph.add_conditional_edges(
+        "analyze",
+        _should_compare,
+        {"compare": "compare", "generate": "generate"},
+    )
+
+    # 条件边：generate → [review | END]
     graph.add_conditional_edges(
         "generate",
         _should_review,
         {"review": "review", "end": END},
     )
 
-    # review → regenerate/end 条件判断
+    # 条件边：review → [regenerate → generate | END]
     graph.add_conditional_edges(
         "review",
         _should_regenerate,
@@ -341,6 +528,11 @@ async def run_workflow(request: AnalyzeRequest, agent_instances: Dict[str, Any])
         "regenerate_count": 0,
         "started_at": datetime.now().isoformat(),
         "completed_at": None,
+        "requires_compare": False,
+        "requires_review": False,
+        "coordinator_result": None,
+        "degraded_agents": [],
+        "degradation_level": "none",
     }
 
     try:
@@ -387,6 +579,8 @@ async def run_workflow(request: AnalyzeRequest, agent_instances: Dict[str, Any])
             "degraded_reason": degraded_reason,
             "started_at": result_state.get("started_at"),
             "completed_at": result_state.get("completed_at"),
+            "degradation_level": result_state.get("degradation_level", "none"),
+            "degraded_agents": result_state.get("degraded_agents", []),
         }
 
     except asyncio.TimeoutError:
@@ -402,6 +596,8 @@ async def run_workflow(request: AnalyzeRequest, agent_instances: Dict[str, Any])
             "degraded_reason": f"全流程超时({settings.AGENT_FULL_TIMEOUT}s)，返回部分结果",
             "started_at": initial_state.get("started_at"),
             "completed_at": datetime.now().isoformat(),
+            "degradation_level": "workflow",
+            "degraded_agents": [],
         }
 
     except Exception as e:
@@ -417,4 +613,6 @@ async def run_workflow(request: AnalyzeRequest, agent_instances: Dict[str, Any])
             "degraded_reason": f"工作流执行异常: {str(e)}",
             "started_at": initial_state.get("started_at"),
             "completed_at": datetime.now().isoformat(),
+            "degradation_level": "workflow",
+            "degraded_agents": [],
         }

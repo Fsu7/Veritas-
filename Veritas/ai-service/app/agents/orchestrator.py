@@ -1,13 +1,15 @@
-"""AgentOrchestrator — task25 产出，task30 增强
+"""AgentOrchestrator — task25 产出，task30/42/43/44 增强
 
 流式 Agent 编排器，封装 run_workflow_stream() 异步生成器。
 每个 Agent 执行过程通过 SSE 事件实时推送状态给 Java 后端。
 
-事件类型：
+事件类型（9种）：
   - agent_started     : Agent 开始执行
   - agent_state_update: Agent 状态变更（progress 更新）
   - agent_completed    : Agent 正常完成
   - agent_failed       : Agent 执行失败（不中断流）
+  - workflow_degraded  : 工作流降级事件（task43/44）
+  - review_rejected    : 审核不通过事件
   - analysis_completed : 全流程结束
   - error              : 错误事件
   - ping               : keep-alive 心跳（task30）
@@ -18,6 +20,14 @@ task30 增强：
   - Keep-alive ping：距上次事件 > 15s 时自动 yield ping 事件
   - Last-Event-ID：支持断线重连，跳过已发送事件
   - 客户端断开优雅处理：捕获 asyncio.CancelledError
+
+task43/44 增强：
+  - workflow_degraded SSE 事件
+  - agent_failed 增加 degradationLevel/errorType/fallback
+  - agent_completed 增加 degraded/完整 intermediateResult
+  - agent_started 增加 analysisType
+  - agent_state_update 增加 degraded/errorMessage
+  - analysis_completed 增加 degradationLevel/degradedAgents
 """
 import asyncio
 import json
@@ -38,7 +48,7 @@ PING_INTERVAL = 15
 class AgentOrchestrator:
     """流式 Agent 编排器 — task25 产出，task30 增强"""
 
-    NODE_ORDER = ["retriever", "analyzer", "generator", "reviewer"]
+    NODE_ORDER = ["coordinator", "retriever", "analyzer", "comparer", "generator", "reviewer"]
 
     def __init__(
         self,
@@ -53,6 +63,8 @@ class AgentOrchestrator:
         self._errors: List[Dict[str, str]] = []
         self._degraded = False
         self._degraded_reason: Optional[str] = None
+        self._degraded_agents: List[str] = []
+        self._analysis_type: str = ""
         # task30: Last-Event-ID 支持
         self._last_event_id_filter = last_event_id
         # task30: keep-alive ping 时间戳
@@ -95,6 +107,24 @@ class AgentOrchestrator:
         """task30: 更新上次事件时间戳"""
         self._last_event_time = time.monotonic()
 
+    def _should_degrade_workflow(self) -> bool:
+        """task43: 判断是否需要工作流级降级（2+Agent失败时返回True）"""
+        return len(self._errors) >= 2
+
+    def _calculate_degradation_level(self) -> str:
+        """task44: 计算降级等级（基于失败Agent数量）
+        0个→'none', 1个→'partial', 2个→'severe', 3+个→'critical'
+        """
+        count = len(self._degraded_agents)
+        if count == 0:
+            return "none"
+        elif count == 1:
+            return "partial"
+        elif count == 2:
+            return "severe"
+        else:
+            return "critical"
+
     async def run_workflow_stream(
         self,
         request: AnalyzeRequest,
@@ -109,11 +139,53 @@ class AgentOrchestrator:
             if request.user_profile is not None:
                 user_profile_dict = request.user_profile.model_dump(by_alias=False)
 
+            self._analysis_type = str(request.analysis_type or "report")
+
             search_results: list = []
             analysis_results: list = []
+            compare_result: Optional[Dict] = None
             report: Optional[str] = None
             review_result: Optional[Dict] = None
             regenerate_count: int = 0
+            requires_compare: bool = False
+
+            # === Coordinator ===
+            ping = self._maybe_ping()
+            if ping and not self._should_skip_event(int(ping["id"])):
+                yield ping
+
+            async for event in self._run_node(
+                node_name="coordinator",
+                input_data={
+                    "topic": request.topic,
+                    "analysis_type": str(request.analysis_type or "report"),
+                    "paper_ids": [pid for pid in (request.paper_ids or [])],
+                },
+                context={"user_profile": user_profile_dict},
+            ):
+                if self._should_skip_event(int(event["id"])):
+                    continue
+                self._update_event_time()
+                yield event
+
+            # 获取 coordinator 执行结果
+            coordinator = self.agent_instances.get("coordinator")
+            if coordinator and coordinator.state.status == AgentStatus.COMPLETED:
+                coord_result = self._get_last_result(coordinator, None, {})
+                if isinstance(coord_result, dict):
+                    requires_compare = coord_result.get("requires_compare", False)
+
+            if self._check_timeout():
+                timeout_event = self._make_timeout_event()
+                if not self._should_skip_event(int(timeout_event["id"])):
+                    self._update_event_time()
+                    yield timeout_event
+                async for event in self._yield_final(report):
+                    if self._should_skip_event(int(event["id"])):
+                        continue
+                    self._update_event_time()
+                    yield event
+                return
 
             # === Retriever ===
             # task30: 节点执行前检查 ping
@@ -180,6 +252,38 @@ class AgentOrchestrator:
                     yield event
                 return
 
+            # === Comparer (条件执行) ===
+            if requires_compare and len(search_results) >= 2:
+                ping = self._maybe_ping()
+                if ping and not self._should_skip_event(int(ping["id"])):
+                    yield ping
+
+                async for event in self._run_node(
+                    node_name="comparer",
+                    input_data={"analysis_results": analysis_results},
+                    context={"user_profile": user_profile_dict},
+                ):
+                    if self._should_skip_event(int(event["id"])):
+                        continue
+                    self._update_event_time()
+                    yield event
+
+                comparer = self.agent_instances.get("comparer")
+                if comparer and comparer.state.status == AgentStatus.COMPLETED:
+                    compare_result = self._get_last_result(comparer, None, {})
+
+                if self._check_timeout():
+                    timeout_event = self._make_timeout_event()
+                    if not self._should_skip_event(int(timeout_event["id"])):
+                        self._update_event_time()
+                        yield timeout_event
+                    async for event in self._yield_final(report):
+                        if self._should_skip_event(int(event["id"])):
+                            continue
+                        self._update_event_time()
+                        yield event
+                    return
+
             # === Generator ===
             ping = self._maybe_ping()
             if ping and not self._should_skip_event(int(ping["id"])):
@@ -189,7 +293,7 @@ class AgentOrchestrator:
                 node_name="generator",
                 input_data={
                     "analysis_results": analysis_results,
-                    "compare_result": None,
+                    "compare_result": compare_result,
                 },
                 context={"user_profile": user_profile_dict},
             ):
@@ -281,7 +385,7 @@ class AgentOrchestrator:
 
                         gen_input_data = {
                             "analysis_results": analysis_results,
-                            "compare_result": None,
+                            "compare_result": compare_result,
                             "retry_context": retry_context,
                         }
                         async for event in self._run_node(
@@ -344,7 +448,7 @@ class AgentOrchestrator:
         input_data: dict,
         context: dict,
     ) -> AsyncIterator[Dict[str, str]]:
-        """执行单个 Agent 并 yield SSE 事件"""
+        """执行单个 Agent 并 yield SSE 事件（task43/44 增强事件数据结构）"""
         agent = self.agent_instances.get(node_name)
 
         if agent is None:
@@ -353,6 +457,9 @@ class AgentOrchestrator:
                 "status": "failed",
                 "analysisId": self.analysis_id,
                 "errorMessage": f"{node_name} Agent not found",
+                "errorType": "AgentNotFound",
+                "degraded": True,
+                "fallback": f"跳过{node_name}，继续后续流程",
             })
             yield self._make_event("error", {
                 "analysisId": self.analysis_id,
@@ -361,17 +468,27 @@ class AgentOrchestrator:
             })
             self._errors.append({"agent": node_name, "error": "Agent not found"})
             self._degraded = True
+            self._degraded_agents.append(node_name)
+            # task43: yield workflow_degraded 事件
+            if self._should_degrade_workflow():
+                yield self._make_event("workflow_degraded", {
+                    "analysisId": self.analysis_id,
+                    "degradedAgents": list(self._degraded_agents),
+                    "reason": f"{node_name} Agent not found",
+                    "fallbackMode": "skip_agent" if len(self._errors) < 2 else "single_agent",
+                })
             return
 
-        # agent_started
+        # agent_started（task44: 增加 analysisType）
         yield self._make_event("agent_started", {
             "agentName": node_name,
             "status": "running",
             "analysisId": self.analysis_id,
             "timestamp": int(datetime.now().timestamp() * 1000),
+            "analysisType": self._analysis_type,
         })
 
-        # agent_state_update (running)
+        # agent_state_update (running)（task44: 增加 degraded/errorMessage）
         yield self._make_event("agent_state_update", {
             "agentName": node_name,
             "status": "running",
@@ -379,6 +496,8 @@ class AgentOrchestrator:
             "analysisId": self.analysis_id,
             "intermediateResult": "",
             "durationMs": 0,
+            "degraded": False,
+            "errorMessage": None,
         })
 
         try:
@@ -390,13 +509,19 @@ class AgentOrchestrator:
 
             # 检查 agent 是否在 execute 内部降级（超时/异常被 BaseAgent 捕获）
             if agent.state.status == AgentStatus.FAILED:
-                # Agent 内部降级，yield agent_failed + error 事件
+                # Agent 内部降级，yield agent_failed + workflow_degraded 事件
+                self._degraded_agents.append(node_name)
+                degradation_level = "workflow" if self._should_degrade_workflow() else "agent"
+
                 yield self._make_event("agent_failed", {
                     "agentName": state_dict.get("name", node_name),
                     "status": "failed",
                     "analysisId": self.analysis_id,
                     "errorMessage": agent.state.error or "Agent 执行失败",
                     "durationMs": state_dict.get("duration_ms"),
+                    "errorType": type(agent.state.error).__name__ if agent.state.error else "AgentError",
+                    "degraded": True,
+                    "fallback": f"跳过{node_name}，继续后续流程",
                 })
                 yield self._make_event("error", {
                     "analysisId": self.analysis_id,
@@ -405,27 +530,65 @@ class AgentOrchestrator:
                 })
                 self._errors.append({"agent": node_name, "error": agent.state.error or "unknown"})
                 self._degraded = True
+
+                # task43: yield workflow_degraded 事件
+                yield self._make_event("workflow_degraded", {
+                    "analysisId": self.analysis_id,
+                    "degradedAgents": list(self._degraded_agents),
+                    "reason": agent.state.error or f"{node_name} 执行失败",
+                    "fallbackMode": "skip_agent" if len(self._errors) < 2 else "single_agent",
+                })
             else:
-                # agent 正常完成
+                # agent 正常完成（task44: 完整 intermediateResult + degraded）
+                is_degraded = result.get("degraded", False) if isinstance(result, dict) else False
+                if is_degraded:
+                    self._degraded_agents.append(node_name)
+                    self._degraded = True
+
+                # 使用完整结果而非截断摘要
+                intermediate_result = ""
+                if isinstance(result, dict):
+                    try:
+                        intermediate_result = json.dumps(result, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        intermediate_result = str(result)[:200]
+                elif result is not None:
+                    intermediate_result = str(result)[:200]
+
                 camel_state = {
                     "agentName": state_dict.get("name", node_name),
                     "status": state_dict.get("status", "completed"),
                     "progress": 1.0,
                     "analysisId": self.analysis_id,
-                    "intermediateResult": state_dict.get("intermediate_result") or "",
+                    "intermediateResult": intermediate_result,
                     "durationMs": state_dict.get("duration_ms"),
+                    "degraded": is_degraded,
                 }
                 yield self._make_event("agent_completed", camel_state)
+
+                # task43: 降级 Agent 也 yield workflow_degraded
+                if is_degraded:
+                    yield self._make_event("workflow_degraded", {
+                        "analysisId": self.analysis_id,
+                        "degradedAgents": list(self._degraded_agents),
+                        "reason": f"{node_name} 降级执行",
+                        "fallbackMode": "skip_agent" if len(self._degraded_agents) < 2 else "single_agent",
+                    })
 
         except Exception as e:
             agent._last_result = agent._fallback_result(input_data)
             state_dict = agent.state.to_dict()
+            self._degraded_agents.append(node_name)
+
             yield self._make_event("agent_failed", {
                 "agentName": node_name,
                 "status": "failed",
                 "analysisId": self.analysis_id,
                 "errorMessage": str(e)[:200],
                 "durationMs": state_dict.get("duration_ms"),
+                "errorType": type(e).__name__,
+                "degraded": True,
+                "fallback": f"跳过{node_name}，继续后续流程",
             })
             yield self._make_event("error", {
                 "analysisId": self.analysis_id,
@@ -434,6 +597,14 @@ class AgentOrchestrator:
             })
             self._errors.append({"agent": node_name, "error": str(e)})
             self._degraded = True
+
+            # task43: yield workflow_degraded 事件
+            yield self._make_event("workflow_degraded", {
+                "analysisId": self.analysis_id,
+                "degradedAgents": list(self._degraded_agents),
+                "reason": str(e)[:200],
+                "fallbackMode": "skip_agent" if len(self._errors) < 2 else "single_agent",
+            })
 
     async def _yield_final(self, report: Optional[str]) -> AsyncIterator[Dict[str, str]]:
         """yield analysis_completed 最终事件"""
@@ -456,4 +627,6 @@ class AgentOrchestrator:
             "degraded": self._degraded,
             "degradedReason": self._degraded_reason,
             "totalDurationMs": int((datetime.now() - self._start_time).total_seconds() * 1000),
+            "degradationLevel": self._calculate_degradation_level(),
+            "degradedAgents": list(self._degraded_agents),
         })

@@ -1,0 +1,416 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4 / AM4：6-Agent协同与个性化引擎",
+    "requirement": "在 agents/graph.py 中实现完整的二级降级机制：Agent级降级（单Agent超时/异常时跳过并继续）和工作流级降级（多Agent失败时降级为仅Retriever+Generator的最小工作流），添加 degraded_agents 和 degradation_level 到 WorkflowState，在 orchestrator.py 中添加 workflow_degraded SSE 事件，确保降级后仍返回可用结果",
+    "requirement_ids": ["F3.1.5", "F3.1.6"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "查阅5.7节降级策略（Level 0-4完整定义）、5.5节LangGraph工作流定义、5.8节SSE事件格式"
+      },
+      {
+        "path": "docs/系统完整工作流程文档.md",
+        "purpose": "查阅8.1节三级降级策略流程图和降级路径定义"
+      },
+      {
+        "path": "docs/信息架构文档(IA).md",
+        "purpose": "查阅4.4节Agent工作流导航中的降级路径描述"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "了解项目架构、Agent超时30s、全流程120s、三级降级策略"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/graph.py",
+        "description": "LangGraph工作流定义：4节点（retrieve/analyze/generate/review），每个节点有基本try-except但缺少Agent级skip-and-continue逻辑，缺少工作流级降级路径，WorkflowState缺少degraded_agents和degradation_level字段"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/orchestrator.py",
+        "description": "流式Agent编排器：_run_node()捕获异常并yield agent_failed事件，设置_degraded=True，但缺少工作流级降级路径和workflow_degraded SSE事件"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent基类：execute()超时30s，_fallback_result()返回degraded=True的降级结果，已实现Agent内部降级"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/core/config.py",
+        "description": "配置管理：AGENT_TIMEOUT=30, AGENT_FULL_TIMEOUT=120, AGENT_MAX_REGENERATE=1"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/graph.py",
+        "description": "当前降级实现：每个节点有基本try-except，失败时设置degraded=True并append errors；run_workflow()检查error_count>=2设置degraded status；缺少：(1)Agent级skip-and-continue逻辑（Comparer失败时compare_result=None继续，Reviewer失败时auto-approve继续）；(2)工作流级降级（2+Agent失败→跳过Analyzer/Comparer/Reviewer直接到Generator）；(3)degraded_agents/degradation_level字段；(4)_should_degrade_workflow()辅助函数",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/orchestrator.py",
+        "description": "当前降级实现：_run_node()捕获异常yield agent_failed事件，设置_degraded=True；_yield_final()根据error_count判断degraded status；缺少：(1)工作流级降级路径（2+Agent失败→跳过可选Agent直接到Generator）；(2)workflow_degraded SSE事件；(3)agent_failed事件缺少degradation_level信息",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent.execute()已实现30s超时→_fallback_result()，异常→_fallback_result()，返回{degraded:True, agent:name, error:str}。Agent级降级的超时和异常捕获已在BaseAgent层面完成，graph.py节点函数需要正确处理fallback结果",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/config.py",
+        "description": "AGENT_TIMEOUT=30, AGENT_FULL_TIMEOUT=120, AGENT_MAX_REGENERATE=1，无需修改",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "graph.py",
+      "path": "Veritas/ai-service/app/agents/graph.py",
+      "responsibility": "LangGraph状态图定义，编排6-Agent工作流，实现二级降级机制",
+      "key_interfaces": [
+        {
+          "name": "WorkflowState",
+          "signature": "class WorkflowState(TypedDict)",
+          "description": "工作流状态定义，需新增degraded_agents: List[str]和degradation_level: str字段"
+        },
+        {
+          "name": "build_agent_graph",
+          "signature": "def build_agent_graph(agent_instances: Dict[str, Any]) -> StateGraph",
+          "description": "构建Agent协同工作流图，需增加工作流级降级条件边"
+        },
+        {
+          "name": "run_workflow",
+          "signature": "async def run_workflow(request: AnalyzeRequest, agent_instances: Dict[str, Any]) -> dict",
+          "description": "执行工作流（非流式），需增加工作流级降级路径和degradation_level输出"
+        },
+        {
+          "name": "_should_degrade_workflow",
+          "signature": "def _should_degrade_workflow(state: WorkflowState) -> bool",
+          "description": "新增辅助函数：判断是否需要工作流级降级（errors>=2时返回True）"
+        }
+      ]
+    },
+    {
+      "name": "orchestrator.py",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "responsibility": "流式Agent编排器，SSE事件推送，需增加工作流级降级路径和workflow_degraded事件",
+      "key_interfaces": [
+        {
+          "name": "run_workflow_stream",
+          "signature": "async def run_workflow_stream(self, request: AnalyzeRequest) -> AsyncIterator[Dict[str, str]]",
+          "description": "流式执行工作流，需增加工作流级降级路径：2+Agent失败→跳过可选Agent直接到Generator"
+        },
+        {
+          "name": "_run_node",
+          "signature": "async def _run_node(self, node_name: str, input_data: dict, context: dict) -> AsyncIterator[Dict[str, str]]",
+          "description": "执行单个Agent，需增强agent_failed事件添加degradation_level信息"
+        },
+        {
+          "name": "_should_degrade_workflow",
+          "signature": "def _should_degrade_workflow(self) -> bool",
+          "description": "新增方法：判断是否需要工作流级降级（self._errors长度>=2时返回True）"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/graph.py",
+      "description": "扩展WorkflowState添加degraded_agents和degradation_level字段；增强各节点函数实现Agent级降级（Comparer失败→compare_result=None继续，Reviewer失败→auto-approve继续）；新增_should_degrade_workflow()辅助函数；增强run_workflow()实现工作流级降级（2+Agent失败→跳过可选Agent直接到Generator）；输出结果添加degradation_level字段",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "description": "新增_should_degrade_workflow()方法；增强run_workflow_stream()实现工作流级降级路径（2+Agent失败→yield workflow_degraded事件→跳过可选Agent直接到Generator）；增强agent_failed事件添加degradation_level信息；增强analysis_completed事件添加degradation_level字段",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_degradation.py",
+      "description": "新建降级机制测试：验证Agent级降级（单Agent超时/异常跳过继续）、工作流级降级（多Agent失败降级为最小工作流）、正常流程不受影响、全流程超时降级",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "扩展 WorkflowState TypedDict，新增 degraded_agents: List[str]（记录降级的Agent名称列表）和 degradation_level: str（降级级别：'none'/'agent'/'workflow'）两个字段",
+        "priority": "P0",
+        "acceptance_condition": "WorkflowState 包含 degraded_agents 和 degradation_level 字段，initial_state 中正确初始化"
+      },
+      {
+        "id": "FR-002",
+        "description": "增强 retrieve_node 的Agent级降级：当 retriever.execute() 返回 degraded=True 的结果时（BaseAgent超时/异常返回的fallback），将 'retriever' 加入 degraded_agents，设置 degradation_level='agent'，但仍继续工作流（search_results=[]）",
+        "priority": "P0",
+        "acceptance_condition": "Retriever 降级后工作流不中断，degraded_agents 包含 'retriever'，degradation_level='agent'"
+      },
+      {
+        "id": "FR-003",
+        "description": "增强 analyze_node 的Agent级降级：当 analyzer.execute() 返回 degraded=True 的结果时，将 'analyzer' 加入 degraded_agents，设置 degradation_level='agent'，analysis_results=[]，继续工作流",
+        "priority": "P0",
+        "acceptance_condition": "Analyzer 降级后工作流不中断，degraded_agents 包含 'analyzer'"
+      },
+      {
+        "id": "FR-004",
+        "description": "增强 generate_node 的Agent级降级：当 generator.execute() 返回 degraded=True 的结果时，将 'generator' 加入 degraded_agents，设置 degradation_level='agent'，返回fallback报告文本，确保report不为空",
+        "priority": "P0",
+        "acceptance_condition": "Generator 降级后report不为空（至少包含降级说明文本），degraded_agents 包含 'generator'"
+      },
+      {
+        "id": "FR-005",
+        "description": "增强 review_node 的Agent级降级：当 reviewer.execute() 返回 degraded=True 的结果时，自动标记 approved=True（跳过审核不阻塞流程），将 'reviewer' 加入 degraded_agents，设置 degradation_level='agent'",
+        "priority": "P0",
+        "acceptance_condition": "Reviewer 降级后approved=True，不阻塞流程，degraded_agents 包含 'reviewer'"
+      },
+      {
+        "id": "FR-006",
+        "description": "新增 _should_degrade_workflow(state: WorkflowState) -> bool 辅助函数：当 len(state.get('errors', [])) >= 2 时返回 True，表示需要工作流级降级",
+        "priority": "P0",
+        "acceptance_condition": "errors>=2 时返回 True，否则返回 False"
+      },
+      {
+        "id": "FR-007",
+        "description": "增强 run_workflow() 实现工作流级降级：在构建 StateGraph 时增加条件边，当 _should_degrade_workflow(state) 为 True 时，从当前节点直接跳转到 generate 节点（跳过 analyze/compare/review），设置 degradation_level='workflow'；在最终返回结果中包含 degradation_level 字段",
+        "priority": "P0",
+        "acceptance_condition": "2+Agent失败时自动降级为仅Retriever+Generator的最小工作流，返回结果包含degradation_level='workflow'"
+      },
+      {
+        "id": "FR-008",
+        "description": "在 orchestrator.py 中新增 _should_degrade_workflow(self) -> bool 方法：当 len(self._errors) >= 2 时返回 True",
+        "priority": "P0",
+        "acceptance_condition": "2+Agent失败时返回True"
+      },
+      {
+        "id": "FR-009",
+        "description": "在 orchestrator.py 的 run_workflow_stream() 中实现工作流级降级路径：在每个Agent执行后检查 _should_degrade_workflow()，若为True则 yield workflow_degraded SSE事件，跳过可选Agent（analyzer/reviewer），直接执行 generator",
+        "priority": "P0",
+        "acceptance_condition": "2+Agent失败时yield workflow_degraded事件，跳过可选Agent直接到Generator"
+      },
+      {
+        "id": "FR-010",
+        "description": "新增 workflow_degraded SSE事件类型：event=workflow_degraded，data包含 analysisId、degradedAgents（已失败Agent列表）、skippedAgents（将被跳过的Agent列表）、reason（降级原因）",
+        "priority": "P0",
+        "acceptance_condition": "workflow_degraded 事件格式正确，包含所有必要字段"
+      },
+      {
+        "id": "FR-011",
+        "description": "增强 orchestrator.py 的 agent_failed 事件：添加 degradationLevel 字段（'agent'或'workflow'），让前端区分Agent级和工作流级降级",
+        "priority": "P1",
+        "acceptance_condition": "agent_failed 事件包含 degradationLevel 字段"
+      },
+      {
+        "id": "FR-012",
+        "description": "增强 orchestrator.py 的 analysis_completed 事件：添加 degradationLevel 字段（'none'/'agent'/'workflow'），让前端了解整体降级级别",
+        "priority": "P1",
+        "acceptance_condition": "analysis_completed 事件包含 degradationLevel 字段"
+      },
+      {
+        "id": "FR-013",
+        "description": "增强 run_workflow() 的最终返回结果：添加 degradation_level 字段（'none'/'agent'/'workflow'），添加 degraded_agents 字段（降级的Agent名称列表），确保降级后仍返回可用结果（report不为空）",
+        "priority": "P0",
+        "acceptance_condition": "返回结果包含 degradation_level 和 degraded_agents，降级时report不为空"
+      },
+      {
+        "id": "FR-014",
+        "description": "编写降级机制测试 tests/test_degradation.py：覆盖正常流程、单Agent失败（Agent级降级）、多Agent失败（工作流级降级）、全流程超时降级四种场景",
+        "priority": "P0",
+        "acceptance_condition": "测试覆盖所有降级场景，全部通过"
+      }
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {
+        "description": "Agent级降级：单Agent超时(30s)/异常时跳过该Agent，返回fallback结果，继续后续工作流",
+        "mechanism": "BaseAgent.execute()已实现超时→_fallback_result()，graph.py节点函数需检测result.get('degraded')并正确处理",
+        "per_agent_handling": {
+          "retriever": "降级时search_results=[]，后续Agent可处理空列表",
+          "analyzer": "降级时analysis_results=[]，Generator可处理空分析结果",
+          "generator": "降级时返回fallback报告文本，确保report不为空",
+          "reviewer": "降级时auto-approve(approved=True)，不阻塞流程"
+        }
+      },
+      "workflow_degradation": {
+        "description": "工作流级降级：2+Agent失败时降级为仅Retriever+Generator的最小工作流",
+        "trigger_condition": "len(errors) >= 2",
+        "fallback_path": "跳过Analyzer/Comparer/Reviewer，直接执行Generator",
+        "output_annotation": "degradation_level='workflow', degraded_agents包含所有失败Agent名称",
+        "sse_event": "yield workflow_degraded事件通知前端"
+      },
+      "llm_degradation": {
+        "description": "LLM级降级已由llm_service.py实现（BuiltinLLMProvider→APILLMProvider→LocalLLMProvider），graph.py只需正确处理LLM降级信号（Agent返回degraded=True）"
+      },
+      "guarantees": [
+        "降级后必须返回可用结果，report不为空",
+        "Agent超时30s，全流程超时120s",
+        "Reviewer重试上限1次",
+        "降级不阻塞后续Agent执行"
+      ]
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，graph.py负责工作流编排和降级逻辑，orchestrator.py负责流式推送和降级事件"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent，工作流级降级不返回空结果",
+        "agent_error_handling": "state['errors'].append({'agent': name, 'error': str(e)})，state['degraded_agents'].append(name)，继续工作流",
+        "workflow_error_handling": "errors>=2时触发工作流级降级，跳过可选Agent直接到Generator"
+      }
+    },
+    "logging": {
+      "python": "Loguru"
+    },
+    "timeout": {
+      "agent_timeout": 30,
+      "workflow_timeout": 120,
+      "unit": "seconds"
+    },
+    "review_retry_limit": 1
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块（如base.py、config.py、llm_service.py）", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "降级后返回空结果（report为None或空字符串）", "reason": "降级必须返回可用结果", "severity": "critical" },
+    { "id": "FA-004", "action": "破坏已有4节点工作流的正常流程", "reason": "必须向后兼容，正常流程不受影响", "severity": "high" },
+    { "id": "FA-005", "action": "在orchestrator中硬编码SSE事件格式", "reason": "使用_make_event()方法统一构造", "severity": "medium" },
+    { "id": "FA-006", "action": "忽略BaseAgent.execute()已返回的degraded信号", "reason": "必须检测result.get('degraded')并正确处理", "severity": "high" },
+    { "id": "FA-007", "action": "工作流级降级时仍执行可选Agent（analyzer/reviewer）", "reason": "降级后应跳过可选Agent直接到Generator", "severity": "high" },
+    { "id": "FA-008", "action": "Reviewer重试超过1次", "reason": "AGENT_MAX_REGENERATE=1约束", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_should_degrade_workflow_no_errors",
+        "description": "验证无错误时_should_degrade_workflow返回False",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_should_degrade_workflow_one_error",
+        "description": "验证1个错误时_should_degrade_workflow返回False（Agent级降级）",
+        "framework": "pytest",
+        "coverage": ["agent_degradation"]
+      },
+      {
+        "test_name": "test_should_degrade_workflow_two_errors",
+        "description": "验证2个错误时_should_degrade_workflow返回True（工作流级降级）",
+        "framework": "pytest",
+        "coverage": ["workflow_degradation"]
+      },
+      {
+        "test_name": "test_workflow_state_new_fields",
+        "description": "验证WorkflowState新增degraded_agents和degradation_level字段正确初始化",
+        "framework": "pytest",
+        "coverage": ["state_definition"]
+      },
+      {
+        "test_name": "test_retrieve_node_degraded_result",
+        "description": "验证retrieve_node处理degraded=True结果时正确更新degraded_agents和degradation_level",
+        "framework": "pytest",
+        "coverage": ["agent_degradation"]
+      },
+      {
+        "test_name": "test_review_node_auto_approve_on_degradation",
+        "description": "验证review_node在降级时自动标记approved=True",
+        "framework": "pytest",
+        "coverage": ["agent_degradation"]
+      },
+      {
+        "test_name": "test_generate_node_fallback_report",
+        "description": "验证generate_node降级时返回非空fallback报告",
+        "framework": "pytest",
+        "coverage": ["agent_degradation"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_normal_workflow_no_degradation",
+        "description": "Mock所有Agent正常执行，验证完整工作流degradation_level='none'，degraded_agents=[]",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_single_agent_failure_agent_degradation",
+        "description": "Mock Analyzer失败（返回degraded=True），验证Agent级降级：degradation_level='agent'，degraded_agents=['analyzer']，工作流继续完成",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_multi_agent_failure_workflow_degradation",
+        "description": "Mock Retriever和Analyzer都失败，验证工作流级降级：degradation_level='workflow'，跳过可选Agent直接到Generator",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_full_timeout_degradation",
+        "description": "验证全流程超时120s时返回降级结果，degradation_level='workflow'",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_orchestrator_workflow_degraded_event",
+        "description": "验证orchestrator在2+Agent失败时yield workflow_degraded SSE事件",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_orchestrator_agent_failed_with_degradation_level",
+        "description": "验证orchestrator的agent_failed事件包含degradationLevel字段",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_degraded_result_not_empty",
+        "description": "验证任何降级场景下最终report不为空",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_degradation.py -v",
+        "expected_result": "所有降级测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_graph_integration.py -v",
+        "expected_result": "已有集成测试不受影响，全部通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/ -v --ignore=tests/test_degradation.py",
+        "expected_result": "已有测试不受影响，全部通过"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "WorkflowState 包含 degraded_agents: List[str] 和 degradation_level: str 字段", "verified_by": "code_review" },
+    { "id": "AC-002", "criterion": "各节点函数正确处理 BaseAgent 返回的 degraded=True 结果，更新 degraded_agents 和 degradation_level", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "Reviewer 降级时 auto-approve(approved=True)，不阻塞流程", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "_should_degrade_workflow() 在 errors>=2 时返回 True", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "工作流级降级时跳过可选Agent直接到Generator，degradation_level='workflow'", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "orchestrator.py 在工作流级降级时 yield workflow_degraded SSE事件", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "agent_failed 事件包含 degradationLevel 字段", "verified_by": "code_review" },
+    { "id": "AC-008", "criterion": "analysis_completed 事件包含 degradationLevel 字段", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "降级后返回的 report 不为空", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "run_workflow() 返回结果包含 degradation_level 和 degraded_agents 字段", "verified_by": "automated_test" },
+    { "id": "AC-011", "criterion": "正常流程不受影响，degradation_level='none'，degraded_agents=[]", "verified_by": "automated_test" },
+    { "id": "AC-012", "criterion": "已有测试不受影响，全部通过", "verified_by": "automated_test" }
+  ]
+}

@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { paperApi } from '@/api/paper'
-import type { Paper, FilterParams } from '@/types/paper'
+import type { Paper, FilterParams, SortParams } from '@/types/paper'
+import { DEFAULT_SORT } from '@/types/paper'
 
 const MAX_SELECTED_PAPERS = 5
 const MIN_SELECTED_PAPERS = 2
@@ -22,6 +23,7 @@ export const usePaperStore = defineStore('paper', () => {
   const selectedPapers = ref<Paper[]>([])
   const favorites = ref<string[]>([])
   const filters = ref<FilterParams>({})
+  const sortBy = ref<SortParams>({ ...DEFAULT_SORT })
   const currentQuery = ref('')
   const totalResults = ref(0)
   const currentPage = ref(1)
@@ -45,17 +47,20 @@ export const usePaperStore = defineStore('paper', () => {
     selectedPapers.value.length <= MAX_SELECTED_PAPERS
   )
 
-  async function searchPapers(query: string, page: number = 1) {
+  async function searchPapers(query: string, page: number = 1, sort?: SortParams) {
     loading.value = true
     error.value = null
     currentQuery.value = query
     currentPage.value = page
+    const effectiveSort = sort ?? sortBy.value
     try {
       const res = await paperApi.search({
         q: query,
         page,
         size: pageSize.value,
-        ...filters.value
+        ...filters.value,
+        sort_by: effectiveSort.field,
+        sort_order: effectiveSort.order
       })
       searchResults.value = res.items
       totalResults.value = res.total
@@ -154,6 +159,7 @@ export const usePaperStore = defineStore('paper', () => {
 
   return {
     searchResults, selectedPapers, favorites, filters,
+    sortBy,
     currentQuery, totalResults, currentPage, pageSize,
     loading, error,
     selectedPaperIds, hasResults, totalPages, canCompare,

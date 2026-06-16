@@ -1,0 +1,133 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "FM4：综述生成与Agent可视化完成",
+    "requirement": "创建CitationLink.vue组件，支持点击综述中的[Author, Year]引用标注弹出el-dialog原文片段弹窗，弹窗内容包含原文片段+论文标题+跳转详情按钮，增强citation.ts引用解析支持弹窗数据提取",
+    "requirement_ids": ["F1.4"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "报告组件规范" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM4交付物清单" },
+      { "path": "Veritas/frontend/src/utils/citation.ts", "purpose": "当前引用解析工具，需增强" },
+      { "path": "Veritas/frontend/src/views/ReportView.vue", "purpose": "当前报告页面，引用跳转实现" },
+      { "path": "Veritas/frontend/src/types/analysis.ts", "purpose": "Citation类型定义" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/report/", "description": "报告业务组件目录" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/utils/citation.ts", "description": "引用解析工具" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/utils/citation.ts", "description": "已有parseCitations/linkifyCitations/splitReportSegments，需增强支持弹窗数据提取", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/views/ReportView.vue", "description": "已有引用跳转(router.push)，需改为触发CitationLink弹窗", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/types/analysis.ts", "description": "已有Citation类型(paperId/text/location)", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "CitationLink",
+      "path": "Veritas/frontend/src/components/report/CitationLink.vue",
+      "responsibility": "引用溯源弹窗组件，点击引用展示原文片段",
+      "key_interfaces": [
+        { "name": "Props", "signature": "{ visible: boolean; citation: Citation | null }", "description": "弹窗可见性和引用数据" },
+        { "name": "Emits", "signature": "{ 'update:visible': [val: boolean]; 'go-detail': [paperId: string] }", "description": "关闭弹窗和跳转详情" }
+      ]
+    },
+    {
+      "name": "citation工具",
+      "path": "Veritas/frontend/src/utils/citation.ts",
+      "responsibility": "引用解析和链接化",
+      "key_interfaces": [
+        { "name": "parseCitations", "signature": "(text: string) => Citation[]", "description": "解析文本中的引用" },
+        { "name": "splitReportSegments", "signature": "(text: string, citations: Citation[]) => ReportSegment[]", "description": "拆分报告为文本/引用片段" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/report/CitationLink.vue", "description": "新建引用溯源弹窗组件", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/utils/citation.ts", "description": "增强引用解析，支持弹窗数据提取", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "引用点击弹窗：点击综述中的[Author, Year]引用标注，弹出el-dialog弹窗。弹窗使用v-model:visible双向绑定控制显隐",
+        "priority": "P0",
+        "acceptance_condition": "点击引用标注弹出弹窗"
+      },
+      {
+        "id": "FR-002",
+        "description": "弹窗内容展示：弹窗标题为论文标题，正文展示原文片段(citation.text)，底部显示论文元数据(作者/年份/会议)和'查看论文详情'按钮",
+        "priority": "P0",
+        "acceptance_condition": "弹窗正确展示原文片段+论文标题+元数据+详情按钮"
+      },
+      {
+        "id": "FR-003",
+        "description": "跳转论文详情：点击'查看论文详情'按钮，关闭弹窗并router.push到/paper-detail/:paperId页面",
+        "priority": "P0",
+        "acceptance_condition": "点击详情按钮跳转到论文详情页"
+      },
+      {
+        "id": "FR-004",
+        "description": "弹窗关闭：支持点击遮罩层关闭、点击关闭按钮关闭、ESC键关闭(el-dialog默认支持)",
+        "priority": "P1",
+        "acceptance_condition": "三种方式均可关闭弹窗"
+      },
+      {
+        "id": "FR-005",
+        "description": "citation.ts增强：新增extractCitationData函数，从citations数组和引用标注文本中提取弹窗所需数据(paperId/authors/year/text)，支持[Author, Year]标准格式解析",
+        "priority": "P0",
+        "acceptance_condition": "extractCitationData正确提取引用弹窗数据"
+      },
+      {
+        "id": "FR-006",
+        "description": "ReportView集成：ReportView中引用点击事件改为触发CitationLink弹窗（而非直接router.push），传递citation数据给弹窗组件",
+        "priority": "P0",
+        "acceptance_condition": "ReportView引用点击触发弹窗而非直接跳转"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "paperId", "python": "paper_id", "json": "paper_id" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "用户点击引用 → extractCitationData提取数据 → CitationLink弹窗展示 → 点击详情 → router.push(/paper-detail/:paperId)"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" }, "json": { "field_name": "snake_case" }, "cross_system_mapping": [{ "java": "paperId", "python": "paper_id", "json": "paper_id" }] },
+    "layering": { "frontend": { "rule": "CitationLink为Business组件，通过Props接收数据" } },
+    "error_handling": { "frontend": { "approach": "引用数据缺失时弹窗显示'引用信息不可用'" } },
+    "caching": { "pattern": "citations数据来自AnalysisResult，随Store缓存" },
+    "logging": { "prohibited": ["console.log Token"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "引用解析使用不安全的正则", "reason": "先支持[Author, Year]标准格式，后续扩展", "severity": "medium" },
+    { "id": "FA-002", "action": "弹窗中使用v-html渲染引用内容", "reason": "XSS风险，使用文本渲染", "severity": "high" },
+    { "id": "FA-003", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "CitationLink弹窗测试", "description": "验证弹窗正确展示引用内容", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "extractCitationData测试", "description": "验证引用数据提取正确", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition"] },
+      { "test_name": "跳转详情测试", "description": "验证点击详情按钮触发路由跳转", "framework": "vitest", "coverage": ["normal_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run --reporter=verbose", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "点击引用标注弹出原文片段弹窗", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "弹窗内容正确展示原文+论文标题+元数据", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "跳转论文详情按钮可用", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "弹窗支持遮罩/关闭按钮/ESC关闭", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "extractCitationData正确提取数据", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "ReportView引用点击触发弹窗", "verified_by": "manual_test" }
+  ]
+}

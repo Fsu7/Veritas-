@@ -1,0 +1,199 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "FM4：综述生成与Agent可视化完成",
+    "requirement": "从AgentFlowView.vue中拆分出独立AgentFlowChart.vue组件，使用ECharts Graph展示6-Agent工作流节点与连线，实现状态颜色实时变化、running节点脉冲动画、tooltip详情展示、resize自适应、点击节点emit事件",
+    "requirement_ids": ["F1.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "Agent可视化组件规范与组件目录结构" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM4交付物清单与验收标准" },
+      { "path": "AGENTS.md", "purpose": "6-Agent角色定义(Coordinator/Retriever/Analyzer/Comparer/Generator/Reviewer)和SSE事件格式" },
+      { "path": "Veritas/frontend/src/views/AgentFlowView.vue", "purpose": "当前AgentFlowView实现，需从中拆分ECharts逻辑" },
+      { "path": "Veritas/frontend/src/stores/agentStore.ts", "purpose": "agentStore状态管理，agentStates/flowData/progress" },
+      { "path": "Veritas/frontend/src/types/agent.ts", "purpose": "AgentState/FlowData/FlowNode/FlowLink类型定义" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/agent/", "description": "Agent可视化业务组件目录（新建）" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/AgentFlowView.vue", "description": "当前Agent可视化页面，ECharts逻辑内联其中" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "Agent状态管理Store" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/views/AgentFlowView.vue", "description": "已有ECharts Graph实现：6节点+5连线+状态色+Drawer详情，但所有逻辑内联在页面组件中，需拆分", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "已有agentStates/flowData/progress/updateAgentState，flowData已定义但未实际使用", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/types/agent.ts", "description": "已有AgentState/FlowData/FlowNode/FlowLink类型定义", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/styles/variables.scss", "description": "已有Agent状态色CSS变量(--agent-waiting/running/completed/failed)", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AgentFlowChart",
+      "path": "Veritas/frontend/src/components/agent/AgentFlowChart.vue",
+      "responsibility": "ECharts Graph流程图组件，展示6-Agent工作流节点与连线，状态颜色实时变化",
+      "key_interfaces": [
+        { "name": "Props", "signature": "{ agentStates: Record<string, AgentState> }", "description": "接收6个Agent状态数据" },
+        { "name": "Emits", "signature": "{ 'node-click': [agentName: string] }", "description": "节点点击事件，传递Agent名称" }
+      ]
+    },
+    {
+      "name": "agentStore",
+      "path": "Veritas/frontend/src/stores/agentStore.ts",
+      "responsibility": "Agent状态管理，维护6个Agent的实时状态",
+      "key_interfaces": [
+        { "name": "agentStates", "signature": "Record<string, AgentState>", "description": "6个Agent状态字典" },
+        { "name": "updateAgentState", "signature": "(agentName: string, partial: Partial<AgentState>) => void", "description": "SSE事件触发更新Agent状态" }
+      ]
+    },
+    {
+      "name": "AgentState类型",
+      "path": "Veritas/frontend/src/types/agent.ts",
+      "responsibility": "Agent状态类型定义",
+      "key_interfaces": [
+        { "name": "AgentState", "signature": "{ name: string; status: 'waiting'|'running'|'completed'|'failed'; progress: number; intermediateResult?: string; durationMs?: number; error?: string }", "description": "单个Agent状态" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/agent/AgentFlowChart.vue", "description": "新建AgentFlowChart.vue组件，ECharts Graph流程图", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/views/AgentFlowView.vue", "description": "拆分重构：移除内联ECharts逻辑，改用AgentFlowChart子组件", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "ECharts Graph展示6-Agent工作流：Coordinator→Retriever→Analyzer→Comparer→Generator→Reviewer，含5条连线和1条条件分支(Analyzer→Comparer/Analyzer→Generator)。节点使用固定坐标布局，手动调整6个Agent位置确保流程图清晰可读",
+        "priority": "P0",
+        "acceptance_condition": "流程图正确展示6个节点+5条连线+条件分支，节点标签显示Agent中文名称"
+      },
+      {
+        "id": "FR-002",
+        "description": "状态颜色实时变化：根据agentStore.agentStates中每个Agent的status属性，动态设置节点颜色——waiting(#C0C4CC灰)/running(#409EFF蓝)/completed(#67C23A绿)/failed(#F56C6C红)。状态变化时通过watch监听agentStates并调用ECharts setOption更新",
+        "priority": "P0",
+        "acceptance_condition": "收到SSE agent_state_update事件后，节点颜色在300ms内更新为对应状态色"
+      },
+      {
+        "id": "FR-003",
+        "description": "running节点脉冲动画：当Agent状态为running时，对应节点添加脉冲动画效果（CSS animation或ECharts effectScatter），使节点呈现呼吸/脉冲视觉效果，区分于静态节点",
+        "priority": "P1",
+        "acceptance_condition": "running状态节点有明显的脉冲/呼吸动画效果，completed/failed/waiting节点无动画"
+      },
+      {
+        "id": "FR-004",
+        "description": "tooltip详情展示：鼠标hover节点时显示tooltip，内容包含Agent名称、当前状态、进度百分比、已耗时、中间结果摘要（如有）。使用ECharts tooltip formatter自定义渲染",
+        "priority": "P1",
+        "acceptance_condition": "hover任意节点显示tooltip，内容包含名称/状态/进度/耗时/中间结果"
+      },
+      {
+        "id": "FR-005",
+        "description": "resize自适应：监听window resize事件和ResizeObserver，调用ECharts实例resize()方法，确保流程图在容器尺寸变化时自适应",
+        "priority": "P0",
+        "acceptance_condition": "浏览器窗口resize时，流程图自动调整大小，无溢出或空白"
+      },
+      {
+        "id": "FR-006",
+        "description": "点击节点emit事件：点击ECharts节点时，通过defineEmits向父组件发送node-click事件，传递agentName字符串，父组件可据此展示Agent详情",
+        "priority": "P0",
+        "acceptance_condition": "点击节点触发node-click事件，父组件接收到正确的agentName"
+      },
+      {
+        "id": "FR-007",
+        "description": "组件卸载销毁ECharts实例：在onUnmounted中调用echartsInstance.dispose()销毁实例，移除resize监听器，防止内存泄漏",
+        "priority": "P0",
+        "acceptance_condition": "组件卸载后无ECharts实例残留，无resize监听器泄漏"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "agentName", "python": "agent_name", "json": "agent_name" },
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediate_result" },
+          { "java": "durationMs", "python": "duration_ms", "json": "duration_ms" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "SSE事件(agent_state_update) → sessionStore → agentStore.updateAgentState() → AgentFlowChart Props(agentStates) → ECharts setOption更新"
+    }
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue",
+        "enum_value": "PascalCase",
+        "config_key": "camelCase"
+      },
+      "json": { "field_name": "snake_case" },
+      "cross_system_mapping": [
+        { "java": "agentName", "python": "agent_name", "json": "agent_name" },
+        { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediate_result" },
+        { "java": "durationMs", "python": "duration_ms", "json": "duration_ms" }
+      ]
+    },
+    "layering": {
+      "frontend": { "rule": "View → Store → API，异步操作在Actions中。AgentFlowChart为Business组件，通过Props接收数据，通过Emits上行事件" }
+    },
+    "error_handling": {
+      "frontend": { "approach": "ECharts初始化失败时显示el-empty提示，不阻塞页面其他部分" }
+    },
+    "caching": { "pattern": "agentStore作为前端缓存，避免重复请求" },
+    "logging": { "prohibited": ["console.log Token/API Key", "在循环中打印INFO日志"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "ECharts全量导入(import * as echarts from 'echarts')", "reason": "必须按需导入Graph/Tooltip/EffectScatter实现tree-shaking", "severity": "high" },
+    { "id": "FA-002", "action": "在组件内直接new EventSource", "reason": "SSE连接由sessionStore/useSSE管理，组件只消费agentStore数据", "severity": "critical" },
+    { "id": "FA-003", "action": "仅靠颜色传达Agent状态", "reason": "必须配合文字+图标(无障碍要求)", "severity": "high" },
+    { "id": "FA-004", "action": "组件卸载未销毁ECharts实例和resize监听", "reason": "内存泄漏", "severity": "critical" },
+    { "id": "FA-005", "action": "在AgentFlowChart中直接调用API", "reason": "组件只通过Props接收数据，API调用在Store Action中", "severity": "high" },
+    { "id": "FA-006", "action": "硬编码颜色值(如color: #409EFF)", "reason": "ECharts配置中可使用具体色值(不支持CSS变量)，但组件样式中必须使用CSS变量", "severity": "medium" },
+    { "id": "FA-007", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "AgentFlowChart渲染测试",
+        "description": "验证组件挂载后ECharts实例创建成功，6个节点正确渲染",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "状态颜色更新测试",
+        "description": "验证agentStates变化时节点颜色正确更新",
+        "framework": "vitest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "节点点击事件测试",
+        "description": "验证点击节点触发node-click emit",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "组件卸载清理测试",
+        "description": "验证组件卸载时ECharts实例销毁和resize监听移除",
+        "framework": "vitest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run --reporter=verbose", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "ECharts Graph正确展示6个Agent节点+5条连线+条件分支", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "节点状态颜色随agentStore.agentStates实时变化(waiting灰/running蓝/completed绿/failed红)", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "running状态节点有脉冲/呼吸动画效果", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "hover节点显示tooltip(名称/状态/进度/耗时/中间结果)", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "浏览器resize时流程图自适应", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "点击节点触发node-click事件", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "组件卸载无内存泄漏(ECharts实例销毁+resize监听移除)", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "ECharts按需导入(Graph/Tooltip/EffectScatter)，未全量导入", "verified_by": "code_review" },
+    { "id": "AC-009", "criterion": "AgentFlowView.vue成功拆分，使用AgentFlowChart子组件替代内联逻辑", "verified_by": "code_review" }
+  ]
+}

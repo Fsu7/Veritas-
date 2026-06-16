@@ -1,263 +1,215 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+/**
+ * Agent 协同可视化页面（FM4 重构版）
+ * - 组合 AgentFlowChart / AgentStatusPanel / IntermediateResult / TimeStats
+ * - 使用 useSSE composable 管理 SSE 连接
+ * - 数据流：SSE → onEvent → agentStore.updateAgentState → 子组件 Props
+ * - 布局：上部 60% 流程图 + 下部 40% el-tabs
+ * - 状态：loading(骨架屏) / empty(等待开始) / error(错误+重试)
+ */
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import * as echarts from 'echarts/core'
-import { GraphChart } from 'echarts/charts'
-import {
-  TooltipComponent,
-  LegendComponent,
-  TitleComponent
-} from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
-import { useSessionStore } from '@/stores/sessionStore'
-import { useAgentStore } from '@/stores/agentStore'
-import type { AgentState } from '@/types/agent'
 
-echarts.use([
-  GraphChart,
-  TooltipComponent,
-  LegendComponent,
-  TitleComponent,
-  CanvasRenderer
-])
+import { useAgentStore } from '@/stores/agentStore'
+import { useSessionStore } from '@/stores/sessionStore'
+import { useSSE } from '@/composables/useSSE'
+import { analysisApi } from '@/api/analysis'
+import AgentFlowChart from '@/components/agent/AgentFlowChart.vue'
+import AgentStatusPanel from '@/components/agent/AgentStatusPanel.vue'
+import IntermediateResult from '@/components/agent/IntermediateResult.vue'
+import TimeStats from '@/components/agent/TimeStats.vue'
+import type { SSEEvent } from '@/types/agent'
 
 const route = useRoute()
 const router = useRouter()
-const sessionStore = useSessionStore()
 const agentStore = useAgentStore()
+const sessionStore = useSessionStore()
 
 const analysisId = computed(() => route.params.analysisId as string)
 
-const chartContainer = ref<HTMLDivElement | null>(null)
-let chart: echarts.ECharts | null = null
+/** 当前高亮选中的 Agent（流程图节点点击联动） */
+const selectedAgent = ref<string>('')
 
-/** 6 个 Agent 节点（符合 03-agent-system.md） */
-const AGENT_NODES: { name: string; label: string; x: number; y: number }[] = [
-  { name: 'coordinator', label: '协调者', x: 100, y: 250 },
-  { name: 'retriever',   label: '检索员', x: 300, y: 250 },
-  { name: 'analyzer',    label: '分析员', x: 500, y: 250 },
-  { name: 'comparer',    label: '对比员', x: 700, y: 150 },
-  { name: 'generator',   label: '生成员', x: 700, y: 350 },
-  { name: 'reviewer',    label: '审核员', x: 900, y: 250 }
-]
+/** 当前激活的下部面板 tab */
+const activeTab = ref('status')
 
-/** 状态色映射（CSS 变量值，避免硬编码） */
-const STATUS_COLORS: Record<string, string> = {
-  waiting: '#c0c4cc',
-  running: '#409eff',
-  completed: '#67c23a',
-  failed: '#f56c6c',
-  unknown: '#909399'
-}
+const { isConnected, error: sseError, connect, disconnect } = useSSE({
+  onEvent: handleSSEEvent
+})
 
-const selectedAgent = ref<AgentState | null>(null)
-const drawerVisible = ref(false)
+/** 是否为首次加载中（未连接且无任何 Agent 状态） */
+const isLoading = computed(() =>
+  !isConnected.value && Object.keys(agentStore.agentStates).length === 0 && !sseError.value
+)
 
-function getNodeStatus(name: string): string {
-  const state = agentStore.agentStates[name]
-  return state?.status ?? 'waiting'
-}
+/** 是否为空状态（已连接但无 Agent 状态） */
+const isEmpty = computed(() =>
+  isConnected.value && Object.keys(agentStore.agentStates).length === 0
+)
 
-function getNodeColor(name: string): string {
-  return STATUS_COLORS[getNodeStatus(name)] ?? STATUS_COLORS.unknown
-}
+/** 是否有错误 */
+const hasError = computed(() =>
+  !!sseError.value && Object.keys(agentStore.agentStates).length === 0
+)
 
-function getNodeItemStyle(name: string): { color: string; borderColor: string; borderWidth: number } {
-  const status = getNodeStatus(name)
-  const color = getNodeColor(name)
-  return {
-    color,
-    borderColor: status === 'running' ? '#fff' : color,
-    borderWidth: status === 'running' ? 4 : 2
+/**
+ * SSE 事件处理：agent_state_update → agentStore，analysis_completed → 断开
+ */
+function handleSSEEvent(event: SSEEvent) {
+  if (event.type === 'agent_state_update') {
+    const { agentName, agent_name, status, progress, intermediateResult, intermediate_result, durationMs, duration_ms, error: err } = event.data
+    const name = (agentName ?? agent_name ?? '') as string
+    if (!name) return
+    agentStore.updateAgentState(name, {
+      status: (status ?? 'running') as 'waiting' | 'running' | 'completed' | 'failed',
+      progress: progress as number | undefined,
+      intermediateResult: (intermediateResult ?? intermediate_result) as string | undefined,
+      durationMs: (durationMs ?? duration_ms) as number | undefined,
+      error: err as string | undefined
+    })
+  } else if (event.type === 'analysis_completed') {
+    disconnect()
   }
 }
 
-function buildChartOption() {
-  const nodes = AGENT_NODES.map(n => ({
-    id: n.name,
-    name: n.label,
-    x: n.x,
-    y: n.y,
-    symbolSize: 70,
-    itemStyle: getNodeItemStyle(n.name),
-    label: {
-      show: true,
-      color: '#fff',
-      fontSize: 14,
-      fontWeight: 600
-    },
-    value: {
-      status: getNodeStatus(n.name),
-      rawName: n.name
-    }
-  }))
-
-  const links = [
-    { source: 'coordinator', target: 'retriever' },
-    { source: 'retriever',   target: 'analyzer' },
-    { source: 'analyzer',    target: 'comparer' },
-    { source: 'analyzer',    target: 'generator' },
-    { source: 'comparer',    target: 'generator' },
-    { source: 'generator',   target: 'reviewer' }
-  ]
-
-  return {
-    tooltip: {
-      formatter: (params: { dataType: string; data: { name: string; value: { status: string; rawName: string } } }) => {
-        if (params.dataType === 'node') {
-          return `<b>${params.data.name}</b><br/>状态：${params.data.value.status}`
-        }
-        return ''
-      }
-    },
-    series: [{
-      type: 'graph',
-      layout: 'none',
-      roam: false,
-      data: nodes,
-      links,
-      edgeSymbol: ['none', 'arrow'],
-      edgeSymbolSize: 8,
-      lineStyle: {
-        color: '#dcdfe6',
-        width: 2,
-        curveness: 0.1
-      },
-      emphasis: {
-        focus: 'adjacency',
-        lineStyle: { width: 4, color: '#409eff' }
-      }
-    }]
-  }
+/** 流程图节点点击 → 联动面板 */
+function handleNodeClick(agentName: string) {
+  selectedAgent.value = agentName
+  activeTab.value = 'status'
 }
 
-function refreshChart() {
-  if (!chart) return
-  chart.setOption(buildChartOption(), { notMerge: true })
-}
-
-function handleNodeClick(params: { dataType?: string; data?: unknown }) {
-  if (params.dataType !== 'node') return
-  const data = params.data as { value?: { rawName?: string } } | null | undefined
-  const rawName = data?.value?.rawName
-  if (!rawName) return
-  const state = agentStore.agentStates[rawName]
-  if (!state) {
-    ElMessage.info('该 Agent 尚未启动或无状态信息')
-    return
-  }
-  selectedAgent.value = state
-  drawerVisible.value = true
-}
-
-async function initChart() {
-  if (!chartContainer.value) return
-  chart = echarts.init(chartContainer.value, undefined, { renderer: 'canvas' })
-  chart.setOption(buildChartOption())
-  chart.on('click', handleNodeClick)
-  window.addEventListener('resize', handleResize)
-}
-
-function handleResize() {
-  chart?.resize()
-}
-
-async function connectStream() {
+/** 重试 SSE 连接 */
+function handleRetry() {
   if (!analysisId.value) return
-  try {
-    await sessionStore.fetchAnalysisResult(analysisId.value)
-  } catch {
-    // 即使拉取失败也尝试连接 SSE
-  }
-  sessionStore.connectAgentStream(analysisId.value)
-}
-
-function cleanup() {
-  if (chart) {
-    chart.dispose()
-    chart = null
-  }
-  window.removeEventListener('resize', handleResize)
-  sessionStore.disconnectSSE()
-  agentStore.resetStates()
+  const url = analysisApi.getAgentStreamUrl(analysisId.value)
+  connect(url)
 }
 
 onMounted(async () => {
-  await initChart()
-  await connectStream()
+  if (!analysisId.value) return
+
+  // 尝试拉取已有分析结果（幂等）
+  try {
+    await sessionStore.fetchAnalysisResult(analysisId.value)
+  } catch {
+    // 拉取失败不影响 SSE 连接
+  }
+
+  const url = analysisApi.getAgentStreamUrl(analysisId.value)
+  connect(url)
 })
 
 onUnmounted(() => {
-  cleanup()
+  disconnect()
+  agentStore.resetStates()
 })
-
-watch(() => agentStore.agentStates, () => {
-  refreshChart()
-}, { deep: true })
 </script>
 
 <template>
   <div class="agent-flow-view">
+    <!-- 顶部导航 -->
     <div class="agent-flow-view__header">
-      <el-page-header @back="router.back()" title="返回" content="Agent 协同过程" />
+      <el-page-header @back="router.back()" title="返回">
+        <template #content>
+          <span class="agent-flow-view__title">Agent 协同过程</span>
+        </template>
+        <template #extra>
+          <el-tag v-if="isConnected" type="success" size="small" effect="plain">
+            <span class="agent-flow-view__status-dot agent-flow-view__status-dot--connected" />
+            已连接
+          </el-tag>
+          <el-tag v-else-if="isLoading" type="info" size="small" effect="plain">
+            <span class="agent-flow-view__status-dot agent-flow-view__status-dot--loading" />
+            连接中...
+          </el-tag>
+          <el-tag v-else-if="hasError" type="danger" size="small" effect="plain">
+            连接失败
+          </el-tag>
+          <el-tag v-else type="warning" size="small" effect="plain">
+            未连接
+          </el-tag>
+        </template>
+      </el-page-header>
     </div>
 
-    <el-card class="agent-flow-view__legend">
-      <el-text type="info" size="small">图例：</el-text>
-      <el-tag type="info" size="small" style="margin-left: 8px">
-        <span :style="{ display: 'inline-block', width: '10px', height: '10px', background: STATUS_COLORS.waiting, marginRight: '4px' }"></span>
-        等待 waiting
-      </el-tag>
-      <el-tag type="primary" size="small" style="margin-left: 8px">
-        <span :style="{ display: 'inline-block', width: '10px', height: '10px', background: STATUS_COLORS.running, marginRight: '4px' }"></span>
-        运行 running
-      </el-tag>
-      <el-tag type="success" size="small" style="margin-left: 8px">
-        <span :style="{ display: 'inline-block', width: '10px', height: '10px', background: STATUS_COLORS.completed, marginRight: '4px' }"></span>
-        完成 completed
-      </el-tag>
-      <el-tag type="danger" size="small" style="margin-left: 8px">
-        <span :style="{ display: 'inline-block', width: '10px', height: '10px', background: STATUS_COLORS.failed, marginRight: '4px' }"></span>
-        失败 failed
-      </el-tag>
-    </el-card>
+    <!-- Loading 状态 -->
+    <div v-if="isLoading" class="agent-flow-view__loading">
+      <el-skeleton :rows="3" animated />
+      <el-skeleton :rows="5" animated style="margin-top: 16px" />
+      <p class="agent-flow-view__loading-text">正在连接 Agent 服务...</p>
+    </div>
 
-    <el-card class="agent-flow-view__chart-card">
-      <div ref="chartContainer" class="agent-flow-view__chart"></div>
-    </el-card>
+    <!-- Error 状态 -->
+    <div v-else-if="hasError" class="agent-flow-view__error">
+      <el-result
+        icon="error"
+        title="连接失败"
+        :sub-title="sseError ?? '无法连接到 Agent 服务'"
+      >
+        <template #extra>
+          <el-button type="primary" @click="handleRetry">重试</el-button>
+        </template>
+      </el-result>
+    </div>
 
-    <el-drawer
-      v-model="drawerVisible"
-      :title="selectedAgent?.name ?? 'Agent 详情'"
-      direction="rtl"
-      size="400px"
-    >
-      <div v-if="selectedAgent" class="agent-flow-view__detail">
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="Agent 名称">
-            {{ selectedAgent.name }}
-          </el-descriptions-item>
-          <el-descriptions-item label="状态">
-            <el-tag :type="selectedAgent.status === 'completed' ? 'success' : (selectedAgent.status === 'failed' ? 'danger' : 'primary')">
-              {{ selectedAgent.status }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="进度">
-            <el-progress :percentage="Math.round((selectedAgent.progress ?? 0) * 100)" />
-          </el-descriptions-item>
-          <el-descriptions-item v-if="selectedAgent.durationMs != null" label="耗时">
-            {{ (selectedAgent.durationMs / 1000).toFixed(2) }} s
-          </el-descriptions-item>
-          <el-descriptions-item v-if="selectedAgent.intermediateResult" label="中间结果">
-            <pre class="agent-flow-view__intermediate">{{ selectedAgent.intermediateResult }}</pre>
-          </el-descriptions-item>
-          <el-descriptions-item v-if="selectedAgent.error" label="错误信息">
-            <el-text type="danger">{{ selectedAgent.error }}</el-text>
-          </el-descriptions-item>
-        </el-descriptions>
+    <!-- Empty 状态 -->
+    <div v-else-if="isEmpty" class="agent-flow-view__empty">
+      <el-empty description="等待开始分析" />
+    </div>
+
+    <!-- 正常内容 -->
+    <template v-else>
+      <!-- 上部 60%：流程图 -->
+      <div class="agent-flow-view__chart-section">
+        <AgentFlowChart
+          :agent-states="agentStore.agentStates"
+          @node-click="handleNodeClick"
+        />
       </div>
-    </el-drawer>
+
+      <!-- 下部 40%：Tab 切换面板 -->
+      <div class="agent-flow-view__panel-section">
+        <el-card shadow="hover" class="agent-flow-view__panel-card">
+          <el-tabs v-model="activeTab" class="agent-flow-view__tabs">
+            <el-tab-pane label="状态面板" name="status">
+              <AgentStatusPanel
+                :agent-states="agentStore.agentStates"
+                :highlight-agent="selectedAgent"
+                @agent-click="handleNodeClick"
+              />
+            </el-tab-pane>
+            <el-tab-pane label="中间结果" name="intermediate">
+              <IntermediateResult
+                :agent-states="agentStore.agentStates"
+                :scroll-to-agent="selectedAgent"
+              />
+            </el-tab-pane>
+            <el-tab-pane label="耗时统计" name="time">
+              <TimeStats :agent-states="agentStore.agentStates" />
+            </el-tab-pane>
+          </el-tabs>
+
+          <!-- 底部连接信息 -->
+          <div class="agent-flow-view__connection-info">
+            <el-text type="info" size="small">
+              SSE 状态：
+              <el-tag :type="isConnected ? 'success' : 'warning'" size="small" effect="plain">
+                {{ isConnected ? '已连接' : '未连接' }}
+              </el-tag>
+            </el-text>
+            <el-button
+              v-if="!isConnected && !hasError"
+              type="primary"
+              size="small"
+              text
+              @click="handleRetry"
+            >
+              重新连接
+            </el-button>
+          </div>
+        </el-card>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -266,38 +218,127 @@ watch(() => agentStore.agentStates, () => {
   max-width: var(--content-max-width, 1200px);
   margin: 0 auto;
   padding: var(--spacing-lg, 24px);
+  height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md, 16px);
 }
 
 .agent-flow-view__header {
-  margin-bottom: var(--spacing-md, 16px);
+  flex-shrink: 0;
 }
 
-.agent-flow-view__legend {
-  margin-bottom: var(--spacing-md, 16px);
+.agent-flow-view__title {
+  font-weight: 600;
 }
 
-.agent-flow-view__chart-card {
-  margin-bottom: var(--spacing-md, 16px);
+/* 连接状态指示点 */
+.agent-flow-view__status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+
+  &--connected {
+    background-color: var(--el-color-success);
+    animation: status-pulse 2s infinite;
+  }
+
+  &--loading {
+    background-color: var(--el-color-primary);
+    animation: status-pulse 1s infinite;
+  }
 }
 
-.agent-flow-view__chart {
-  width: 100%;
-  height: 500px;
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
-.agent-flow-view__detail {
-  padding: 0 var(--spacing-md, 16px);
+/* Loading */
+.agent-flow-view__loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--spacing-xl, 32px);
 }
 
-.agent-flow-view__intermediate {
-  margin: 0;
-  padding: var(--spacing-sm, 8px);
-  background-color: var(--el-fill-color-light);
-  border-radius: var(--radius-sm, 4px);
-  font-size: var(--font-size-sm, 13px);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 300px;
-  overflow-y: auto;
+.agent-flow-view__loading-text {
+  text-align: center;
+  color: var(--el-text-color-secondary);
+  margin-top: var(--spacing-lg, 24px);
+  font-size: var(--font-size-base, 14px);
+}
+
+/* Error */
+.agent-flow-view__error {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Empty */
+.agent-flow-view__empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 流程图区域 - flex: 6 = 60% */
+.agent-flow-view__chart-section {
+  flex: 6;
+  min-height: 300px;
+  overflow: hidden;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--el-border-color-light);
+  background-color: var(--el-bg-color);
+}
+
+/* 面板区域 - flex: 4 = 40% */
+.agent-flow-view__panel-section {
+  flex: 4;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-flow-view__panel-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+
+  :deep(.el-card__body) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: var(--spacing-md, 16px);
+    overflow: hidden;
+  }
+}
+
+.agent-flow-view__tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  :deep(.el-tabs__content) {
+    flex: 1;
+    overflow-y: auto;
+  }
+}
+
+.agent-flow-view__connection-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--spacing-sm, 8px);
+  border-top: 1px solid var(--el-border-color-lighter);
+  flex-shrink: 0;
 }
 </style>

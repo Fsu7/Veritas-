@@ -1,0 +1,199 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "FM4：综述生成与Agent可视化完成（验收里程碑）",
+    "requirement": "FM4全功能集成测试与验收，验证15项验收检查点全部通过：Agent流程图6节点+连线/状态颜色/状态面板/中间结果/耗时统计/流程图交互/PDF导出/Word导出/引用溯源/筛选/排序/搜索防抖/加载状态/ReportView完善/SearchView完善，修复发现的Bug",
+    "requirement_ids": ["F1.2", "F1.4", "F1.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM4验收检查点清单(6.4节)" },
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "组件规范和验收标准" },
+      { "path": "AGENTS.md", "purpose": "6-Agent角色定义和SSE事件格式" },
+      { "path": "Veritas/frontend/src/views/AgentFlowView.vue", "purpose": "Agent可视化页面" },
+      { "path": "Veritas/frontend/src/views/ReportView.vue", "purpose": "综述报告页面" },
+      { "path": "Veritas/frontend/src/views/SearchView.vue", "purpose": "检索结果页面" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/views/", "description": "3个核心页面(AgentFlowView/ReportView/SearchView)" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/agent/", "description": "4个Agent可视化组件" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/report/", "description": "2个报告组件(ExportPanel/CitationLink)" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/common/", "description": "4个通用组件(FilterPanel/SortDropdown/SearchInput/LoadingOverlay)" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/composables/useSSE.ts", "description": "SSE composable" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/views/AgentFlowView.vue", "description": "task35重构后的Agent可视化页面", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/views/ReportView.vue", "description": "task41完善后的报告页面", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/views/SearchView.vue", "description": "task41完善后的搜索页面", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/agent/AgentFlowChart.vue", "description": "task32创建的流程图组件", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/agent/AgentStatusPanel.vue", "description": "task33创建的状态面板", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/agent/IntermediateResult.vue", "description": "task34创建的中间结果组件", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/agent/TimeStats.vue", "description": "task34创建的耗时统计组件", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/report/ExportPanel.vue", "description": "task37创建的导出面板", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/report/CitationLink.vue", "description": "task38创建的引用溯源", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/common/FilterPanel.vue", "description": "task39创建的筛选面板", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/common/SortDropdown.vue", "description": "task39创建的排序下拉框", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/common/SearchInput.vue", "description": "task40创建的搜索输入", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/components/common/LoadingOverlay.vue", "description": "task40创建的加载遮罩", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/composables/useSSE.ts", "description": "task36创建的SSE composable", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "FM4验收测试套件",
+      "path": "Veritas/frontend/src/__tests__/integration/fm4-acceptance.spec.ts",
+      "responsibility": "FM4里程碑全功能验收测试",
+      "key_interfaces": [
+        { "name": "Agent可视化验收", "signature": "describe('FM4 Agent可视化')", "description": "流程图/状态面板/中间结果/耗时统计验收" },
+        { "name": "报告导出验收", "signature": "describe('FM4 报告导出')", "description": "PDF/Word导出验收" },
+        { "name": "引用溯源验收", "signature": "describe('FM4 引用溯源')", "description": "引用弹窗验收" },
+        { "name": "筛选排序验收", "signature": "describe('FM4 筛选排序')", "description": "筛选/排序/防抖验收" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/__tests__/integration/fm4-acceptance.spec.ts", "description": "FM4全功能验收测试文件", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "Agent流程图验收：验证6个Agent节点(Coordinator/Retriever/Analyzer/Comparer/Generator/Reviewer)正确显示，5条连线正确，条件分支(Analyzer→Comparer/Generator)正确",
+        "priority": "P0",
+        "acceptance_condition": "6节点+5连线+条件分支正确渲染"
+      },
+      {
+        "id": "FR-002",
+        "description": "Agent状态颜色验收：验证waiting(灰)/running(蓝)/completed(绿)/failed(红)状态颜色正确，running节点有脉冲动画",
+        "priority": "P0",
+        "acceptance_condition": "4种状态颜色正确，running有动画"
+      },
+      {
+        "id": "FR-003",
+        "description": "Agent状态面板验收：验证6个Agent状态标签实时更新，状态色+图标+文字三重传达",
+        "priority": "P0",
+        "acceptance_condition": "状态面板正确展示6个Agent状态"
+      },
+      {
+        "id": "FR-004",
+        "description": "中间结果+耗时统计验收：验证el-timeline时间线展示中间结果，ECharts Bar柱状图展示耗时",
+        "priority": "P0",
+        "acceptance_condition": "时间线和柱状图正确展示"
+      },
+      {
+        "id": "FR-005",
+        "description": "流程图交互验收：验证hover显示tooltip，点击节点触发事件，resize自适应",
+        "priority": "P1",
+        "acceptance_condition": "tooltip/点击/resize交互正确"
+      },
+      {
+        "id": "FR-006",
+        "description": "PDF导出验收：验证点击导出PDF，API调用正确，Blob下载触发",
+        "priority": "P0",
+        "acceptance_condition": "PDF导出功能可用"
+      },
+      {
+        "id": "FR-007",
+        "description": "Word导出验收：验证点击导出Word，API调用正确，Blob下载触发",
+        "priority": "P0",
+        "acceptance_condition": "Word导出功能可用"
+      },
+      {
+        "id": "FR-008",
+        "description": "引用溯源验收：验证点击[Author, Year]引用标注弹出原文片段弹窗，弹窗内容正确，跳转详情可用",
+        "priority": "P0",
+        "acceptance_condition": "引用弹窗功能完整"
+      },
+      {
+        "id": "FR-009",
+        "description": "筛选验收：验证年份范围/会议/引用数筛选正确，重置按钮可用",
+        "priority": "P0",
+        "acceptance_condition": "筛选功能正确"
+      },
+      {
+        "id": "FR-010",
+        "description": "排序验收：验证相关度/时间/引用数排序正确",
+        "priority": "P0",
+        "acceptance_condition": "排序功能正确"
+      },
+      {
+        "id": "FR-011",
+        "description": "搜索防抖验收：验证300ms内多次输入只触发一次检索",
+        "priority": "P0",
+        "acceptance_condition": "防抖功能正确"
+      },
+      {
+        "id": "FR-012",
+        "description": "加载状态验收：验证API调用期间显示loading状态",
+        "priority": "P0",
+        "acceptance_condition": "loading状态正确显示"
+      },
+      {
+        "id": "FR-013",
+        "description": "ReportView完善验收：验证导出面板+引用溯源+Agent可视化入口完整",
+        "priority": "P0",
+        "acceptance_condition": "ReportView FM4功能完整"
+      },
+      {
+        "id": "FR-014",
+        "description": "SearchView完善验收：验证筛选面板+排序+搜索防抖完整",
+        "priority": "P0",
+        "acceptance_condition": "SearchView FM4功能完整"
+      },
+      {
+        "id": "FR-015",
+        "description": "SSE→agentStore→ECharts更新联调验收：验证SSE事件正确更新agentStore，agentStore变化正确触发ECharts更新",
+        "priority": "P0",
+        "acceptance_condition": "SSE联调正常"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": { "rule": "Java camelCase ↔ Python/JSON snake_case", "mappings": [] },
+      "api_contracts": [],
+      "data_flow": "全链路验证：SSE→agentStore→ECharts, 搜索→paperStore→API, 导出→analysisApi→Blob下载"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" }, "json": { "field_name": "snake_case" }, "cross_system_mapping": [] },
+    "layering": { "frontend": { "rule": "测试不修改业务代码" } },
+    "error_handling": { "frontend": { "approach": "测试覆盖正常流程和异常流程" } },
+    "caching": { "pattern": "测试验证Store缓存行为" },
+    "logging": { "prohibited": ["console.log Token"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "修改业务代码以通过测试", "reason": "测试验证业务代码，不应为通过测试而修改业务逻辑", "severity": "high" },
+    { "id": "FA-002", "action": "跳过任何验收检查点", "reason": "FM4里程碑要求15/15全部通过", "severity": "critical" },
+    { "id": "FA-003", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "FM4 Agent可视化验收", "description": "流程图/状态面板/中间结果/耗时统计", "framework": "vitest", "coverage": ["normal_flow", "error_flow"] },
+      { "test_name": "FM4 报告导出验收", "description": "PDF/Word导出功能", "framework": "vitest", "coverage": ["normal_flow", "error_flow"] },
+      { "test_name": "FM4 引用溯源验收", "description": "引用弹窗功能", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "FM4 筛选排序验收", "description": "筛选/排序/防抖功能", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run --reporter=verbose", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "Agent流程图6节点+连线正确", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "Agent状态颜色4种正确+running动画", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "Agent状态面板6个Agent实时更新", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "中间结果时间线+耗时柱状图正确", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "流程图交互(tooltip/点击/resize)正确", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "PDF导出文件下载正确", "verified_by": "manual_test" },
+    { "id": "AC-007", "criterion": "Word导出文件下载正确", "verified_by": "manual_test" },
+    { "id": "AC-008", "criterion": "引用溯源弹窗功能完整", "verified_by": "manual_test" },
+    { "id": "AC-009", "criterion": "年份/会议/引用数筛选正确", "verified_by": "manual_test" },
+    { "id": "AC-010", "criterion": "相关度/时间/引用排序正确", "verified_by": "manual_test" },
+    { "id": "AC-011", "criterion": "300ms搜索防抖正确", "verified_by": "automated_test" },
+    { "id": "AC-012", "criterion": "API调用期间loading状态正确", "verified_by": "manual_test" },
+    { "id": "AC-013", "criterion": "ReportView导出+溯源+可视化入口完整", "verified_by": "manual_test" },
+    { "id": "AC-014", "criterion": "SearchView筛选+排序+防抖完整", "verified_by": "manual_test" },
+    { "id": "AC-015", "criterion": "SSE→agentStore→ECharts联调正常", "verified_by": "manual_test" }
+  ]
+}

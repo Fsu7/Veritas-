@@ -1,0 +1,150 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "FM4：综述生成与Agent可视化完成",
+    "requirement": "创建FilterPanel.vue（年份范围/会议/引用数筛选+重置）和SortDropdown.vue（相关度/时间/引用数排序）两个通用组件，新增FilterParams/SortParams类型定义，筛选排序参数与后端API对齐",
+    "requirement_ids": ["F1.2"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "通用组件规范" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM4交付物清单" },
+      { "path": "AGENTS.md", "purpose": "API契约和筛选排序参数" },
+      { "path": "Veritas/frontend/src/stores/paperStore.ts", "purpose": "论文Store，需新增筛选排序参数" },
+      { "path": "Veritas/frontend/src/types/paper.ts", "purpose": "论文类型定义，需新增FilterParams/SortParams" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/common/", "description": "通用组件目录" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "论文Store" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/types/paper.ts", "description": "论文类型定义" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "已有searchPapers/togglePaperSelection，需新增筛选排序参数", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/types/paper.ts", "description": "已有Paper类型，需新增FilterParams/SortParams", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/api/paper.ts", "description": "已有search API，需支持筛选排序参数", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "FilterPanel",
+      "path": "Veritas/frontend/src/components/common/FilterPanel.vue",
+      "responsibility": "筛选面板组件，年份/会议/引用数筛选",
+      "key_interfaces": [
+        { "name": "Props", "signature": "{ filters: FilterParams; conferences?: string[] }", "description": "当前筛选值和可选会议列表" },
+        { "name": "Emits", "signature": "{ 'update:filters': [filters: FilterParams]; 'reset': [] }", "description": "筛选值更新和重置事件" }
+      ]
+    },
+    {
+      "name": "SortDropdown",
+      "path": "Veritas/frontend/src/components/common/SortDropdown.vue",
+      "responsibility": "排序下拉框组件",
+      "key_interfaces": [
+        { "name": "Props", "signature": "{ modelValue: SortParams }", "description": "当前排序参数" },
+        { "name": "Emits", "signature": "{ 'update:modelValue': [sort: SortParams] }", "description": "排序参数更新" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/common/FilterPanel.vue", "description": "新建筛选面板组件", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/components/common/SortDropdown.vue", "description": "新建排序下拉框组件", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/types/paper.ts", "description": "新增FilterParams/SortParams类型", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/stores/paperStore.ts", "description": "新增filters/sortBy状态和更新方法", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "FilterPanel年份范围筛选：使用el-date-picker type='yearrange'，选择年份范围，emit update:filters事件传递{yearFrom, yearTo}",
+        "priority": "P0",
+        "acceptance_condition": "年份范围筛选正确，emit正确的筛选参数"
+      },
+      {
+        "id": "FR-002",
+        "description": "FilterPanel会议筛选：使用el-select multiple，展示常见AI/NLP会议列表(ACL/EMNLP/NeurIPS/ICML/AAAI/IJCAI/NAACL/COLING等)，支持多选，emit update:filters",
+        "priority": "P0",
+        "acceptance_condition": "会议多选筛选正确"
+      },
+      {
+        "id": "FR-003",
+        "description": "FilterPanel引用数筛选：使用el-input-number，设置最小引用数阈值，emit update:filters传递{minCitations}",
+        "priority": "P1",
+        "acceptance_condition": "引用数筛选正确"
+      },
+      {
+        "id": "FR-004",
+        "description": "FilterPanel重置按钮：点击重置按钮清空所有筛选条件，emit reset事件",
+        "priority": "P0",
+        "acceptance_condition": "重置按钮清空所有筛选"
+      },
+      {
+        "id": "FR-005",
+        "description": "SortDropdown排序选项：提供3种排序——相关度(relevance)/发表时间(publishedDate)/引用数(citationCount)，默认相关度，使用el-select，emit update:modelValue",
+        "priority": "P0",
+        "acceptance_condition": "排序切换正确，默认相关度"
+      },
+      {
+        "id": "FR-006",
+        "description": "FilterParams/SortParams类型定义：FilterParams={yearFrom?:number; yearTo?:number; conferences?:string[]; minCitations?:number}，SortParams={field:'relevance'|'publishedDate'|'citationCount'; order:'asc'|'desc'}",
+        "priority": "P0",
+        "acceptance_condition": "类型定义完整，与后端API参数对齐"
+      },
+      {
+        "id": "FR-007",
+        "description": "paperStore扩展：新增filters:FilterParams和sortBy:SortParams状态，searchPapers方法接受筛选排序参数传递给API",
+        "priority": "P0",
+        "acceptance_condition": "Store正确管理筛选排序状态并传递给API"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "yearFrom", "python": "year_from", "json": "year_from" },
+          { "java": "yearTo", "python": "year_to", "json": "year_to" },
+          { "java": "minCitations", "python": "min_citations", "json": "min_citations" },
+          { "java": "citationCount", "python": "citation_count", "json": "citation_count" },
+          { "java": "publishedDate", "python": "published_date", "json": "published_date" }
+        ]
+      },
+      "api_contracts": [
+        { "endpoint": "/api/papers/search", "method": "GET", "request_format": { "query": "string", "year_from": "number?", "year_to": "number?", "conferences": "string[]?", "min_citations": "number?", "sort_by": "string?", "sort_order": "string?" }, "response_format": "{ code: 200, data: { papers: Paper[], total: number } }" }
+      ],
+      "data_flow": "用户筛选/排序 → FilterPanel/SortDropdown emit → paperStore.searchPapers(filters, sort) → API请求 → 结果更新"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" }, "json": { "field_name": "snake_case" }, "cross_system_mapping": [{ "java": "yearFrom", "python": "year_from", "json": "year_from" }, { "java": "minCitations", "python": "min_citations", "json": "min_citations" }, { "java": "citationCount", "python": "citation_count", "json": "citation_count" }] },
+    "layering": { "frontend": { "rule": "通用组件通过Props/Emits通信，不直接调用API" } },
+    "error_handling": { "frontend": { "approach": "筛选参数校验（年份范围合理性等）" } },
+    "caching": { "pattern": "筛选结果通过paperStore缓存" },
+    "logging": { "prohibited": ["console.log Token"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "筛选组件内直接调用API", "reason": "通过emit传递参数，由Store调用API", "severity": "high" },
+    { "id": "FA-002", "action": "筛选参数与后端API不一致", "reason": "必须与后端DTO字段对齐(snake_case)", "severity": "high" },
+    { "id": "FA-003", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "FilterPanel渲染测试", "description": "验证筛选面板正确渲染", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "FilterPanel重置测试", "description": "验证重置按钮清空筛选", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "SortDropdown测试", "description": "验证排序切换正确", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "FilterParams类型测试", "description": "验证类型定义正确", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run --reporter=verbose", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "年份范围筛选正确", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "会议多选筛选正确", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "引用数筛选正确", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "重置按钮清空筛选", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "排序切换正确，默认相关度", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "FilterParams/SortParams类型与后端API对齐", "verified_by": "code_review" },
+    { "id": "AC-007", "criterion": "paperStore正确传递筛选排序参数", "verified_by": "automated_test" }
+  ]
+}

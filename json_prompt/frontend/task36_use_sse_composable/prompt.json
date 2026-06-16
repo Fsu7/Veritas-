@@ -1,0 +1,153 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "FM4：综述生成与Agent可视化完成",
+    "requirement": "将sessionStore中SSE逻辑抽取为独立useSSE.ts composable，封装connect/disconnect/reconnect，支持事件类型agent_state_update/analysis_completed/agent_error/progress_update，自动重连(3s间隔最多5次)，组件卸载自动断开，返回isConnected/currentEvent响应式状态",
+    "requirement_ids": ["F1.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "SSE封装规范" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM4交付物清单" },
+      { "path": "AGENTS.md", "purpose": "SSE事件格式和Agent状态定义" },
+      { "path": "Veritas/frontend/src/stores/sessionStore.ts", "purpose": "当前SSE实现，需从中抽取逻辑" },
+      { "path": "Veritas/frontend/src/stores/agentStore.ts", "purpose": "agentStore，SSE事件更新目标" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/composables/", "description": "组合函数目录" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "当前SSE逻辑所在" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "已有connectAgentStream/disconnectSSE/SSE重连逻辑，需抽取为composable", "reuse_type": "extend" },
+      { "file_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "已有updateAgentState，SSE事件触发更新", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/composables/useAuth.ts", "description": "已有composable参考实现", "reuse_type": "reference" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "useSSE",
+      "path": "Veritas/frontend/src/composables/useSSE.ts",
+      "responsibility": "SSE连接管理composable，封装连接/断开/重连/事件解析",
+      "key_interfaces": [
+        { "name": "connect", "signature": "(url: string) => void", "description": "建立SSE连接" },
+        { "name": "disconnect", "signature": "() => void", "description": "断开SSE连接" },
+        { "name": "isConnected", "signature": "Ref<boolean>", "description": "连接状态" },
+        { "name": "lastEvent", "signature": "Ref<SSEEvent | null>", "description": "最近收到的事件" },
+        { "name": "reconnectCount", "signature": "Ref<number>", "description": "当前重连次数" }
+      ]
+    },
+    {
+      "name": "sessionStore",
+      "path": "Veritas/frontend/src/stores/sessionStore.ts",
+      "responsibility": "会话管理，使用useSSE composable",
+      "key_interfaces": [
+        { "name": "connectAgentStream", "signature": "(analysisId: string) => void", "description": "连接Agent SSE流" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/composables/useSSE.ts", "description": "新建useSSE composable", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/stores/sessionStore.ts", "description": "SSE逻辑迁移：使用useSSE替代内联EventSource", "layer": "frontend" },
+    { "operation": "modify", "path": "Veritas/frontend/src/views/AgentFlowView.vue", "description": "适配useSSE composable", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "useSSE封装connect(url)方法：创建EventSource实例连接指定URL，URL中包含?token=JWT鉴权参数。连接成功后isConnected设为true",
+        "priority": "P0",
+        "acceptance_condition": "connect()成功建立SSE连接，isConnected为true"
+      },
+      {
+        "id": "FR-002",
+        "description": "useSSE封装disconnect()方法：关闭EventSource连接，清除重连定时器，isConnected设为false，reconnectCount重置为0",
+        "priority": "P0",
+        "acceptance_condition": "disconnect()正确关闭连接，无残留定时器"
+      },
+      {
+        "id": "FR-003",
+        "description": "SSE事件解析：监听4种事件类型——agent_state_update(更新agentStore)/analysis_completed(断开连接)/agent_error(记录错误)/progress_update(更新进度)。每种事件解析JSON data字段，调用对应回调",
+        "priority": "P0",
+        "acceptance_condition": "4种SSE事件正确解析并触发对应回调"
+      },
+      {
+        "id": "FR-004",
+        "description": "自动重连：onerror时启动重连机制，3秒间隔，最多5次。重连时先disconnect再connect。超过5次放弃重连，isConnected设为false",
+        "priority": "P0",
+        "acceptance_condition": "断线后3s内自动重连，最多5次，超过后停止"
+      },
+      {
+        "id": "FR-005",
+        "description": "组件卸载自动断开：使用onScopeDispose或返回cleanup函数，确保组件卸载时自动调用disconnect()，防止幽灵连接",
+        "priority": "P0",
+        "acceptance_condition": "组件卸载后SSE连接自动断开，无幽灵连接"
+      },
+      {
+        "id": "FR-006",
+        "description": "sessionStore迁移：将sessionStore中connectAgentStream/disconnectSSE的内联EventSource逻辑替换为调用useSSE composable，保持外部接口不变",
+        "priority": "P0",
+        "acceptance_condition": "sessionStore使用useSSE后功能不变，外部调用方式不变"
+      },
+      {
+        "id": "FR-007",
+        "description": "SSE事件回调可配置：useSSE接受onEvent回调函数参数，允许调用方自定义事件处理逻辑，默认处理agent_state_update→agentStore.updateAgentState",
+        "priority": "P1",
+        "acceptance_condition": "可通过onEvent参数自定义事件处理"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "analysisId", "python": "analysis_id", "json": "analysis_id" },
+          { "java": "agentName", "python": "agent_name", "json": "agent_name" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/analysis/{analysisId}/agent-stream?token=xxx",
+          "method": "GET(SSE)",
+          "request_format": { "token": "JWT Token in query" },
+          "response_format": { "event": "agent_state_update|analysis_completed|agent_error|progress_update", "data": "JSON payload" }
+        }
+      ],
+      "data_flow": "SSE Event → useSSE事件解析 → onEvent回调 → agentStore.updateAgentState() → 组件响应式更新"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "use{Name}.ts" }, "json": { "field_name": "snake_case" }, "cross_system_mapping": [{ "java": "analysisId", "python": "analysis_id", "json": "analysis_id" }] },
+    "layering": { "frontend": { "rule": "Composable封装可复用逻辑，Store调用Composable" } },
+    "error_handling": { "frontend": { "approach": "SSE连接失败自动重连，超过重连次数返回错误状态" } },
+    "caching": { "pattern": "agentStore作为前端缓存" },
+    "logging": { "prohibited": ["console.log Token", "在循环中打印日志"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "在组件内直接new EventSource", "reason": "必须使用useSSE composable统一管理", "severity": "critical" },
+    { "id": "FA-002", "action": "SSE重连无上限", "reason": "最多5次重连，防止无限重连", "severity": "high" },
+    { "id": "FA-003", "action": "组件卸载未断开SSE连接", "reason": "幽灵连接和内存泄漏", "severity": "critical" },
+    { "id": "FA-004", "action": "破坏sessionStore外部接口", "reason": "迁移后connectAgentStream/disconnectSSE接口不变", "severity": "high" },
+    { "id": "FA-005", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "useSSE连接测试", "description": "验证connect/disconnect正确管理EventSource", "framework": "vitest", "coverage": ["normal_flow", "error_flow"] },
+      { "test_name": "SSE事件解析测试", "description": "验证4种事件类型正确解析", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "自动重连测试", "description": "验证断线后3s重连，最多5次", "framework": "vitest", "coverage": ["error_flow", "boundary_condition"] },
+      { "test_name": "组件卸载清理测试", "description": "验证卸载时自动断开连接", "framework": "vitest", "coverage": ["normal_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run --reporter=verbose", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "useSSE可独立使用，封装connect/disconnect", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "4种SSE事件正确解析", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "断线后3s自动重连，最多5次", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "组件卸载无幽灵连接", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "sessionStore使用useSSE后功能不变", "verified_by": "automated_test" },
+    { "id": "AC-006", "criterion": "onEvent回调可自定义事件处理", "verified_by": "code_review" }
+  ]
+}

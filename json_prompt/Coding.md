@@ -110,6 +110,40 @@ json_prompt/
 │   └── task09_home_view_integration_test/
 │       ├── prompt.json
 │       └── prompt.md
+│   ├── task10_login_view/ ... task31_fm3_acceptance/
+│   ├── task32_agent_flow_chart/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task33_agent_status_panel/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task34_intermediate_result_time_stats/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task35_agent_flow_view_refactor/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task36_use_sse_composable/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task37_export_panel/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task38_citation_link/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task39_filter_panel_sort_dropdown/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task40_search_input_loading_overlay/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   ├── task41_search_report_view_enhance/
+│   │   ├── prompt.json
+│   │   └── prompt.md
+│   └── task42_fm4_integration_test/
+│       ├── prompt.json
+│       └── prompt.md
 └── ai-service/
     ├── task00_python_fastapi_skeleton/
     │   ├── prompt.json
@@ -241,6 +275,17 @@ json_prompt/
 | 29 | task29_sse_event_parsing | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.5.2 |
 | 30 | task30_sse_integration_test | v0.3 | M4 / FM3：论文分析与对比页面完成 | frontend | F1.4.1, F1.5.2, F1.3.5, F1.3.6 |
 | 31 | task31_fm3_acceptance | v0.3 | M4 / FM3：论文分析与对比页面完成（验收里程碑） | frontend | F1.3.1-F1.5.2 |
+| 32 | task32_agent_flow_chart | v0.4 | M5 / FM4：综述生成与Agent可视化完成 | frontend | F1.5 |
+| 33 | task33_agent_status_panel | v0.4 | M5 / FM4：综述生成与Agent可视化完成 | frontend | F1.5 |
+| 34 | task34_intermediate_result_time_stats | v0.4 | M5 / FM4：综述生成与Agent可视化完成 | frontend | F1.5 |
+| 35 | task35_agent_flow_view_refactor | v0.4 | M5 / FM4：综述生成与Agent可视化完成 | frontend | F1.5 |
+| 36 | task36_use_sse_composable | v0.4 | M5 / FM4：综述生成与Agent可视化完成 | frontend | F1.5 |
+| 37 | task37_export_panel | v0.4 | M5 / FM4：综述生成与Agent可视化完成 | frontend | F1.4 |
+| 38 | task38_citation_link | v0.4 | M5 / FM4：综述生成与Agent可视化完成 | frontend | F1.4 |
+| 39 | task39_filter_panel_sort_dropdown | v0.4 | M5 / FM4：综述生成与Agent可视化完成 | frontend | F1.2 |
+| 40 | task40_search_input_loading_overlay | v0.4 | M5 / FM4：综述生成与Agent可视化完成 | frontend | F1.2 |
+| 41 | task41_search_report_view_enhance | v0.4 | M5 / FM4：综述生成与Agent可视化完成 | frontend | F1.2, F1.4 |
+| 42 | task42_fm4_integration_test | v0.4 | M5 / FM4：综述生成与Agent可视化完成（验收里程碑） | frontend | F1.2, F1.4, F1.5 |
 
 > **维护说明**：每新增一个任务文件夹，必须同步更新对应模块目录的映射表。序号与里程碑对应关系参考 `docs/项目里程碑文档.md` 和 `docs/版本里程碑功能清单.md`。
 

@@ -6,10 +6,13 @@ from loguru import logger
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.analyzer import AnalyzerAgent
+from app.agents.comparer import ComparerAgent
+from app.agents.coordinator import CoordinatorAgent
 from app.agents.generator import GeneratorAgent
 from app.agents.graph import run_workflow
 from app.agents.orchestrator import AgentOrchestrator
 from app.agents.retriever import RetrieverAgent
+from app.agents.reviewer import ReviewerAgent
 from app.core import events
 from app.exception import AIServiceException, ModelNotLoadedException
 from app.models.schemas import AgentStateResponse, AnalyzeRequest, AnalyzeResponse
@@ -26,6 +29,12 @@ def _build_agent_instances() -> dict:
     if events.app_state.search_service is None:
         raise ModelNotLoadedException("搜索服务未就绪")
 
+    coordinator = CoordinatorAgent(
+        llm_service=events.app_state.llm_service,
+        prompt_manager=events.app_state.prompt_manager,
+        personalization_service=getattr(events.app_state, "personalization_service", None),
+    )
+
     retriever = RetrieverAgent(
         llm_service=events.app_state.llm_service,
         prompt_manager=events.app_state.prompt_manager,
@@ -39,22 +48,38 @@ def _build_agent_instances() -> dict:
         personalization_service=getattr(events.app_state, "personalization_service", None),
     )
 
+    comparer = ComparerAgent(
+        llm_service=events.app_state.llm_service,
+        prompt_manager=events.app_state.prompt_manager,
+        personalization_service=getattr(events.app_state, "personalization_service", None),
+    )
+
     generator = GeneratorAgent(
         llm_service=events.app_state.llm_service,
         prompt_manager=events.app_state.prompt_manager,
         personalization_service=getattr(events.app_state, "personalization_service", None),
     )
 
+    reviewer = ReviewerAgent(
+        llm_service=events.app_state.llm_service,
+        prompt_manager=events.app_state.prompt_manager,
+        personalization_service=getattr(events.app_state, "personalization_service", None),
+    )
+
     return {
+        "coordinator": coordinator,
         "retriever": retriever,
         "analyzer": analyzer,
+        "comparer": comparer,
         "generator": generator,
+        "reviewer": reviewer,
     }
 
 
 def _convert_agent_states(agent_states: dict) -> list[AgentStateResponse]:
     result = []
     for agent_name, state_dict in agent_states.items():
+        is_degraded = state_dict.get("status") == "failed" or state_dict.get("degraded", False)
         result.append(
             AgentStateResponse(
                 agent_name=agent_name,
@@ -62,6 +87,10 @@ def _convert_agent_states(agent_states: dict) -> list[AgentStateResponse]:
                 progress=state_dict.get("progress"),
                 intermediate_result=state_dict.get("intermediate_result"),
                 duration_ms=state_dict.get("duration_ms"),
+                error=state_dict.get("error"),
+                started_at=state_dict.get("started_at"),
+                completed_at=state_dict.get("completed_at"),
+                degraded=is_degraded,
             )
         )
     return result
@@ -88,6 +117,17 @@ async def analyze(request: AnalyzeRequest):
 
     agent_state_list = _convert_agent_states(result.get("agent_states", {}))
 
+    # 计算 degradation_level（基于失败Agent数量）
+    degraded_agents = result.get("degraded_agents", [])
+    if len(degraded_agents) == 0:
+        degradation_level = "none"
+    elif len(degraded_agents) == 1:
+        degradation_level = "partial"
+    elif len(degraded_agents) == 2:
+        degradation_level = "severe"
+    else:
+        degradation_level = "critical"
+
     response_data = AnalyzeResponse(
         analysis_id=result.get("analysis_id", request.analysis_id or ""),
         status=result.get("status", "completed"),
@@ -96,6 +136,7 @@ async def analyze(request: AnalyzeRequest):
         agent_states=agent_state_list,
         degraded=result.get("degraded"),
         degraded_reason=result.get("degraded_reason"),
+        degradation_level=degradation_level,
     )
 
     # model_dump(by_alias=True) 输出 camelCase

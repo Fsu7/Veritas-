@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { parseCitations, linkifyCitations, splitReportSegments } from '@/utils/citation'
+import {
+  parseCitations,
+  linkifyCitations,
+  splitReportSegments,
+  extractCitationData
+} from '@/utils/citation'
 import type { Citation } from '@/types/analysis'
 
 describe('parseCitations', () => {
@@ -91,5 +96,49 @@ describe('splitReportSegments', () => {
     const text = 'Just plain text without references.'
     const segments = splitReportSegments(text, [])
     expect(segments).toEqual([{ type: 'text', value: 'Just plain text without references.' }])
+  })
+})
+
+describe('extractCitationData', () => {
+  const sampleCitations: Citation[] = [
+    { paperId: 'p1', text: 'Zhang et al., 2024', location: 'p.1' },
+    { paperId: 'p2', text: 'Li et al., 2023', location: 'p.2' }
+  ]
+
+  it('应正确解析引用文本并返回弹窗数据', () => {
+    const result = extractCitationData('[Zhang, 2024]', sampleCitations)
+    expect(result).not.toBeNull()
+    expect(result?.paperId).toBe('p1')
+    expect(result?.text).toBe('Zhang et al., 2024')
+    expect(result?.year).toBe(2024)
+  })
+
+  it('无匹配 citation 时应返回 null', () => {
+    const result = extractCitationData('[Unknown, 1999]', sampleCitations)
+    expect(result).toBeNull()
+  })
+
+  it('空字符串应返回 null', () => {
+    const result = extractCitationData('', sampleCitations)
+    expect(result).toBeNull()
+  })
+
+  it('无引用格式文本应返回 null', () => {
+    const result = extractCitationData('just plain text', sampleCitations)
+    expect(result).toBeNull()
+  })
+
+  it('有 Paper 列表时应填充 title/authors/venue', () => {
+    const papers = [{
+      paperId: 'p1',
+      title: 'Test Paper Title',
+      authors: ['Zhang, W.', 'Li, H.'],
+      year: 2024,
+      venue: 'ACL 2024'
+    }]
+    const result = extractCitationData('[Zhang, 2024]', sampleCitations, papers as any)
+    expect(result?.title).toBe('Test Paper Title')
+    expect(result?.authors).toEqual(['Zhang, W.', 'Li, H.'])
+    expect(result?.venue).toBe('ACL 2024')
   })
 })

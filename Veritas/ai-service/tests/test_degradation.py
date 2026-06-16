@@ -396,3 +396,249 @@ class TestAgentTimeout408:
         exc = AgentTimeoutException("Agent analyzer timed out after 30s")
         assert exc.code == 408
         assert "timed out" in exc.message
+
+
+# ===== Task 43: 降级机制增强测试 =====
+
+
+class TestShouldDegradeWorkflow:
+    """验证 _should_degrade_workflow() 辅助函数"""
+
+    def test_no_errors_returns_false(self):
+        from app.agents.graph import _should_degrade_workflow
+        state = {"errors": []}
+        assert _should_degrade_workflow(state) is False
+
+    def test_one_error_returns_false(self):
+        from app.agents.graph import _should_degrade_workflow
+        state = {"errors": [{"agent": "retriever", "error": "timeout"}]}
+        assert _should_degrade_workflow(state) is False
+
+    def test_two_errors_returns_true(self):
+        from app.agents.graph import _should_degrade_workflow
+        state = {"errors": [
+            {"agent": "retriever", "error": "timeout"},
+            {"agent": "analyzer", "error": "failed"},
+        ]}
+        assert _should_degrade_workflow(state) is True
+
+
+class TestWorkflowStateDegradationFields:
+    """验证 WorkflowState 新增降级字段"""
+
+    def test_initial_state_has_degradation_fields(self):
+        from app.agents.graph import WorkflowState
+        # 验证 TypedDict 包含新字段（通过类型注解检查）
+        annotations = WorkflowState.__annotations__
+        assert "degraded_agents" in annotations
+        assert "degradation_level" in annotations
+
+
+class TestRetrieveNodeDegradedResult:
+    """验证 retrieve_node 降级处理"""
+
+    @pytest.mark.asyncio
+    async def test_retrieve_node_degraded_updates_degraded_agents(self):
+        from app.agents.graph import retrieve_node
+        # mock retriever 返回 degraded 结果
+        mock_agent = MagicMock(spec=BaseAgent)
+        mock_agent.name = "retriever"
+        mock_agent.state = AgentState(name="retriever")
+        mock_agent.state.status = AgentStatus.COMPLETED
+        mock_agent.execute = AsyncMock(return_value={
+            "papers": [],
+            "degraded": True,
+            "error": "retriever degraded",
+        })
+
+        state = {
+            "query": "test",
+            "user_profile": {},
+            "errors": [],
+            "degraded_agents": [],
+            "agent_states": {},
+        }
+        result = await retrieve_node(state, {"retriever": mock_agent})
+        assert "retriever" in result.get("degraded_agents", [])
+        assert result.get("degraded") is True
+
+
+class TestReviewNodeAutoApproveOnDegradation:
+    """验证 review_node 降级时自动通过"""
+
+    @pytest.mark.asyncio
+    async def test_review_node_degraded_auto_approves(self):
+        from app.agents.graph import review_node
+        mock_agent = MagicMock(spec=BaseAgent)
+        mock_agent.name = "reviewer"
+        mock_agent.state = AgentState(name="reviewer")
+        mock_agent.state.status = AgentStatus.COMPLETED
+        mock_agent.execute = AsyncMock(return_value={
+            "approved": False,
+            "issues": [{"claim": "test issue"}],
+            "suggestions": [],
+            "citation_accuracy": 0.5,
+            "fact_accuracy": 0.5,
+            "degraded": True,
+            "error": "reviewer degraded",
+        })
+
+        state = {
+            "report": "Test report",
+            "search_results": [],
+            "review_result": None,
+            "regenerate_count": 0,
+            "errors": [],
+            "degraded_agents": [],
+            "agent_states": {},
+        }
+        result = await review_node(state, {"reviewer": mock_agent})
+        assert result["review_result"]["approved"] is True
+        assert "reviewer" in result.get("degraded_agents", [])
+
+
+class TestGenerateNodeFallbackReport:
+    """验证 generate_node 降级时返回非空报告"""
+
+    @pytest.mark.asyncio
+    async def test_generate_node_degraded_returns_nonempty_report(self):
+        from app.agents.graph import generate_node
+        mock_agent = MagicMock(spec=BaseAgent)
+        mock_agent.name = "generator"
+        mock_agent.state = AgentState(name="generator")
+        mock_agent.state.status = AgentStatus.COMPLETED
+        mock_agent.execute = AsyncMock(return_value={
+            "report": "综述生成过程中发生降级，返回部分结果。",
+            "citation_list": [],
+            "degraded": True,
+            "error": "generator degraded",
+        })
+
+        state = {
+            "analysis_results": [],
+            "compare_result": None,
+            "review_result": None,
+            "regenerate_count": 0,
+            "errors": [],
+            "degraded_agents": [],
+            "agent_states": {},
+        }
+        result = await generate_node(state, {"generator": mock_agent})
+        assert result.get("report") is not None
+        assert len(result.get("report", "")) > 0
+        assert "generator" in result.get("degraded_agents", [])
+
+
+class TestOrchestratorWorkflowDegradedEvent:
+    """验证 orchestrator workflow_degraded SSE 事件"""
+
+    @pytest.mark.asyncio
+    async def test_workflow_degraded_event_on_multi_agent_failure(self):
+        # 创建两个失败的 Agent
+        failing_retriever = _make_failing_agent("retriever", "Retriever failed")
+        failing_analyzer = _make_failing_agent("analyzer", "Analyzer failed")
+        mock_generator = _make_mock_agent(
+            "generator", {"report": "Fallback report", "citation_list": []}
+        )
+
+        agent_instances = {
+            "retriever": failing_retriever,
+            "analyzer": failing_analyzer,
+            "generator": mock_generator,
+        }
+
+        request = AnalyzeRequest(
+            topic="Multi-Agent",
+            user_id="usr_001",
+            analysis_id="anl_wf_degraded_test",
+        )
+
+        orchestrator = AgentOrchestrator(
+            agent_instances=agent_instances,
+            analysis_id="anl_wf_degraded_test",
+        )
+
+        events = []
+        async for event in orchestrator.run_workflow_stream(request):
+            events.append(event)
+
+        # 验证 workflow_degraded 事件存在
+        degraded_events = [e for e in events if e["event"] == "workflow_degraded"]
+        assert len(degraded_events) >= 1
+
+        # 验证事件数据包含必要字段
+        degraded_data = json.loads(degraded_events[0]["data"])
+        assert "degradedAgents" in degraded_data
+        assert "reason" in degraded_data
+        assert "fallbackMode" in degraded_data
+
+
+class TestOrchestratorAgentFailedWithDegradationInfo:
+    """验证 agent_failed 事件包含降级信息"""
+
+    @pytest.mark.asyncio
+    async def test_agent_failed_contains_degradation_info(self):
+        failing_agent = _make_failing_agent("analyzer", "Analyzer crashed")
+        mock_retriever = _make_mock_agent(
+            "retriever", {"papers": [{"paper_id": "p1"}], "total_found": 1}
+        )
+        mock_generator = _make_mock_agent(
+            "generator", {"report": "Report", "citation_list": []}
+        )
+
+        agent_instances = {
+            "retriever": mock_retriever,
+            "analyzer": failing_agent,
+            "generator": mock_generator,
+        }
+
+        request = AnalyzeRequest(
+            topic="Test",
+            user_id="usr_001",
+            analysis_id="anl_failed_info_test",
+        )
+
+        orchestrator = AgentOrchestrator(
+            agent_instances=agent_instances,
+            analysis_id="anl_failed_info_test",
+        )
+
+        events = []
+        async for event in orchestrator.run_workflow_stream(request):
+            events.append(event)
+
+        # 验证 agent_failed 事件包含 errorType/degraded/fallback
+        failed_events = [e for e in events if e["event"] == "agent_failed"]
+        assert len(failed_events) >= 1
+        failed_data = json.loads(failed_events[0]["data"])
+        assert "errorType" in failed_data
+        assert failed_data.get("degraded") is True
+        assert "fallback" in failed_data
+
+
+class TestDegradedResultNotEmpty:
+    """验证任何降级场景下 report 不为空"""
+
+    @pytest.mark.asyncio
+    async def test_degraded_workflow_returns_nonempty_report(self):
+        failing_retriever = _make_failing_agent("retriever", "Retriever failed")
+        failing_analyzer = _make_failing_agent("analyzer", "Analyzer failed")
+        mock_generator = _make_mock_agent(
+            "generator", {"report": "Fallback report", "citation_list": []}
+        )
+
+        agent_instances = {
+            "retriever": failing_retriever,
+            "analyzer": failing_analyzer,
+            "generator": mock_generator,
+        }
+
+        request = AnalyzeRequest(
+            topic="Multi-Agent",
+            user_id="usr_001",
+            analysis_id="anl_nonempty_test",
+        )
+
+        result = await run_workflow(request, agent_instances)
+        assert result.get("report") is not None
+        assert len(result.get("report", "")) > 0

@@ -1,0 +1,480 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4 / AM4：6-Agent协同与个性化引擎",
+    "requirement": "完善SSE推送以支持6-Agent全量状态推送，扩展AgentStateResponse数据结构（新增error/started_at/completed_at/degraded字段），更新api/endpoints/agent.py的_build_agent_instances()包含全部6个Agent（coordinator/retriever/analyzer/comparer/generator/reviewer），更新orchestrator.py的NODE_ORDER和流式编排逻辑以包含coordinator和comparer节点，新增workflow_degraded SSE事件类型，增强现有SSE事件数据结构（agent_started增加timestamp+analysisType，agent_state_update增加degraded+error，agent_completed增加intermediateResult完整输出+degraded，agent_failed增加errorType+degraded+fallback，analysis_completed增加degradationLevel+degradedAgents）",
+    "requirement_ids": ["F3.5.1", "F3.5.2", "F3.1.4"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "查阅SSE事件格式定义（§4.4.1）、6-Agent工作流编排（§5.5）、降级策略（§5.7）、Agent状态数据结构（§5.3）"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "查阅AM4里程碑 Week 8 Day 6 任务：SSE推送完善 + Agent状态数据结构（6.2节），验收标准6.4节"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "了解项目架构、6-Agent工作流、跨系统字段映射、统一响应格式"
+      },
+      {
+        "path": "json_prompt/ai-service/task25_sse_basic_push/prompt.md",
+        "purpose": "task25 已实现的 SSE 基础推送（7种事件类型）"
+      },
+      {
+        "path": "json_prompt/ai-service/task30_sse_stability_reconnect/prompt.md",
+        "purpose": "task30 已实现的 keep-alive ping + Last-Event-ID 断线重连"
+      },
+      {
+        "path": "json_prompt/ai-service/task38_review_retry_graph_integration/prompt.md",
+        "purpose": "task38 已实现的审核重试工作流 + reviewer 节点"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/orchestrator.py",
+        "description": "AgentOrchestrator：当前NODE_ORDER=['retriever','analyzer','generator','reviewer']，缺少coordinator和comparer节点；SSE事件7种但数据结构不完整"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/api/endpoints/agent.py",
+        "description": "API端点：_build_agent_instances()仅构建3个Agent（retriever/analyzer/generator），缺少coordinator/comparer/reviewer；_convert_agent_states()缺少error/started_at/completed_at/degraded字段"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/models/schemas.py",
+        "description": "数据模型：AgentStateResponse仅含5字段（agent_name/status/progress/intermediate_result/duration_ms），缺少error/started_at/completed_at/degraded；AnalyzeResponse缺少degradation_level"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent基类：AgentState已包含started_at/completed_at/error字段，to_dict()已输出这些字段，但API层和SSE层未使用"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/orchestrator.py",
+        "description": "当前orchestrator.py：NODE_ORDER=['retriever','analyzer','generator','reviewer']，run_workflow_stream()执行4节点，SSE事件数据结构不完整（缺少degraded/error/完整intermediateResult等字段）",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/api/endpoints/agent.py",
+        "description": "当前agent.py：_build_agent_instances()构建3个Agent，_convert_agent_states()转换5字段，缺少coordinator/comparer/reviewer和新字段",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/models/schemas.py",
+        "description": "当前schemas.py：AgentStateResponse 5字段，AnalyzeResponse缺少degradation_level",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent + AgentState：已包含started_at/completed_at/error字段，to_dict()已输出，可直接复用",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/coordinator.py",
+        "description": "CoordinatorAgent（task32产出）：任务分解Agent核心逻辑",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/comparer.py",
+        "description": "ComparerAgent（task34产出）：4维对比+5类矛盾Agent核心逻辑",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/reviewer.py",
+        "description": "ReviewerAgent（task36产出）：事实核查+引用核查Agent核心逻辑",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AgentOrchestrator",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "responsibility": "流式Agent编排器，SSE事件推送，6-Agent全量状态管理",
+      "key_interfaces": [
+        {
+          "name": "run_workflow_stream",
+          "signature": "async def run_workflow_stream(self, request: AnalyzeRequest) -> AsyncIterator[Dict[str, str]]",
+          "description": "流式执行6-Agent工作流，yield SSE事件"
+        },
+        {
+          "name": "NODE_ORDER",
+          "signature": "NODE_ORDER = ['coordinator', 'retriever', 'analyzer', 'comparer', 'generator', 'reviewer']",
+          "description": "6-Agent节点执行顺序列表"
+        },
+        {
+          "name": "_run_node",
+          "signature": "async def _run_node(self, node_name: str, input_data: dict, context: dict) -> AsyncIterator[Dict[str, str]]",
+          "description": "执行单个Agent并yield SSE事件（需增强事件数据结构）"
+        },
+        {
+          "name": "_make_event",
+          "signature": "def _make_event(self, event_type: str, data: Dict[str, Any]) -> Dict[str, str]",
+          "description": "构造SSE事件字典，data字段为JSON字符串（camelCase）"
+        }
+      ]
+    },
+    {
+      "name": "Agent API Endpoint",
+      "path": "Veritas/ai-service/app/api/endpoints/agent.py",
+      "responsibility": "Agent API端点，构建6-Agent实例，转换状态响应",
+      "key_interfaces": [
+        {
+          "name": "_build_agent_instances",
+          "signature": "def _build_agent_instances() -> dict",
+          "description": "构建6个Agent实例（coordinator/retriever/analyzer/comparer/generator/reviewer）"
+        },
+        {
+          "name": "_convert_agent_states",
+          "signature": "def _convert_agent_states(agent_states: dict) -> list[AgentStateResponse]",
+          "description": "转换agent_states字典为AgentStateResponse列表（含新字段）"
+        }
+      ]
+    },
+    {
+      "name": "Schemas",
+      "path": "Veritas/ai-service/app/models/schemas.py",
+      "responsibility": "Pydantic数据模型定义",
+      "key_interfaces": [
+        {
+          "name": "AgentStateResponse",
+          "signature": "class AgentStateResponse(BaseModel)",
+          "description": "Agent状态响应模型（需扩展error/started_at/completed_at/degraded字段）"
+        },
+        {
+          "name": "AnalyzeResponse",
+          "signature": "class AnalyzeResponse(BaseModel)",
+          "description": "分析响应模型（需新增degradation_level字段）"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/models/schemas.py",
+      "description": "AgentStateResponse新增error/started_at/completed_at/degraded字段；AnalyzeResponse新增degradation_level字段",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "description": "NODE_ORDER更新为6-Agent全量；run_workflow_stream()增加coordinator和comparer节点执行；增强SSE事件数据结构；新增workflow_degraded事件类型",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/api/endpoints/agent.py",
+      "description": "_build_agent_instances()增加coordinator/comparer/reviewer构建；_convert_agent_states()增加新字段映射；AnalyzeResponse增加degradation_level",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_sse_agent_state_structure.py",
+      "description": "新建测试：验证6-Agent SSE事件完整性、AgentStateResponse新字段、workflow_degraded事件、降级场景",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "扩展 AgentStateResponse 新增4个字段：error: Optional[str]（Agent错误信息）、started_at: Optional[str]（ISO 8601格式开始时间）、completed_at: Optional[str]（ISO 8601格式完成时间）、degraded: Optional[bool]（是否降级）。字段使用alias实现camelCase映射（error→error, startedAt, completedAt, degraded）。",
+        "priority": "P0",
+        "acceptance_condition": "AgentStateResponse.model_validate() 可接受含新字段的数据，model_dump(by_alias=True) 输出camelCase"
+      },
+      {
+        "id": "FR-002",
+        "description": "AnalyzeResponse 新增 degradation_level: Optional[str] 字段（alias='degradationLevel'），取值范围：'none'/'partial'/'severe'/'critical'。计算规则：0个Agent降级→'none'，1个→'partial'，2个→'severe'，3+个→'critical'。",
+        "priority": "P0",
+        "acceptance_condition": "AnalyzeResponse 含 degradationLevel 字段，根据降级Agent数量正确计算等级"
+      },
+      {
+        "id": "FR-003",
+        "description": "更新 _build_agent_instances() 构建全部6个Agent：coordinator（CoordinatorAgent）、retriever（RetrieverAgent）、analyzer（AnalyzerAgent）、comparer（ComparerAgent）、generator（GeneratorAgent）、reviewer（ReviewerAgent）。每个Agent注入 llm_service、prompt_manager、personalization_service（如有），coordinator/retriever额外注入search_service。",
+        "priority": "P0",
+        "acceptance_condition": "_build_agent_instances() 返回包含6个Agent实例的字典，key分别为coordinator/retriever/analyzer/comparer/generator/reviewer"
+      },
+      {
+        "id": "FR-004",
+        "description": "更新 _convert_agent_states() 映射新字段：从state_dict中提取error、started_at、completed_at、degraded。degraded判断逻辑：status=='failed' 或 state_dict.get('degraded', False)。",
+        "priority": "P0",
+        "acceptance_condition": "_convert_agent_states() 返回的AgentStateResponse包含error/startedAt/completedAt/degraded字段"
+      },
+      {
+        "id": "FR-005",
+        "description": "更新 orchestrator.py NODE_ORDER 为 ['coordinator', 'retriever', 'analyzer', 'comparer', 'generator', 'reviewer']。在 run_workflow_stream() 中增加 coordinator 节点执行（工作流起始，任务分解）和 comparer 节点执行（analyzer之后，generator之前，4维对比+5类矛盾分析）。",
+        "priority": "P0",
+        "acceptance_condition": "流式工作流按 coordinator→retriever→analyzer→comparer→generator→reviewer 顺序执行，每个节点yield完整SSE事件"
+      },
+      {
+        "id": "FR-006",
+        "description": "增强 agent_started SSE事件数据：新增 timestamp（int毫秒，已有）、analysisType（string，来自request.analysis_type）。完整字段：{agentName, status, analysisId, timestamp, analysisType}。",
+        "priority": "P0",
+        "acceptance_condition": "agent_started事件data包含analysisType字段"
+      },
+      {
+        "id": "FR-007",
+        "description": "增强 agent_state_update SSE事件数据：新增 degraded（bool，Agent是否降级）、errorMessage（Optional[str]，Agent错误信息）。完整字段：{agentName, status, progress, analysisId, intermediateResult, durationMs, degraded, errorMessage}。",
+        "priority": "P0",
+        "acceptance_condition": "agent_state_update事件data包含degraded和errorMessage字段"
+      },
+      {
+        "id": "FR-008",
+        "description": "增强 agent_completed SSE事件数据：新增 intermediateResult（完整输出，不截断）、degraded（bool）。完整字段：{agentName, status, progress, analysisId, intermediateResult, durationMs, degraded}。注意：intermediateResult使用agent._last_result的完整结果而非截断到200字符的摘要。",
+        "priority": "P0",
+        "acceptance_condition": "agent_completed事件data的intermediateResult为完整结果（非截断），包含degraded字段"
+      },
+      {
+        "id": "FR-009",
+        "description": "增强 agent_failed SSE事件数据：新增 errorType（string，异常类型如'TimeoutError'/'LLMError'/'AgentNotFound'）、degraded（bool，始终为True）、fallback（string，降级回退描述如'使用默认检索结果'）。完整字段：{agentName, status, analysisId, errorMessage, durationMs, errorType, degraded, fallback}。",
+        "priority": "P0",
+        "acceptance_condition": "agent_failed事件data包含errorType/degraded/fallback字段，degraded始终为True"
+      },
+      {
+        "id": "FR-010",
+        "description": "增强 analysis_completed SSE事件数据：新增 degradationLevel（string，'none'/'partial'/'severe'/'critical'）、degradedAgents（List[string]，降级Agent名称列表）。完整字段：{analysisId, status, finalReport, degraded, degradedReason, totalDurationMs, degradationLevel, degradedAgents}。",
+        "priority": "P0",
+        "acceptance_condition": "analysis_completed事件data包含degradationLevel和degradedAgents字段"
+      },
+      {
+        "id": "FR-011",
+        "description": "新增 workflow_degraded SSE事件类型：当工作流执行过程中发生降级时立即推送（不等analysis_completed）。事件字段：{analysisId, degradedAgents, reason, fallbackMode}。fallbackMode取值：'skip_agent'（跳过失败Agent继续）/ 'single_agent'（降级为单Agent模式）/ 'retry_later'（稍后重试）。触发时机：Agent失败后立即yield，而非等到最终事件。",
+        "priority": "P1",
+        "acceptance_condition": "Agent失败后SSE流中立即出现workflow_degraded事件，包含degradedAgents/reason/fallbackMode"
+      },
+      {
+        "id": "FR-012",
+        "description": "在 _run_node() 中增加 workflow_degraded 事件推送：当Agent执行失败（AgentStatus.FAILED或异常）时，在yield agent_failed事件之后立即yield workflow_degraded事件。degradedAgents为当前已失败的Agent列表，reason为失败原因，fallbackMode根据失败Agent数量决定（1个→'skip_agent'，2+个→'single_agent'）。",
+        "priority": "P1",
+        "acceptance_condition": "Agent失败后SSE流中agent_failed之后紧跟workflow_degraded事件"
+      },
+      {
+        "id": "FR-013",
+        "description": "在 _yield_final() 中计算 degradationLevel 和 degradedAgents：遍历所有agent_instances，收集status==FAILED或degraded==True的Agent名称。0个→'none'，1个→'partial'，2个→'severe'，3+个→'critical'。将degradationLevel和degradedAgents加入analysis_completed事件data。",
+        "priority": "P0",
+        "acceptance_condition": "analysis_completed事件包含正确的degradationLevel和degradedAgents"
+      },
+      {
+        "id": "FR-014",
+        "description": "在 agent.py 的 analyze() 同步端点中：使用更新后的_build_agent_instances()和_convert_agent_states()，计算degradation_level并设置到AnalyzeResponse中。",
+        "priority": "P0",
+        "acceptance_condition": "POST /api/agent/analyze 响应包含degradationLevel字段和完整的agentStates"
+      },
+      {
+        "id": "FR-015",
+        "description": "编写测试 test_sse_agent_state_structure.py：验证6-Agent SSE事件完整性、AgentStateResponse新字段、workflow_degraded事件、降级场景、事件数据结构增强。",
+        "priority": "P0",
+        "acceptance_condition": "所有测试通过，覆盖6-Agent全量SSE事件和新字段"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "SSE事件data字段使用camelCase（与Java端JSON解析器一致），Python内部使用snake_case",
+        "mappings": [
+          { "java": "agentName", "python": "agent_name", "json": "agentName" },
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediateResult" },
+          { "java": "durationMs", "python": "duration_ms", "json": "durationMs" },
+          { "java": "analysisId", "python": "analysis_id", "json": "analysisId" },
+          { "java": "errorMessage", "python": "error_message", "json": "errorMessage" },
+          { "java": "errorType", "python": "error_type", "json": "errorType" },
+          { "java": "startedAt", "python": "started_at", "json": "startedAt" },
+          { "java": "completedAt", "python": "completed_at", "json": "completedAt" },
+          { "java": "degradationLevel", "python": "degradation_level", "json": "degradationLevel" },
+          { "java": "degradedAgents", "python": "degraded_agents", "json": "degradedAgents" },
+          { "java": "fallbackMode", "python": "fallback_mode", "json": "fallbackMode" },
+          { "java": "analysisType", "python": "analysis_type", "json": "analysisType" }
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "POST /api/agent/analyze/stream",
+          "method": "POST",
+          "request_format": { "headers": { "Content-Type": "application/json", "Last-Event-ID": "int (可选)" }, "body": { "topic": "string", "userId": "string", "analysisType": "string", "userProfile": "object" } },
+          "response_format": "SSE stream with 9 event types: agent_started/agent_state_update/agent_completed/agent_failed/analysis_completed/workflow_degraded/review_rejected/error/ping"
+        },
+        {
+          "endpoint": "POST /api/agent/analyze",
+          "method": "POST",
+          "request_format": { "topic": "string", "userId": "string", "analysisType": "string" },
+          "response_format": "{code, message, data: {analysisId, status, report, citations, agentStates: [{agentName, status, progress, intermediateResult, durationMs, error, startedAt, completedAt, degraded}], degraded, degradedReason, degradationLevel}, timestamp}"
+        }
+      ]
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "yield agent_failed + workflow_degraded事件，继续后续节点，fallbackMode='skip_agent'",
+        "multi_agent_failure": "yield workflow_degraded事件，fallbackMode='single_agent'（2+Agent失败），最终status='degraded'",
+        "degradation_level_calculation": "0 failed→'none', 1 failed→'partial', 2 failed→'severe', 3+ failed→'critical'",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      { "category": "data_isolation", "requirement": "SSE事件和AgentStateResponse不含userId/email等PII" },
+      { "category": "input_validation", "requirement": "AgentStateResponse新字段使用Optional+默认值，防止空值异常" }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Orchestrator → Agent，SSE事件由Orchestrator统一构造，Router只做端点暴露"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent，yield agent_failed + workflow_degraded事件",
+        "agent_error_handling": "state['errors'].append({agent, error})，_run_node()中yield降级事件"
+      }
+    },
+    "backward_compatibility": {
+      "rule": "SSE事件新增字段不破坏已有前端解析逻辑——新字段使用Optional，旧前端忽略未知字段即可。已有7种事件类型保持不变，新增workflow_degraded为第8种。"
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": ["SSE事件data字段写入敏感信息", "在事件循环中打印完整prompt"]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "破坏已有SSE事件格式（删除或重命名已有字段）", "reason": "向后兼容约束，前端已依赖现有字段", "severity": "critical" },
+    { "id": "FA-004", "action": "在SSE事件data中直接返回snake_case字段", "reason": "前端useSSE期望camelCase", "severity": "high" },
+    { "id": "FA-005", "action": "在orchestrator中硬编码SSE事件格式（不使用_make_event方法）", "reason": "使用_make_event()方法统一构造", "severity": "medium" },
+    { "id": "FA-006", "action": "忽略降级场景（Agent失败时不推送workflow_degraded事件）", "reason": "降级事件是本任务核心需求", "severity": "high" },
+    { "id": "FA-007", "action": "修改BaseAgent的execute()核心逻辑", "reason": "仅扩展SSE事件和API层，不修改Agent基类", "severity": "high" },
+    { "id": "FA-008", "action": "agent_completed的intermediateResult仍使用截断摘要", "reason": "必须使用完整结果而非200字符截断", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_agent_state_response_new_fields",
+        "description": "验证AgentStateResponse包含error/startedAt/completedAt/degraded新字段",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_agent_state_response_camelcase_alias",
+        "description": "验证AgentStateResponse.model_dump(by_alias=True)输出camelCase字段名",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_analyze_response_degradation_level",
+        "description": "验证AnalyzeResponse包含degradationLevel字段，计算逻辑正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_degradation_level_calculation",
+        "description": "验证降级等级计算：0→none, 1→partial, 2→severe, 3+→critical",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_build_agent_instances_six_agents",
+        "description": "验证_build_agent_instances()返回6个Agent实例",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_convert_agent_states_new_fields",
+        "description": "验证_convert_agent_states()映射error/started_at/completed_at/degraded新字段",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_sse_agent_started_has_analysis_type",
+        "description": "验证agent_started事件data包含analysisType字段",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_sse_agent_completed_has_full_intermediate_result",
+        "description": "验证agent_completed事件data的intermediateResult为完整结果（非截断）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_sse_agent_failed_has_error_type_and_fallback",
+        "description": "验证agent_failed事件data包含errorType/degraded/fallback字段",
+        "framework": "pytest",
+        "coverage": ["error_flow"]
+      },
+      {
+        "test_name": "test_sse_workflow_degraded_event",
+        "description": "验证Agent失败后SSE流中出现workflow_degraded事件",
+        "framework": "pytest",
+        "coverage": ["degradation"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_sse_six_agents_full_workflow",
+        "description": "Mock全部6个Agent，验证SSE流包含6个Agent的完整事件序列（coordinator→retriever→analyzer→comparer→generator→reviewer→analysis_completed）",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_sse_degradation_level_in_final_event",
+        "description": "模拟1个Agent失败，验证analysis_completed事件包含degradationLevel='partial'和degradedAgents列表",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_sse_workflow_degraded_on_agent_failure",
+        "description": "模拟AnalyzerAgent失败，验证SSE流中agent_failed之后紧跟workflow_degraded事件",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_sse_all_event_types_complete",
+        "description": "验证SSE流包含全部9种事件类型（含workflow_degraded和review_rejected）",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && python -m pytest tests/test_sse_agent_state_structure.py -v",
+        "expected_result": "所有测试通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && python -m pytest tests/ -v --ignore=tests/test_sse_agent_state_structure.py",
+        "expected_result": "已有测试不受影响，全部通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd /Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/Veritas/ai-service && python -c \"from app.models.schemas import AgentStateResponse; r = AgentStateResponse(agentName='test', status='completed', error=None, startedAt='2024-01-01T00:00:00', completedAt='2024-01-01T00:00:01', degraded=False); print(r.model_dump(by_alias=True))\"",
+        "expected_result": "输出含agentName/status/error/startedAt/completedAt/degraded字段"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "AgentStateResponse包含error/startedAt/completedAt/degraded新字段，camelCase别名正确", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "AnalyzeResponse包含degradationLevel字段，降级等级计算正确（0→none, 1→partial, 2→severe, 3+→critical）", "verified_by": "automated_test" },
+    { "id": "AC-003", "criterion": "_build_agent_instances()返回6个Agent实例（coordinator/retriever/analyzer/comparer/generator/reviewer）", "verified_by": "automated_test" },
+    { "id": "AC-004", "criterion": "_convert_agent_states()映射新字段（error/startedAt/completedAt/degraded）", "verified_by": "automated_test" },
+    { "id": "AC-005", "criterion": "orchestrator.py NODE_ORDER包含6个节点，run_workflow_stream()按6-Agent顺序执行", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "agent_started事件包含analysisType字段", "verified_by": "automated_test" },
+    { "id": "AC-007", "criterion": "agent_completed事件intermediateResult为完整结果（非截断），包含degraded字段", "verified_by": "automated_test" },
+    { "id": "AC-008", "criterion": "agent_failed事件包含errorType/degraded/fallback字段", "verified_by": "automated_test" },
+    { "id": "AC-009", "criterion": "analysis_completed事件包含degradationLevel和degradedAgents字段", "verified_by": "automated_test" },
+    { "id": "AC-010", "criterion": "workflow_degraded事件在Agent失败后立即推送，包含degradedAgents/reason/fallbackMode", "verified_by": "automated_test" },
+    { "id": "AC-011", "criterion": "已有SSE事件格式向后兼容，不删除或重命名已有字段", "verified_by": "code_review" },
+    { "id": "AC-012", "criterion": "已有测试全部通过，无回归问题", "verified_by": "automated_test" }
+  ]
+}

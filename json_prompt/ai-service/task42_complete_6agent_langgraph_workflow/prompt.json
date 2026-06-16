@@ -1,0 +1,614 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "M4 / AM4：6-Agent协同与个性化引擎",
+    "requirement": "重构 agents/graph.py，将现有4-Agent LangGraph工作流（retrieve→analyze→generate→review）扩展为完整6-Agent工作流（Coordinator→Retriever→Analyzer→[Comparer]→Generator→Reviewer），实现条件分支（论文数≥2且analysis_type∈{compare,report}时激活Comparer、审核不通过最多重试1次），更新 WorkflowState 数据结构（新增 requires_compare/requires_review/coordinator_result 字段），更新 api/endpoints/agent.py 的 _build_agent_instances() 包含全部6个Agent（Coordinator/Retriever/Analyzer/Comparer/Generator/Reviewer），更新 orchestrator.py 的 NODE_ORDER 和 run_workflow_stream() 逻辑以支持完整6-Agent流程",
+    "requirement_ids": ["F3.1.1", "F3.1.2", "F3.1.3", "F3.1.4"],
+    "reference_docs": [
+      {
+        "path": "docs/agents/03-agent-system.md",
+        "purpose": "查阅6-Agent角色定义、LangGraph工作流设计（含条件边）、WorkflowState结构、三级降级策略"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "查阅Agent模块架构设计、LangGraph StateGraph条件边实现规范"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "查阅AM4里程碑 Week 8 Day 4 任务：完整6-Agent LangGraph工作流，验收标准"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "了解项目架构、6-Agent工作流、跨系统字段映射、Agent超时30s/全流程120s约束"
+      },
+      {
+        "path": "docs/agents/07-standards.md",
+        "purpose": "查阅Python命名规范（snake_case）、分层规范（Router→Service→Agent）、错误处理规范"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/graph.py",
+        "description": "LangGraph工作流核心：当前仅包含4-Agent（retrieve→analyze→generate→review），缺少coordinator入口节点和comparer条件节点"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/orchestrator.py",
+        "description": "流式Agent编排器：当前NODE_ORDER仅4个Agent，run_workflow_stream()缺少coordinator和comparer节点执行逻辑"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/api/endpoints/agent.py",
+        "description": "Agent API端点：当前_build_agent_instances()仅构建3个Agent（retriever/analyzer/generator），缺少coordinator/comparer/reviewer"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "Agent基类：定义AgentStatus/AgentState/BaseAgent，所有Agent继承此类"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/coordinator.py",
+        "description": "协调者Agent：已实现任务分解、requires_compare/requires_review标记计算，但尚未集成到graph.py工作流"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/comparer.py",
+        "description": "对比Agent：已实现多论文对比+矛盾发现，但尚未集成到graph.py工作流的条件边"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "Veritas/ai-service/app/agents/reviewer.py",
+        "description": "审核Agent：已实现质量审核+重试逻辑，graph.py中已有review_node但agent.py未构建实例"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/agents/graph.py",
+        "description": "当前4-Agent LangGraph工作流：WorkflowState TypedDict + retrieve_node/analyze_node/generate_node/review_node + build_agent_graph() + run_workflow() + should_review()/should_regenerate()条件函数",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/orchestrator.py",
+        "description": "当前4-Agent流式编排器：NODE_ORDER=['retriever','analyzer','generator','reviewer'] + run_workflow_stream() + _run_node() + keep-alive ping",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/api/endpoints/agent.py",
+        "description": "当前3-Agent构建：_build_agent_instances()仅构建retriever/analyzer/generator，缺少coordinator/comparer/reviewer",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/coordinator.py",
+        "description": "CoordinatorAgent完整实现：任务分解+requires_compare/requires_review标记+规则降级+个性化注入",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/comparer.py",
+        "description": "ComparerAgent完整实现：4维度对比+5类矛盾根因+规则降级+个性化注入",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/reviewer.py",
+        "description": "ReviewerAgent完整实现：事实核查+引用核查+审核判定+4级JSON解析降级+个性化注入",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/base.py",
+        "description": "BaseAgent基类：AgentStatus枚举+AgentState数据类+execute()超时/异常处理+_fallback_result()",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/analyzer.py",
+        "description": "AnalyzerAgent：5维度分析+个性化注入，当前graph.py已有analyze_node",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/retriever.py",
+        "description": "RetrieverAgent：语义+关键词混合检索+个性化注入，当前graph.py已有retrieve_node",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/agents/generator.py",
+        "description": "GeneratorAgent：个性化综述生成+引用列表，当前graph.py已有generate_node",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/ai-service/tests/test_graph.py",
+        "description": "现有4-Agent工作流单元测试：WorkflowState字段测试+各节点成功/失败测试+run_workflow端到端测试",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/tests/test_graph_integration.py",
+        "description": "现有4-Agent集成测试：should_review/should_regenerate条件函数测试+review_node测试+全链路审核重试测试",
+        "reuse_type": "extend"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "graph.py",
+      "path": "Veritas/ai-service/app/agents/graph.py",
+      "responsibility": "LangGraph工作流核心：定义WorkflowState、Agent节点函数、条件边函数、build_agent_graph()、run_workflow()",
+      "key_interfaces": [
+        {
+          "name": "WorkflowState",
+          "signature": "class WorkflowState(TypedDict)",
+          "description": "工作流状态数据结构，需新增 requires_compare/requires_review/coordinator_result 字段"
+        },
+        {
+          "name": "build_agent_graph",
+          "signature": "def build_agent_graph(agent_instances: Dict[str, Any]) -> StateGraph",
+          "description": "构建LangGraph StateGraph，需新增coordinator/comparer节点和条件边"
+        },
+        {
+          "name": "run_workflow",
+          "signature": "async def run_workflow(request: AnalyzeRequest, agent_instances: Dict[str, Any]) -> dict",
+          "description": "执行完整工作流，需更新initial_state初始化（新增字段默认值）"
+        },
+        {
+          "name": "should_compare",
+          "signature": "def should_compare(state: WorkflowState) -> str",
+          "description": "新增条件函数：analyzer后判断是否进入comparer（requires_compare=True且paper_count>=2时返回'compare'，否则返回'generate'）"
+        },
+        {
+          "name": "should_review",
+          "signature": "def should_review(state: WorkflowState) -> bool",
+          "description": "现有条件函数：generate后判断是否进入review，需适配requires_review标记"
+        },
+        {
+          "name": "should_regenerate",
+          "signature": "def should_regenerate(state: WorkflowState) -> str",
+          "description": "现有条件函数：review后判断是否重新生成（approved=False且regenerate_count<1时返回'regenerate'）"
+        }
+      ]
+    },
+    {
+      "name": "orchestrator.py",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "responsibility": "流式Agent编排器：SSE事件推送、keep-alive ping、Last-Event-ID断线重连",
+      "key_interfaces": [
+        {
+          "name": "NODE_ORDER",
+          "signature": "NODE_ORDER = ['coordinator', 'retriever', 'analyzer', 'comparer', 'generator', 'reviewer']",
+          "description": "Agent执行顺序常量，需从4个扩展为6个"
+        },
+        {
+          "name": "run_workflow_stream",
+          "signature": "async def run_workflow_stream(self, request: AnalyzeRequest) -> AsyncIterator[Dict[str, str]]",
+          "description": "流式工作流主入口，需新增coordinator/comparer节点的执行逻辑和条件分支"
+        }
+      ]
+    },
+    {
+      "name": "agent.py (endpoint)",
+      "path": "Veritas/ai-service/app/api/endpoints/agent.py",
+      "responsibility": "Agent API端点：构建Agent实例、调用工作流、返回统一响应",
+      "key_interfaces": [
+        {
+          "name": "_build_agent_instances",
+          "signature": "def _build_agent_instances() -> dict",
+          "description": "构建Agent实例字典，需从3个扩展为6个（新增coordinator/comparer/reviewer）"
+        }
+      ]
+    },
+    {
+      "name": "coordinator.py",
+      "path": "Veritas/ai-service/app/agents/coordinator.py",
+      "responsibility": "协调者Agent：任务分解、requires_compare/requires_review标记、规则降级",
+      "key_interfaces": [
+        {
+          "name": "CoordinatorAgent.execute",
+          "signature": "async def execute(self, input_data: dict, context: dict) -> dict",
+          "description": "输出含 sub_tasks/requires_compare/requires_review/paper_count/analysis_type"
+        }
+      ]
+    },
+    {
+      "name": "comparer.py",
+      "path": "Veritas/ai-service/app/agents/comparer.py",
+      "responsibility": "对比Agent：多论文4维度对比+5类矛盾根因分析+规则降级",
+      "key_interfaces": [
+        {
+          "name": "ComparerAgent.execute",
+          "signature": "async def execute(self, input_data: dict, context: dict) -> dict",
+          "description": "输出含 comparison_matrix/summary/contradictions/paper_count"
+        }
+      ]
+    },
+    {
+      "name": "reviewer.py",
+      "path": "Veritas/ai-service/app/agents/reviewer.py",
+      "responsibility": "审核Agent：事实核查+引用核查+审核判定+4级JSON解析降级",
+      "key_interfaces": [
+        {
+          "name": "ReviewerAgent.execute",
+          "signature": "async def execute(self, input_data: dict, context: dict) -> dict",
+          "description": "输出含 approved/issues/suggestions/citation_accuracy/fact_accuracy"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/graph.py",
+      "description": "核心变更：(1) WorkflowState新增 requires_compare: bool / requires_review: bool / coordinator_result: Optional[Dict] 字段；(2) 新增 coordinator_node 和 compare_node 节点函数；(3) 新增 should_compare 条件函数（analyzer后判断是否进入comparer）；(4) build_agent_graph()新增coordinator/comparer节点+条件边（coordinator→retrieve, analyzer→[compare|generate], compare→generate, generate→[review|END], review→[regenerate→generate|END]）；(5) run_workflow()更新initial_state初始化；(6) 更新 __init__.py 导出",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "description": "(1) NODE_ORDER从['retriever','analyzer','generator','reviewer']更新为['coordinator','retriever','analyzer','comparer','generator','reviewer']；(2) run_workflow_stream()新增coordinator节点执行（入口节点，获取sub_tasks和requires_*标记）；(3) run_workflow_stream()新增comparer条件执行（requires_compare=True且paper_count>=2时执行）；(4) 更新变量传递链路（coordinator输出→retriever输入、analyzer输出→comparer条件输入）",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/api/endpoints/agent.py",
+      "description": "_build_agent_instances()新增3个Agent实例构建：(1) CoordinatorAgent（llm_service+prompt_manager+personalization_service）；(2) ComparerAgent（llm_service+prompt_manager+personalization_service）；(3) ReviewerAgent（llm_service+prompt_manager+personalization_service）；返回字典新增'coordinator'/'comparer'/'reviewer'键",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/agents/__init__.py",
+      "description": "新增导出 CoordinatorAgent/ComparerAgent/ReviewerAgent/coordinator_node/compare_node/should_compare",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/tests/test_graph.py",
+      "description": "更新测试以适配6-Agent工作流：(1) _make_initial_state()新增 requires_compare/requires_review/coordinator_result 字段；(2) 新增 TestCoordinatorNode 和 TestCompareNode 测试类；(3) 更新 TestBuildAgentGraph 验证6个节点；(4) 更新 TestRunWorkflow 验证6-Agent端到端流程",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/tests/test_graph_integration.py",
+      "description": "更新集成测试：(1) 新增 TestShouldCompare 条件函数测试；(2) 新增 TestCoordinatorNode 集成测试；(3) 新增 TestCompareNode 集成测试；(4) 更新 TestFullWorkflow 验证6-Agent全链路（含条件分支）",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "WorkflowState 新增3个字段：requires_compare: bool（默认False，由coordinator_node设置）、requires_review: bool（默认False，由coordinator_node设置）、coordinator_result: Optional[Dict]（默认None，存储coordinator输出）。保持所有现有字段不变，仅追加新字段",
+        "priority": "P0",
+        "acceptance_condition": "WorkflowState包含 requires_compare/requires_review/coordinator_result 字段，现有字段不变"
+      },
+      {
+        "id": "FR-002",
+        "description": "新增 coordinator_node(state, agent_instances) 异步节点函数：调用 CoordinatorAgent.execute(input_data={query, analysis_type, paper_ids}, context={user_profile})，将输出中的 requires_compare/requires_review/sub_tasks 写入 state，将完整输出存入 coordinator_result。异常时使用规则降级（requires_compare=False, requires_review=True, sub_tasks=[]），不阻塞工作流",
+        "priority": "P0",
+        "acceptance_condition": "coordinator_node 正常执行后 state 包含 requires_compare/requires_review/sub_tasks/coordinator_result；异常时 state 包含降级默认值且 degraded=True"
+      },
+      {
+        "id": "FR-003",
+        "description": "新增 compare_node(state, agent_instances) 异步节点函数：调用 ComparerAgent.execute(input_data={analysis_results}, context={user_profile})，将输出写入 state.compare_result。异常时 compare_result=None 且 degraded=True，不阻塞工作流",
+        "priority": "P0",
+        "acceptance_condition": "compare_node 正常执行后 state.compare_result 包含 comparison_matrix/summary/contradictions；异常时 compare_result=None 且 degraded=True"
+      },
+      {
+        "id": "FR-004",
+        "description": "新增 should_compare(state) 条件函数：当 state.requires_compare==True 且 len(state.search_results)>=2 时返回 'compare'，否则返回 'generate'。此函数用于 analyzer→[compare|generate] 条件边",
+        "priority": "P0",
+        "acceptance_condition": "should_compare 在 requires_compare=True 且 paper_count>=2 时返回 'compare'，否则返回 'generate'"
+      },
+      {
+        "id": "FR-005",
+        "description": "重构 build_agent_graph()：新增 coordinator 和 compare 节点，设置 entry_point 为 coordinator（替代原 retrieve），添加条件边：coordinator→retrieve（固定边）、analyzer→should_compare（条件边：compare|generate）、compare→generate（固定边）、generate→should_review（条件边：review|end）、review→should_regenerate（条件边：regenerate→generate|end）。保留现有 retrieve/analyze/generate/review 节点逻辑不变",
+        "priority": "P0",
+        "acceptance_condition": "build_agent_graph() 编译后的 StateGraph 包含6个节点（coordinator/retrieve/analyze/compare/generate/review）和正确的条件边拓扑"
+      },
+      {
+        "id": "FR-006",
+        "description": "更新 run_workflow() 的 initial_state 初始化：新增 requires_compare=False、requires_review=False、coordinator_result=None 三个字段的默认值。其余字段保持不变",
+        "priority": "P0",
+        "acceptance_condition": "run_workflow() 的 initial_state 包含 requires_compare/requires_review/coordinator_result 字段及默认值"
+      },
+      {
+        "id": "FR-007",
+        "description": "更新 _build_agent_instances()：新增 CoordinatorAgent(llm_service, prompt_manager, personalization_service)、ComparerAgent(llm_service, prompt_manager, personalization_service)、ReviewerAgent(llm_service, prompt_manager, personalization_service) 实例构建，返回字典新增 'coordinator'/'comparer'/'reviewer' 键。personalization_service 通过 getattr(events.app_state, 'personalization_service', None) 获取（与现有 analyzer/generator 一致）",
+        "priority": "P0",
+        "acceptance_condition": "_build_agent_instances() 返回包含6个Agent实例的字典，键名为 coordinator/retriever/analyzer/comparer/generator/reviewer"
+      },
+      {
+        "id": "FR-008",
+        "description": "更新 orchestrator.py 的 NODE_ORDER 从 ['retriever','analyzer','generator','reviewer'] 为 ['coordinator','retriever','analyzer','comparer','generator','reviewer']。更新 run_workflow_stream()：在 Retriever 之前新增 Coordinator 节点执行（获取 sub_tasks 和 requires_* 标记），在 Analyzer 和 Generator 之间新增 Comparer 条件执行（requires_compare=True 且 paper_count>=2 时执行），变量传递链路：coordinator 输出→retriever 输入、analyzer 输出→comparer 条件输入、comparer 输出→generator 输入",
+        "priority": "P0",
+        "acceptance_condition": "orchestrator 的 NODE_ORDER 包含6个Agent，run_workflow_stream() 按6-Agent顺序执行，comparer 条件执行逻辑正确"
+      },
+      {
+        "id": "FR-009",
+        "description": "更新 __init__.py 导出：新增 CoordinatorAgent、ComparerAgent、ReviewerAgent、coordinator_node、compare_node、should_compare 到 __all__ 列表",
+        "priority": "P1",
+        "acceptance_condition": "__init__.py 的 __all__ 包含6个Agent类和新增的节点/条件函数"
+      },
+      {
+        "id": "FR-010",
+        "description": "更新现有测试文件适配6-Agent工作流：test_graph.py 的 _make_initial_state() 新增3个字段默认值；test_graph_integration.py 新增 TestShouldCompare 测试类（覆盖 requires_compare=True+paper>=2、requires_compare=True+paper<2、requires_compare=False 三种场景）",
+        "priority": "P1",
+        "acceptance_condition": "所有现有测试通过，新增 should_compare 条件函数测试通过"
+      }
+    ],
+    "degradation_requirements": {
+      "llm_degradation": {
+        "providers": [
+          {
+            "priority": 1,
+            "name": "BuiltinLLMProvider",
+            "description": "软件方模型（首选）"
+          },
+          {
+            "priority": 2,
+            "name": "APILLMProvider",
+            "description": "外接API（DeepSeek V4 Flash，当前生效）"
+          },
+          {
+            "priority": 3,
+            "name": "LocalLLMProvider",
+            "description": "本地Qwen2（最后降级）"
+          }
+        ],
+        "trigger_conditions": [
+          "连续3次调用失败",
+          "单次调用超时30s",
+          "HTTP 5xx响应"
+        ],
+        "recovery_strategy": "每5分钟尝试恢复到更高级别Provider"
+      },
+      "agent_degradation": {
+        "single_agent_failure": "coordinator_node失败时使用规则降级（requires_compare=False, requires_review=True）；compare_node失败时compare_result=None，generator使用analysis_results直接生成；review_node失败时跳过审核标记通过",
+        "multi_agent_failure": "2个及以上Agent失败时标记degraded=True，返回部分结果和degraded_reason",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "sensitive_info",
+        "requirement": "coordinator_node 的 input_data 中 paper_ids 需经过 _sanitize_topic 同等清洗，防止Prompt注入"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        { "java": "requiresCompare", "python": "requires_compare", "json": "requires_compare" },
+        { "java": "requiresReview", "python": "requires_review", "json": "requires_review" },
+        { "java": "coordinatorResult", "python": "coordinator_result", "json": "coordinator_result" },
+        { "java": "comparisonMatrix", "python": "comparison_matrix", "json": "comparison_matrix" },
+        { "java": "regenerateCount", "python": "regenerate_count", "json": "regenerate_count" },
+        { "java": "analysisType", "python": "analysis_type", "json": "analysis_type" },
+        { "java": "paperCount", "python": "paper_count", "json": "paper_count" }
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，工作流编排逻辑在 graph.py，流式推送在 orchestrator.py，Agent实例构建在 agent.py endpoint"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，Agent异常不阻塞后续Agent",
+        "agent_error_handling": "state['errors'].append({'agent': self.name, 'error': str(e)})，return state with degraded=True"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        { "cache_name": "Agent状态", "key_pattern": "agent:state:{analysisId}", "ttl": "5min" },
+        { "cache_name": "会话状态", "key_pattern": "session:state:{sessionId}", "ttl": "2h" }
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" },
+    { "id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high" },
+    { "id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical" },
+    { "id": "FA-004", "action": "修改已有Agent的execute()核心逻辑（coordinator/comparer/reviewer已有完整实现，不应修改）", "reason": "避免引入Agent执行逻辑的回归bug", "severity": "high" },
+    { "id": "FA-005", "action": "删除现有graph.py中的retrieve_node/analyze_node/generate_node/review_node函数", "reason": "这些函数逻辑正确，仅需扩展而非重写", "severity": "critical" },
+    { "id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical" },
+    { "id": "FA-007", "action": "违反跨系统字段命名约定（Python snake_case ↔ Java camelCase）", "reason": "跨系统一致性约束", "severity": "high" },
+    { "id": "FA-008", "action": "忽略降级场景（coordinator/compare/review失败时不处理）", "reason": "可用性约束ADR-003", "severity": "high" },
+    { "id": "FA-009", "action": "修改BaseAgent基类", "reason": "基类稳定，不应因工作流扩展而修改", "severity": "high" },
+    { "id": "FA-010", "action": "在orchestrator中硬编码条件判断而不使用requires_compare标记", "reason": "条件分支应基于coordinator输出的标记，而非硬编码", "severity": "high" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_workflow_state_new_fields",
+        "description": "验证 WorkflowState 新增 requires_compare/requires_review/coordinator_result 字段存在且有正确默认值",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_coordinator_node_success",
+        "description": "验证 coordinator_node 正常执行后 state 包含 requires_compare/requires_review/sub_tasks/coordinator_result",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_coordinator_node_failure_degradation",
+        "description": "验证 coordinator_node 异常时使用规则降级，requires_compare=False/requires_review=True，degraded=True",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_compare_node_success",
+        "description": "验证 compare_node 正常执行后 state.compare_result 包含 comparison_matrix/summary/contradictions",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_compare_node_failure_degradation",
+        "description": "验证 compare_node 异常时 compare_result=None 且 degraded=True",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_should_compare_true",
+        "description": "验证 requires_compare=True 且 paper_count>=2 时 should_compare 返回 'compare'",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_should_compare_false_no_flag",
+        "description": "验证 requires_compare=False 时 should_compare 返回 'generate'",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_should_compare_false_insufficient_papers",
+        "description": "验证 requires_compare=True 但 paper_count<2 时 should_compare 返回 'generate'",
+        "framework": "pytest",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "test_build_agent_graph_has_six_nodes",
+        "description": "验证 build_agent_graph() 编译后的图包含6个节点（coordinator/retrieve/analyze/compare/generate/review）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_build_agent_instances_six_agents",
+        "description": "验证 _build_agent_instances() 返回包含6个Agent实例的字典",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_orchestrator_node_order_six_agents",
+        "description": "验证 AgentOrchestrator.NODE_ORDER 包含6个Agent且顺序正确",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [
+      {
+        "test_name": "test_full_6agent_workflow_with_compare",
+        "description": "6-Agent全链路集成测试：coordinator→retriever→analyzer→comparer→generator→reviewer，验证条件分支正确触发comparer",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_full_6agent_workflow_without_compare",
+        "description": "6-Agent全链路集成测试：coordinator→retriever→analyzer→generator→reviewer（跳过comparer），验证条件分支正确跳过comparer",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_full_6agent_workflow_review_retry",
+        "description": "6-Agent全链路集成测试：审核不通过→重新生成→再次审核，验证regenerate_count<=1约束",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_full_6agent_workflow_coordinator_failure",
+        "description": "6-Agent全链路集成测试：coordinator失败降级后工作流继续执行",
+        "layers_involved": ["python_ai_service"]
+      },
+      {
+        "test_name": "test_full_6agent_workflow_comparer_failure",
+        "description": "6-Agent全链路集成测试：comparer失败降级后generator使用analysis_results直接生成",
+        "layers_involved": ["python_ai_service"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_graph.py tests/test_graph_integration.py -v",
+        "expected_result": "所有测试通过，包含6-Agent工作流的新增和更新测试"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_graph_integration.py::TestShouldCompare -v",
+        "expected_result": "should_compare 条件函数的3种场景测试全部通过"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_graph_integration.py::TestFullWorkflow -v",
+        "expected_result": "6-Agent全链路集成测试通过（含/不含comparer、审核重试、降级场景）"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -c \"from app.agents import CoordinatorAgent, ComparerAgent, ReviewerAgent, should_compare; print('Import OK')\"",
+        "expected_result": "输出 Import OK，验证新增导出正确"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "WorkflowState 包含 requires_compare: bool / requires_review: bool / coordinator_result: Optional[Dict] 三个新字段，所有现有字段不变",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "build_agent_graph() 编译后的 StateGraph 包含6个节点（coordinator/retrieve/analyze/compare/generate/review）和正确的条件边拓扑：coordinator→retrieve（固定）、analyzer→[compare|generate]（条件）、compare→generate（固定）、generate→[review|END]（条件）、review→[regenerate→generate|END]（条件）",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "should_compare 条件函数：requires_compare=True 且 len(search_results)>=2 时返回 'compare'，否则返回 'generate'",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "coordinator_node 正常执行后 state 包含 requires_compare/requires_review/sub_tasks/coordinator_result；异常时使用规则降级（requires_compare=False, requires_review=True），degraded=True",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "compare_node 正常执行后 state.compare_result 包含 comparison_matrix/summary/contradictions；异常时 compare_result=None 且 degraded=True，不阻塞工作流",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "_build_agent_instances() 返回包含6个Agent实例的字典，键名为 coordinator/retriever/analyzer/comparer/generator/reviewer",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-007",
+      "criterion": "AgentOrchestrator.NODE_ORDER = ['coordinator','retriever','analyzer','comparer','generator','reviewer']，run_workflow_stream() 按6-Agent顺序执行且comparer条件执行逻辑正确",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-008",
+      "criterion": "6-Agent全链路集成测试通过：含comparer路径、不含comparer路径、审核重试路径、coordinator降级路径、comparer降级路径",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-009",
+      "criterion": "所有已有测试保持通过，无回归问题（test_graph.py / test_graph_integration.py / test_coordinator_agent.py / test_comparer_agent.py / test_reviewer.py）",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-010",
+      "criterion": "Agent超时约束：单Agent 30s、全流程 120s，审核重试最多1次（regenerate_count<=1）",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-011",
+      "criterion": "__init__.py 导出包含 CoordinatorAgent/ComparerAgent/ReviewerAgent/coordinator_node/compare_node/should_compare",
+      "verified_by": "automated_test"
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "FM4：综述生成与Agent可视化完成",
+    "requirement": "创建IntermediateResult.vue（el-timeline时间线展示各Agent产出摘要）和TimeStats.vue（ECharts Bar柱状图展示各Agent执行耗时）两个组件",
+    "requirement_ids": ["F1.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "Agent可视化组件规范" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM4交付物清单与验收标准" },
+      { "path": "AGENTS.md", "purpose": "6-Agent角色定义" },
+      { "path": "Veritas/frontend/src/stores/agentStore.ts", "purpose": "agentStore状态管理" },
+      { "path": "Veritas/frontend/src/types/agent.ts", "purpose": "AgentState类型定义" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/agent/", "description": "Agent可视化业务组件目录" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "Agent状态管理Store" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "已有agentStates/agentStatesList", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/types/agent.ts", "description": "已有AgentState类型", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "IntermediateResult",
+      "path": "Veritas/frontend/src/components/agent/IntermediateResult.vue",
+      "responsibility": "时间线展示各Agent产出摘要",
+      "key_interfaces": [
+        { "name": "Props", "signature": "{ agentStates: Record<string, AgentState> }", "description": "接收Agent状态数据" }
+      ]
+    },
+    {
+      "name": "TimeStats",
+      "path": "Veritas/frontend/src/components/agent/TimeStats.vue",
+      "responsibility": "ECharts Bar柱状图展示各Agent执行耗时",
+      "key_interfaces": [
+        { "name": "Props", "signature": "{ agentStates: Record<string, AgentState> }", "description": "接收Agent状态数据" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/agent/IntermediateResult.vue", "description": "新建中间结果时间线组件", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/components/agent/TimeStats.vue", "description": "新建耗时统计柱状图组件", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "IntermediateResult时间线：使用el-timeline展示各Agent产出摘要，每个时间线节点包含时间戳（格式化显示）、Agent名称（中文）、中间结果摘要文本。仅展示status为completed或running的Agent",
+        "priority": "P0",
+        "acceptance_condition": "时间线正确展示已完成和执行中Agent的中间结果"
+      },
+      {
+        "id": "FR-002",
+        "description": "IntermediateResult自动滚动：新Agent完成时自动滚动到最新节点，使用nextTick + scrollTop实现",
+        "priority": "P1",
+        "acceptance_condition": "新结果出现时自动滚动到底部"
+      },
+      {
+        "id": "FR-003",
+        "description": "IntermediateResult空状态：无中间结果时显示'等待Agent产出结果'提示",
+        "priority": "P1",
+        "acceptance_condition": "空状态显示友好提示"
+      },
+      {
+        "id": "FR-004",
+        "description": "TimeStats柱状图：使用ECharts Bar展示各Agent执行耗时（durationMs），X轴为Agent名称（中文），Y轴为耗时（秒），柱体颜色与Agent状态色一致",
+        "priority": "P0",
+        "acceptance_condition": "柱状图正确展示各Agent耗时，颜色与状态对应"
+      },
+      {
+        "id": "FR-005",
+        "description": "TimeStats条件展示：仅在所有Agent完成后（全部completed/failed）展示完整柱状图，分析进行中显示'分析进行中...'提示+已完成Agent的部分柱状图",
+        "priority": "P1",
+        "acceptance_condition": "分析中显示部分结果，完成后显示完整柱状图"
+      },
+      {
+        "id": "FR-006",
+        "description": "TimeStats resize自适应：监听容器resize调用ECharts resize()，组件卸载dispose实例",
+        "priority": "P0",
+        "acceptance_condition": "resize时图表自适应，卸载无内存泄漏"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediate_result" },
+          { "java": "durationMs", "python": "duration_ms", "json": "duration_ms" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "agentStore.agentStates → IntermediateResult/TimeStats Props → UI渲染"
+    }
+  },
+  "constraints": {
+    "naming": {
+      "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" },
+      "json": { "field_name": "snake_case" },
+      "cross_system_mapping": [
+        { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediate_result" },
+        { "java": "durationMs", "python": "duration_ms", "json": "duration_ms" }
+      ]
+    },
+    "layering": { "frontend": { "rule": "Business组件通过Props接收数据" } },
+    "error_handling": { "frontend": { "approach": "ECharts初始化失败显示el-empty" } },
+    "caching": { "pattern": "agentStore作为前端缓存" },
+    "logging": { "prohibited": ["console.log Token/API Key"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "ECharts全量导入", "reason": "TimeStats必须按需导入BarChart/Tooltip/Grid", "severity": "high" },
+    { "id": "FA-002", "action": "在组件内直接调用API", "reason": "组件只通过Props接收数据", "severity": "high" },
+    { "id": "FA-003", "action": "TimeStats组件卸载未销毁ECharts实例", "reason": "内存泄漏", "severity": "critical" },
+    { "id": "FA-004", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "IntermediateResult渲染测试", "description": "验证时间线正确展示Agent中间结果", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition"] },
+      { "test_name": "TimeStats渲染测试", "description": "验证柱状图正确展示Agent耗时", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "空状态测试", "description": "验证无数据时显示空状态提示", "framework": "vitest", "coverage": ["boundary_condition"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run --reporter=verbose", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "时间线正确展示各Agent中间结果", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "新结果出现时自动滚动到底部", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "空状态显示友好提示", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "柱状图正确展示各Agent耗时", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "ECharts Bar按需导入", "verified_by": "code_review" },
+    { "id": "AC-006", "criterion": "TimeStats组件卸载无内存泄漏", "verified_by": "automated_test" }
+  ]
+}

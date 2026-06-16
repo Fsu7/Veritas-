@@ -36,3 +36,22 @@ export interface FlowLink {
   source: string
   target: string
 }
+
+/**
+ * SSE 事件类型
+ */
+export type SSEEventType =
+  | 'agent_state_update'
+  | 'analysis_completed'
+  | 'agent_error'
+  | 'progress_update'
+
+/**
+ * SSE 事件载荷
+ * 字段命名遵循 TS camelCase；data 内部字段由事件类型决定
+ */
+export interface SSEEvent {
+  type: SSEEventType
+  data: Record<string, unknown>
+  timestamp: number
+}

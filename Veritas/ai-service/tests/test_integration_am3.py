@@ -83,11 +83,17 @@ class MockAgent(BaseAgent):
 
 
 def _make_mock_agents(
+    coordinator_fail=False,
     retriever_fail=False,
     analyzer_fail=False,
     generator_fail=False,
 ) -> Dict[str, MockAgent]:
     return {
+        "coordinator": MockAgent(
+            "coordinator",
+            result={"requires_compare": False, "requires_review": True, "sub_tasks": []},
+            should_fail=coordinator_fail,
+        ),
         "retriever": MockAgent(
             "retriever",
             result={"papers": [{"title": "Test Paper"}]},

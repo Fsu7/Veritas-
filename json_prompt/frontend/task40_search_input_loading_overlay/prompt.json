@@ -1,0 +1,126 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "FM4：综述生成与Agent可视化完成",
+    "requirement": "创建SearchInput.vue（300ms防抖+清除+回车搜索+历史搜索标签）和LoadingOverlay.vue（全局加载遮罩+自定义文字）两个通用组件",
+    "requirement_ids": ["F1.2"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "通用组件规范" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM4交付物清单" },
+      { "path": "Veritas/frontend/src/views/SearchView.vue", "purpose": "当前搜索页面，需集成SearchInput" },
+      { "path": "Veritas/frontend/src/views/HomeView.vue", "purpose": "首页搜索输入参考" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/common/", "description": "通用组件目录" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/views/HomeView.vue", "description": "已有搜索输入+历史标签实现，可参考", "reuse_type": "reference" },
+      { "file_path": "Veritas/frontend/src/views/SearchView.vue", "description": "已有搜索逻辑，需替换为SearchInput组件", "reuse_type": "extend" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "SearchInput",
+      "path": "Veritas/frontend/src/components/common/SearchInput.vue",
+      "responsibility": "搜索输入组件，300ms防抖+清除+历史搜索",
+      "key_interfaces": [
+        { "name": "Props", "signature": "{ modelValue: string; placeholder?: string; loading?: boolean }", "description": "搜索值和状态" },
+        { "name": "Emits", "signature": "{ 'update:modelValue': [val: string]; 'search': [query: string]; 'clear': [] }", "description": "值更新、搜索触发、清除事件" }
+      ]
+    },
+    {
+      "name": "LoadingOverlay",
+      "path": "Veritas/frontend/src/components/common/LoadingOverlay.vue",
+      "responsibility": "全局加载遮罩组件",
+      "key_interfaces": [
+        { "name": "Props", "signature": "{ visible: boolean; text?: string }", "description": "遮罩可见性和提示文字" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/common/SearchInput.vue", "description": "新建搜索输入组件", "layer": "frontend" },
+    { "operation": "create", "path": "Veritas/frontend/src/components/common/LoadingOverlay.vue", "description": "新建加载遮罩组件", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "SearchInput 300ms防抖：使用watch+setTimeout或useDebounceFn实现输入防抖，300ms内多次输入只触发一次search事件。防抖计时器在组件卸载时清除",
+        "priority": "P0",
+        "acceptance_condition": "300ms内多次输入只触发一次search事件"
+      },
+      {
+        "id": "FR-002",
+        "description": "SearchInput回车搜索：按下Enter键立即触发search事件（跳过防抖），无需等待300ms",
+        "priority": "P0",
+        "acceptance_condition": "回车立即触发搜索"
+      },
+      {
+        "id": "FR-003",
+        "description": "SearchInput清除按钮：使用el-input的clearable属性，点击清除按钮emit clear事件，清空输入值",
+        "priority": "P0",
+        "acceptance_condition": "清除按钮可用，清空输入值"
+      },
+      {
+        "id": "FR-004",
+        "description": "SearchInput搜索中状态：loading为true时禁用输入框+显示loading图标，防止搜索中重复输入",
+        "priority": "P1",
+        "acceptance_condition": "搜索中输入框禁用+loading图标"
+      },
+      {
+        "id": "FR-005",
+        "description": "SearchInput历史搜索标签：输入框下方展示最近10条搜索记录（从localStorage读取），点击标签触发search事件。搜索成功后自动保存到历史。使用el-tag展示，支持删除单条历史",
+        "priority": "P1",
+        "acceptance_condition": "历史标签正确展示，点击触发搜索，可删除"
+      },
+      {
+        "id": "FR-006",
+        "description": "LoadingOverlay全局加载遮罩：使用el-overlay+v-loading实现，z-index设为2000（高于页面内容），支持自定义提示文字（默认'加载中...'），visible控制显隐",
+        "priority": "P0",
+        "acceptance_condition": "遮罩正确覆盖页面内容，自定义文字显示"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": { "rule": "Java camelCase ↔ Python/JSON snake_case", "mappings": [] },
+      "api_contracts": [],
+      "data_flow": "用户输入 → 300ms防抖 → emit search → 父组件调用paperStore.searchPapers"
+    }
+  },
+  "constraints": {
+    "naming": { "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" }, "json": { "field_name": "snake_case" }, "cross_system_mapping": [] },
+    "layering": { "frontend": { "rule": "通用组件通过Props/Emits通信" } },
+    "error_handling": { "frontend": { "approach": "localStorage读取失败时返回空数组" } },
+    "caching": { "pattern": "搜索历史使用localStorage持久化" },
+    "logging": { "prohibited": ["console.log Token"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "SearchInput无防抖直接触发搜索", "reason": "必须300ms防抖防止频繁API调用", "severity": "high" },
+    { "id": "FA-002", "action": "防抖计时器未在组件卸载时清除", "reason": "内存泄漏", "severity": "high" },
+    { "id": "FA-003", "action": "LoadingOverlay z-index低于页面内容", "reason": "遮罩无法覆盖内容", "severity": "medium" },
+    { "id": "FA-004", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "SearchInput防抖测试", "description": "验证300ms防抖正确工作", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition"] },
+      { "test_name": "SearchInput回车搜索测试", "description": "验证回车立即触发搜索", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "SearchInput历史标签测试", "description": "验证历史搜索标签展示和交互", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "LoadingOverlay测试", "description": "验证遮罩显隐和文字显示", "framework": "vitest", "coverage": ["normal_flow"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run --reporter=verbose", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "300ms防抖正确工作", "verified_by": "automated_test" },
+    { "id": "AC-002", "criterion": "回车立即触发搜索", "verified_by": "manual_test" },
+    { "id": "AC-003", "criterion": "清除按钮可用", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "搜索中loading状态正确", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "历史搜索标签展示和交互正确", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "LoadingOverlay遮罩正确覆盖+自定义文字", "verified_by": "manual_test" }
+  ]
+}

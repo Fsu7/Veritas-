@@ -1,5 +1,5 @@
 import http from './index'
-import type { Paper, FilterParams } from '@/types/paper'
+import type { Paper, FilterParams, SortField, SortOrder } from '@/types/paper'
 import type { PageResponse } from '@/types/common'
 
 export const paperApi = {
@@ -9,7 +9,13 @@ export const paperApi = {
   getDetail: (paperId: string): Promise<Paper> =>
     http.get(`/papers/${paperId}`),
 
-  search: (params: { q: string; page?: number; size?: number } & FilterParams): Promise<PageResponse<Paper>> =>
+  search: (params: {
+    q: string
+    page?: number
+    size?: number
+    sort_by?: SortField
+    sort_order?: SortOrder
+  } & FilterParams): Promise<PageResponse<Paper>> =>
     http.get('/papers/search', { params }),
 
   addFavorite: (paperId: string) =>

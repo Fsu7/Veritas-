@@ -1,0 +1,143 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.4",
+    "milestone": "FM4：综述生成与Agent可视化完成",
+    "requirement": "创建独立AgentStatusPanel.vue组件，展示6个Agent的实时状态（名称+状态图标+状态文字+耗时），状态色配合文字+图标三重传达，横排(lg)/2×3网格(sm)响应式布局，点击Agent展示中间结果摘要",
+    "requirement_ids": ["F1.5"],
+    "reference_docs": [
+      { "path": "docs/frontend/前端模块系统架构文档.md", "purpose": "Agent可视化组件规范" },
+      { "path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM4交付物清单与验收标准" },
+      { "path": "AGENTS.md", "purpose": "6-Agent角色定义" },
+      { "path": "Veritas/frontend/src/stores/agentStore.ts", "purpose": "agentStore状态管理" },
+      { "path": "Veritas/frontend/src/types/agent.ts", "purpose": "AgentState类型定义" },
+      { "path": "Veritas/frontend/src/styles/variables.scss", "purpose": "Agent状态色CSS变量" }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/components/agent/", "description": "Agent可视化业务组件目录" },
+      { "layer": "frontend", "module_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "Agent状态管理Store" }
+    ],
+    "existing_implementations": [
+      { "file_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "已有agentStates/agentStatesList/activeAgents/progress", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/types/agent.ts", "description": "已有AgentState类型(name/status/progress/intermediateResult/durationMs/error)", "reuse_type": "direct_reuse" },
+      { "file_path": "Veritas/frontend/src/styles/variables.scss", "description": "已有Agent状态色CSS变量", "reuse_type": "direct_reuse" }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AgentStatusPanel",
+      "path": "Veritas/frontend/src/components/agent/AgentStatusPanel.vue",
+      "responsibility": "6个Agent状态标签面板，展示实时状态+中间结果+耗时",
+      "key_interfaces": [
+        { "name": "Props", "signature": "{ agentStates: Record<string, AgentState> }", "description": "接收6个Agent状态数据" },
+        { "name": "Emits", "signature": "{ 'agent-click': [agentName: string] }", "description": "Agent标签点击事件" }
+      ]
+    },
+    {
+      "name": "agentStore",
+      "path": "Veritas/frontend/src/stores/agentStore.ts",
+      "responsibility": "Agent状态管理",
+      "key_interfaces": [
+        { "name": "agentStatesList", "signature": "computed(() => AgentState[])", "description": "6个Agent状态列表" },
+        { "name": "progress", "signature": "computed(() => number)", "description": "整体进度百分比" }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    { "operation": "create", "path": "Veritas/frontend/src/components/agent/AgentStatusPanel.vue", "description": "新建AgentStatusPanel.vue组件", "layer": "frontend" }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "6个Agent状态标签：每个Agent显示名称（中文：协调者/检索员/分析员/对比员/生成员/审核员）+ 状态图标（waiting⏳/running⚙️旋转/completed✓/failed✗）+ 状态文字（等待中/执行中/已完成/失败）+ 耗时（格式：Xs/Xm Xs）",
+        "priority": "P0",
+        "acceptance_condition": "6个Agent标签正确展示名称+图标+文字+耗时"
+      },
+      {
+        "id": "FR-002",
+        "description": "状态色三重传达：每个Agent标签背景色/边框色根据status变化（waiting灰/running蓝/completed绿/failed红），同时配合状态图标和状态文字，确保不仅靠颜色传达信息",
+        "priority": "P0",
+        "acceptance_condition": "状态变化时标签颜色+图标+文字同步更新，色盲用户可通过图标和文字识别状态"
+      },
+      {
+        "id": "FR-003",
+        "description": "响应式布局：lg屏幕横排6个标签（el-row + el-col :span=\"4\"），sm屏幕2×3网格布局（el-col :span=\"8\"），使用Element Plus栅格系统",
+        "priority": "P1",
+        "acceptance_condition": "不同屏幕尺寸下布局正确切换"
+      },
+      {
+        "id": "FR-004",
+        "description": "点击Agent标签展示中间结果摘要：点击标签展开/弹出该Agent的intermediateResult内容，使用el-collapse或el-popover展示，支持长文本截断+展开",
+        "priority": "P1",
+        "acceptance_condition": "点击Agent标签可查看其中间结果摘要"
+      },
+      {
+        "id": "FR-005",
+        "description": "整体进度条：面板顶部显示el-progress进度条，进度值从agentStore.progress计算属性获取，显示'已完成 X/6'文字",
+        "priority": "P2",
+        "acceptance_condition": "进度条正确反映整体完成进度"
+      },
+      {
+        "id": "FR-006",
+        "description": "空状态处理：agentStates为空时显示'等待开始分析'提示，使用el-empty组件",
+        "priority": "P1",
+        "acceptance_condition": "无Agent状态时显示友好空状态提示"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediate_result" },
+          { "java": "durationMs", "python": "duration_ms", "json": "duration_ms" }
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "SSE事件 → agentStore.updateAgentState() → AgentStatusPanel Props(agentStates) → 标签UI更新"
+    }
+  },
+  "constraints": {
+    "naming": {
+      "typescript": { "class_name": "PascalCase", "method_variable": "camelCase", "file_name": "PascalCase.vue" },
+      "json": { "field_name": "snake_case" },
+      "cross_system_mapping": [
+        { "java": "intermediateResult", "python": "intermediate_result", "json": "intermediate_result" },
+        { "java": "durationMs", "python": "duration_ms", "json": "duration_ms" }
+      ]
+    },
+    "layering": { "frontend": { "rule": "View → Store → API。AgentStatusPanel为Business组件，通过Props接收数据" } },
+    "error_handling": { "frontend": { "approach": "Agent状态异常时显示'状态未知'标签" } },
+    "caching": { "pattern": "agentStore作为前端缓存" },
+    "logging": { "prohibited": ["console.log Token/API Key"] }
+  },
+  "forbidden_actions": [
+    { "id": "FA-001", "action": "仅靠颜色传达Agent状态", "reason": "必须配合文字+图标(无障碍)", "severity": "high" },
+    { "id": "FA-002", "action": "在组件内直接调用API", "reason": "组件只通过Props接收数据", "severity": "high" },
+    { "id": "FA-003", "action": "硬编码颜色值", "reason": "使用CSS变量或Element Plus语义色", "severity": "medium" },
+    { "id": "FA-004", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical" }
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      { "test_name": "AgentStatusPanel渲染测试", "description": "验证6个Agent标签正确渲染", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "状态更新测试", "description": "验证agentStates变化时标签状态同步更新", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition"] },
+      { "test_name": "点击事件测试", "description": "验证点击标签触发agent-click事件", "framework": "vitest", "coverage": ["normal_flow"] },
+      { "test_name": "空状态测试", "description": "验证无Agent状态时显示空状态提示", "framework": "vitest", "coverage": ["boundary_condition"] }
+    ],
+    "verification_commands": [
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vue-tsc --noEmit", "expected_result": "无TypeScript错误" },
+      { "layer": "frontend", "command": "cd Veritas/frontend && npx vitest run --reporter=verbose", "expected_result": "所有测试通过" }
+    ]
+  },
+  "acceptance_criteria": [
+    { "id": "AC-001", "criterion": "6个Agent标签正确展示名称+图标+文字+耗时", "verified_by": "manual_test" },
+    { "id": "AC-002", "criterion": "状态色+图标+文字三重传达，色盲用户可识别", "verified_by": "code_review" },
+    { "id": "AC-003", "criterion": "响应式布局：lg横排/sm 2×3网格", "verified_by": "manual_test" },
+    { "id": "AC-004", "criterion": "点击Agent标签展示中间结果摘要", "verified_by": "manual_test" },
+    { "id": "AC-005", "criterion": "整体进度条正确反映完成进度", "verified_by": "manual_test" },
+    { "id": "AC-006", "criterion": "空状态显示'等待开始分析'提示", "verified_by": "manual_test" }
+  ]
+}
