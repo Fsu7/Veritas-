@@ -1,0 +1,170 @@
+{
+  "description": "task48 期望检索结果 - 基于真实 arxiv_cs_ai_100.json 论文构造",
+  "version": "1.0",
+  "note": "relevance_score: 3=强相关, 2=相关, 1=弱相关, 0=不相关",
+  "queries": [
+    {
+      "id": "q01",
+      "query": "人形机器人全身控制与操作技能",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06493", "relevance_score": 3, "reason": "HANDOFF 人形机器人全身控制器"},
+        {"paper_id": "arxiv_2606.06491", "relevance_score": 2, "reason": "TempoVLA 速度可控 VLA 策略"},
+        {"paper_id": "arxiv_2606.06390", "relevance_score": 1, "reason": "HomeWorld 场景生成"}
+      ]
+    },
+    {
+      "id": "q02",
+      "query": "multi-agent reinforcement learning cooperative decision",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06486", "relevance_score": 3, "reason": "Regret Minimization 自适应对手博弈"},
+        {"paper_id": "arxiv_2606.06388", "relevance_score": 2, "reason": "Humans ALMANAC Agent 协作"},
+        {"paper_id": "arxiv_2606.06448", "relevance_score": 1, "reason": "Agent Memory 长时序工作负载"}
+      ]
+    },
+    {
+      "id": "q03",
+      "query": "大语言模型预训练优化方法",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06470", "relevance_score": 3, "reason": "PC Layer 多项式权重预条件"},
+        {"paper_id": "arxiv_2606.06479", "relevance_score": 3, "reason": "Pretraining Recurrent Networks"},
+        {"paper_id": "arxiv_2606.06418", "relevance_score": 2, "reason": "Double Preconditioning 优化"},
+        {"paper_id": "arxiv_2606.06467", "relevance_score": 1, "reason": "You Only Index Once 稀疏注意力"}
+      ]
+    },
+    {
+      "id": "q04",
+      "query": "sparse attention mechanism efficient inference",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06467", "relevance_score": 3, "reason": "Cross-Layer Sparse Attention"},
+        {"paper_id": "arxiv_2606.06453", "relevance_score": 3, "reason": "Vortex 稀疏注意力服务"},
+        {"paper_id": "arxiv_2606.06448", "relevance_score": 1, "reason": "Agent Memory 状态管理"}
+      ]
+    },
+    {
+      "id": "q05",
+      "query": "视觉语言动作模型速度控制策略",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06491", "relevance_score": 3, "reason": "TempoVLA 速度可控 VLA"},
+        {"paper_id": "arxiv_2606.06493", "relevance_score": 1, "reason": "HANDOFF 机器人控制"}
+      ]
+    },
+    {
+      "id": "q06",
+      "query": "AI text detection benchmark transformation",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06481", "relevance_score": 3, "reason": "AI-Text Detection Benchmark"},
+        {"paper_id": "arxiv_2606.06462", "relevance_score": 1, "reason": "Benchmark Everything"}
+      ]
+    },
+    {
+      "id": "q07",
+      "query": "推理模型奖励重分配强化学习",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06475", "relevance_score": 3, "reason": "RREDCoT 段级奖励重分配"},
+        {"paper_id": "arxiv_2606.06486", "relevance_score": 1, "reason": "Regret Minimization 博弈"}
+      ]
+    },
+    {
+      "id": "q08",
+      "query": "diffusion language model retrieval augmentation",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06474", "relevance_score": 3, "reason": "Self-Augmenting Retrieval Diffusion"},
+        {"paper_id": "arxiv_2606.06479", "relevance_score": 1, "reason": "Pretraining Recurrent Networks"}
+      ]
+    },
+    {
+      "id": "q09",
+      "query": "自动机器学习算法发现框架",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06473", "relevance_score": 3, "reason": "MLEvolve 自演化 AutoML"},
+        {"paper_id": "arxiv_2606.06416", "relevance_score": 1, "reason": "Unsupervised Skill Discovery"}
+      ]
+    },
+    {
+      "id": "q10",
+      "query": "formal theorem proving blueprint generation",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06468", "relevance_score": 3, "reason": "Goedel-Architect 定理证明"}
+      ]
+    },
+    {
+      "id": "q11",
+      "query": "自动驾驶安全关键交通场景生成",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06423", "relevance_score": 3, "reason": "RiskFlow 安全关键场景生成"},
+        {"paper_id": "arxiv_2606.06396", "relevance_score": 3, "reason": "Risk Assessment 自动驾驶"},
+        {"paper_id": "arxiv_2606.06388", "relevance_score": 1, "reason": "HomeWorld 场景框架"}
+      ]
+    },
+    {
+      "id": "q12",
+      "query": "agent memory stateful long horizon workload",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06448", "relevance_score": 3, "reason": "Agent Memory 状态长时序"},
+        {"paper_id": "arxiv_2606.06337", "relevance_score": 2, "reason": "TokenMizer 会话记忆"},
+        {"paper_id": "arxiv_2606.06460", "relevance_score": 1, "reason": "LLM-Agent 合规"}
+      ]
+    },
+    {
+      "id": "q13",
+      "query": "LLM agent access deny compliance",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06460", "relevance_score": 3, "reason": "Agent Recuse 合规测量"},
+        {"paper_id": "arxiv_2606.06448", "relevance_score": 1, "reason": "Agent Memory"}
+      ]
+    },
+    {
+      "id": "q14",
+      "query": "多模态融合不完整时间序列数据",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06328", "relevance_score": 3, "reason": "PAMF 先验感知多模态融合"},
+        {"paper_id": "arxiv_2606.06356", "relevance_score": 1, "reason": "知识注入多模态"}
+      ]
+    },
+    {
+      "id": "q15",
+      "query": "in-context learning multiple instance",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06458", "relevance_score": 3, "reason": "In-Context Multiple Instance Learning"}
+      ]
+    },
+    {
+      "id": "q16",
+      "query": "医疗视觉语言模型病灶检测",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06379", "relevance_score": 3, "reason": "EasyLens 医疗 VLM 病灶"},
+        {"paper_id": "arxiv_2606.06375", "relevance_score": 1, "reason": "Infrastructure Inspection 图像"}
+      ]
+    },
+    {
+      "id": "q17",
+      "query": "LLM unlearning token importance forgetting",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06320", "relevance_score": 3, "reason": "Learning What to Forget"},
+        {"paper_id": "arxiv_2606.06315", "relevance_score": 1, "reason": "LLM Self-Recognition"}
+      ]
+    },
+    {
+      "id": "q18",
+      "query": "大语言模型决策传染病传播仿真",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06360", "relevance_score": 3, "reason": "传染病传播 LLM 决策仿真"}
+      ]
+    },
+    {
+      "id": "q19",
+      "query": "neural network vessel trajectory prediction memory",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06311", "relevance_score": 3, "reason": "AIS 船舶轨迹记忆增强网络"},
+        {"paper_id": "arxiv_2606.06448", "relevance_score": 1, "reason": "Agent Memory"}
+      ]
+    },
+    {
+      "id": "q20",
+      "query": "音频自编码器潜在表示理解生成",
+      "expected_top10": [
+        {"paper_id": "arxiv_2606.06357", "relevance_score": 3, "reason": "F3-Tokenizer 音频自编码器"}
+      ]
+    }
+  ]
+}

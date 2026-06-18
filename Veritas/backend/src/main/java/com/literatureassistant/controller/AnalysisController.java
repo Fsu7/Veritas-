@@ -9,10 +9,15 @@ import com.literatureassistant.dto.response.AnalysisStatusResponse;
 import com.literatureassistant.dto.response.AnalysisTaskResponse;
 import com.literatureassistant.exception.AuthenticationException;
 import com.literatureassistant.service.AnalysisService;
+import com.literatureassistant.service.ExportService;
+import com.literatureassistant.util.PdfExporter;
+import com.literatureassistant.util.WordExporter;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -22,6 +27,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -39,6 +45,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class AnalysisController {
 
     private final AnalysisService analysisService;
+    private final ExportService exportService;
+    private final PdfExporter pdfExporter;
+    private final WordExporter wordExporter;
 
     /**
      * 论文分析入口（POST /api/analysis/paper）。
@@ -125,6 +134,9 @@ public class AnalysisController {
             throw new AuthenticationException("未认证，请先登录");
         }
         log.info("REST getAnalysisResult: userId={}, analysisId={}", currentUserId, analysisId);
+        // 修复 B-003: @Cacheable 命中时 Service 方法体不执行，数据隔离校验必须上移到 Controller。
+        // validateAnalysisAccess 会查 DB 校验 analysisId 归属，缓存命中时仍执行（安全代价）。
+        analysisService.validateAnalysisAccess(currentUserId, analysisId);
         AnalysisResponse response = analysisService.getAnalysisResult(currentUserId, analysisId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -143,6 +155,43 @@ public class AnalysisController {
         log.info("REST getAnalysisStatus: userId={}, analysisId={}", currentUserId, analysisId);
         AnalysisStatusResponse response = analysisService.getAnalysisStatus(currentUserId, analysisId);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * task37/task38: 导出分析结果（GET /api/analysis/{analysisId}/export）。
+     * <p>JWT 鉴权 → ExportService.export（统一入口）→ 返回 PDF/Word 文件。
+     * <p>数据隔离：analysisId 对应 Session.userId 必须等于 currentUserId。
+     * <p>支持格式：pdf（默认）、word/docx。
+     */
+    @GetMapping("/{analysisId}/export")
+    public ResponseEntity<byte[]> exportAnalysis(
+            @PathVariable String analysisId,
+            @RequestParam(defaultValue = "pdf") String format,
+            @AuthenticationPrincipal String userId) {
+        String currentUserId = userId != null ? userId : extractCurrentUserId();
+        if (currentUserId == null || currentUserId.isBlank()) {
+            throw new AuthenticationException("未认证，请先登录");
+        }
+        log.info("REST exportAnalysis: userId={}, analysisId={}, format={}", currentUserId, analysisId, format);
+        // 修复 B-003 延伸: 导出前校验资源归属，防止 @Cacheable 缓存命中绕过数据隔离。
+        // ExportService.getValidatedResult 调用的 getAnalysisResult 是 @Cacheable 方法，
+        // 缓存命中时方法体不执行，内部校验会被绕过，因此校验必须上移到 Controller 层。
+        analysisService.validateAnalysisAccess(currentUserId, analysisId);
+        byte[] bytes = exportService.export(currentUserId, analysisId, format);
+        String normalized = format.trim().toLowerCase();
+        String fileName;
+        String contentType;
+        if ("word".equals(normalized) || "docx".equals(normalized)) {
+            fileName = wordExporter.generateFileName(analysisId);
+            contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        } else {
+            fileName = pdfExporter.generateFileName(analysisId);
+            contentType = MediaType.APPLICATION_PDF_VALUE;
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileName + "\"")
+                .header(HttpHeaders.CONTENT_TYPE, contentType)
+                .body(bytes);
     }
 
 }

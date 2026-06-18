@@ -1,24 +1,30 @@
 <script setup lang="ts">
 /**
- * Agent 协同可视化页面（FM4 重构版）
+ * Agent 协同可视化页面（FM4 重构版 + FM5 回放模式）
  * - 组合 AgentFlowChart / AgentStatusPanel / IntermediateResult / TimeStats
  * - 使用 useSSE composable 管理 SSE 连接
  * - 数据流：SSE → onEvent → agentStore.updateAgentState → 子组件 Props
  * - 布局：上部 60% 流程图 + 下部 40% el-tabs
  * - 状态：loading(骨架屏) / empty(等待开始) / error(错误+重试)
+ * - FM5 新增：回放模式（useReplay composable + 回放控制条）
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { VideoPlay, VideoPause, RefreshLeft, DArrowLeft, DArrowRight } from '@element-plus/icons-vue'
 
 import { useAgentStore } from '@/stores/agentStore'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useSSE } from '@/composables/useSSE'
+import { useReplay, type PlaybackSpeed } from '@/composables/useReplay'
 import { analysisApi } from '@/api/analysis'
 import AgentFlowChart from '@/components/agent/AgentFlowChart.vue'
 import AgentStatusPanel from '@/components/agent/AgentStatusPanel.vue'
 import IntermediateResult from '@/components/agent/IntermediateResult.vue'
 import TimeStats from '@/components/agent/TimeStats.vue'
-import type { SSEEvent } from '@/types/agent'
+import EmptyState from '@/components/common/EmptyState.vue'
+import ErrorState from '@/components/common/ErrorState.vue'
+import type { SSEEvent, ReplayFrame, AgentState } from '@/types/agent'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,24 +39,66 @@ const selectedAgent = ref<string>('')
 /** 当前激活的下部面板 tab */
 const activeTab = ref('status')
 
+/** 回放模式状态 */
+const hasReplayData = ref(false)
+const replayLoading = ref(false)
+
 const { isConnected, error: sseError, connect, disconnect } = useSSE({
   onEvent: handleSSEEvent
 })
 
+const {
+  isPlaying,
+  currentIndex,
+  playbackSpeed,
+  progress,
+  totalFrames,
+  play,
+  pause,
+  reset,
+  seek,
+  stepForward,
+  stepBackward,
+  setSpeed,
+  loadFrames,
+  clear: clearReplay
+} = useReplay({
+  onFrameChange: (_frame, index) => {
+    agentStore.applyReplayFrame(index)
+  },
+  onComplete: () => {
+    ElMessage.info('回放已结束')
+  }
+})
+
 /** 是否为首次加载中（未连接且无任何 Agent 状态） */
 const isLoading = computed(() =>
-  !isConnected.value && Object.keys(agentStore.agentStates).length === 0 && !sseError.value
+  !agentStore.isReplayMode &&
+  !isConnected.value &&
+  Object.keys(agentStore.agentStates).length === 0 &&
+  !sseError.value
 )
 
 /** 是否为空状态（已连接但无 Agent 状态） */
 const isEmpty = computed(() =>
-  isConnected.value && Object.keys(agentStore.agentStates).length === 0
+  !agentStore.isReplayMode &&
+  isConnected.value &&
+  Object.keys(agentStore.agentStates).length === 0
 )
 
 /** 是否有错误 */
 const hasError = computed(() =>
-  !!sseError.value && Object.keys(agentStore.agentStates).length === 0
+  !agentStore.isReplayMode &&
+  !!sseError.value &&
+  Object.keys(agentStore.agentStates).length === 0
 )
+
+const speedOptions: { label: string; value: PlaybackSpeed }[] = [
+  { label: '0.5x', value: 0.5 },
+  { label: '1x', value: 1 },
+  { label: '2x', value: 2 },
+  { label: '4x', value: 4 }
+]
 
 /**
  * SSE 事件处理：agent_state_update → agentStore，analysis_completed → 断开
@@ -85,6 +133,97 @@ function handleRetry() {
   connect(url)
 }
 
+/** 进入回放模式 */
+async function handleEnterReplay() {
+  if (!analysisId.value) return
+  replayLoading.value = true
+  try {
+    // 从后端拉取历史 Agent 事件（若后端不支持则使用当前快照构造单帧）
+    const result = await sessionStore.fetchAnalysisResult(analysisId.value)
+    const frames = buildReplayFramesFromResult(result)
+    if (frames.length === 0) {
+      ElMessage.warning('暂无历史回放数据')
+      return
+    }
+    // 断开实时 SSE
+    disconnect()
+    agentStore.loadReplayData(frames)
+    loadFrames(frames)
+    hasReplayData.value = true
+    ElMessage.success(`已加载 ${frames.length} 帧回放数据`)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : '加载回放数据失败'
+    ElMessage.error(msg)
+  } finally {
+    replayLoading.value = false
+  }
+}
+
+/** 退出回放模式 */
+function handleExitReplay() {
+  pause()
+  clearReplay()
+  agentStore.exitReplayMode()
+  agentStore.resetStates()
+  hasReplayData.value = false
+  // 重新连接实时 SSE
+  if (analysisId.value) {
+    const url = analysisApi.getAgentStreamUrl(analysisId.value)
+    connect(url)
+  }
+}
+
+/** 处理进度条拖动 */
+function handleProgressChange(value: number | number[]) {
+  const v = Array.isArray(value) ? value[0] : value
+  seek(v)
+}
+
+/** 处理速度切换 */
+function handleSpeedChange(value: string | number | boolean | undefined) {
+  setSpeed(Number(value) as PlaybackSpeed)
+}
+
+/**
+ * 从分析结果构造回放帧
+ * 若后端返回 agentStates 数组，则按顺序构造帧；否则使用当前快照构造单帧
+ */
+function buildReplayFramesFromResult(result: { agentStates?: AgentState[] }): ReplayFrame[] {
+  const states = result.agentStates
+  if (!states || states.length === 0) {
+    // 若当前 agentStore 已有状态，构造单帧
+    if (Object.keys(agentStore.agentStates).length > 0) {
+      return [{
+        timestamp: Date.now(),
+        agentStates: JSON.parse(JSON.stringify(agentStore.agentStates)),
+        event: {
+          type: 'analysis_completed',
+          data: {},
+          timestamp: Date.now()
+        }
+      }]
+    }
+    return []
+  }
+  // 按 Agent 状态变化构造帧（每个 Agent 完成一个帧）
+  const frames: ReplayFrame[] = []
+  const snapshot: Record<string, AgentState> = {}
+  for (let i = 0; i < states.length; i++) {
+    const s = states[i]
+    snapshot[s.name] = s
+    frames.push({
+      timestamp: Date.now() + i * 1000,
+      agentStates: JSON.parse(JSON.stringify(snapshot)),
+      event: {
+        type: 'agent_state_update',
+        data: { agentName: s.name, status: s.status },
+        timestamp: Date.now() + i * 1000
+      }
+    })
+  }
+  return frames
+}
+
 onMounted(async () => {
   if (!analysisId.value) return
 
@@ -102,6 +241,7 @@ onMounted(async () => {
 onUnmounted(() => {
   disconnect()
   agentStore.resetStates()
+  agentStore.exitReplayMode()
 })
 </script>
 
@@ -114,22 +254,79 @@ onUnmounted(() => {
           <span class="agent-flow-view__title">Agent 协同过程</span>
         </template>
         <template #extra>
-          <el-tag v-if="isConnected" type="success" size="small" effect="plain">
-            <span class="agent-flow-view__status-dot agent-flow-view__status-dot--connected" />
-            已连接
+          <!-- 回放模式标识 -->
+          <el-tag v-if="agentStore.isReplayMode" type="warning" size="small" effect="dark">
+            回放模式
           </el-tag>
-          <el-tag v-else-if="isLoading" type="info" size="small" effect="plain">
-            <span class="agent-flow-view__status-dot agent-flow-view__status-dot--loading" />
-            连接中...
-          </el-tag>
-          <el-tag v-else-if="hasError" type="danger" size="small" effect="plain">
-            连接失败
-          </el-tag>
-          <el-tag v-else type="warning" size="small" effect="plain">
-            未连接
-          </el-tag>
+          <template v-else>
+            <el-tag v-if="isConnected" type="success" size="small" effect="plain">
+              <span class="agent-flow-view__status-dot agent-flow-view__status-dot--connected" />
+              已连接
+            </el-tag>
+            <el-tag v-else-if="isLoading" type="info" size="small" effect="plain">
+              <span class="agent-flow-view__status-dot agent-flow-view__status-dot--loading" />
+              连接中...
+            </el-tag>
+            <el-tag v-else-if="hasError" type="danger" size="small" effect="plain">
+              连接失败
+            </el-tag>
+            <el-tag v-else type="warning" size="small" effect="plain">
+              未连接
+            </el-tag>
+          </template>
         </template>
       </el-page-header>
+    </div>
+
+    <!-- 回放控制条 -->
+    <div v-if="agentStore.isReplayMode" class="agent-flow-view__replay-bar">
+      <el-button-group>
+        <el-button :icon="VideoPlay" @click="play" :disabled="isPlaying" size="small" />
+        <el-button :icon="VideoPause" @click="pause" :disabled="!isPlaying" size="small" />
+        <el-button :icon="DArrowLeft" @click="stepBackward" :disabled="currentIndex === 0" size="small" />
+        <el-button :icon="DArrowRight" @click="stepForward" :disabled="currentIndex >= totalFrames - 1" size="small" />
+        <el-button :icon="RefreshLeft" @click="reset" size="small" />
+      </el-button-group>
+      <el-slider
+        :model-value="currentIndex"
+        :min="0"
+        :max="Math.max(totalFrames - 1, 0)"
+        :step="1"
+        :show-tooltip="false"
+        class="agent-flow-view__replay-progress"
+        @change="handleProgressChange"
+      />
+      <el-select
+        :model-value="playbackSpeed"
+        size="small"
+        class="agent-flow-view__replay-speed"
+        @change="handleSpeedChange"
+      >
+        <el-option
+          v-for="opt in speedOptions"
+          :key="opt.value"
+          :label="opt.label"
+          :value="opt.value"
+        />
+      </el-select>
+      <el-text type="info" size="small" class="agent-flow-view__replay-info">
+        {{ currentIndex + 1 }} / {{ totalFrames }}
+      </el-text>
+      <el-button type="danger" size="small" @click="handleExitReplay">
+        退出回放
+      </el-button>
+    </div>
+
+    <!-- 非回放模式：进入回放按钮 -->
+    <div v-else-if="!isLoading && !hasError" class="agent-flow-view__replay-entry">
+      <el-button
+        type="warning"
+        size="small"
+        :loading="replayLoading"
+        @click="handleEnterReplay"
+      >
+        进入回放模式
+      </el-button>
     </div>
 
     <!-- Loading 状态 -->
@@ -141,20 +338,20 @@ onUnmounted(() => {
 
     <!-- Error 状态 -->
     <div v-else-if="hasError" class="agent-flow-view__error">
-      <el-result
-        icon="error"
+      <ErrorState
         title="连接失败"
-        :sub-title="sseError ?? '无法连接到 Agent 服务'"
-      >
-        <template #extra>
-          <el-button type="primary" @click="handleRetry">重试</el-button>
-        </template>
-      </el-result>
+        :description="sseError ?? '无法连接到 Agent 服务'"
+        @retry="handleRetry"
+      />
     </div>
 
     <!-- Empty 状态 -->
     <div v-else-if="isEmpty" class="agent-flow-view__empty">
-      <el-empty description="等待开始分析" />
+      <EmptyState
+        icon="box"
+        title="等待开始分析"
+        description="Agent 服务已连接，等待分析任务启动"
+      />
     </div>
 
     <!-- 正常内容 -->
@@ -192,13 +389,18 @@ onUnmounted(() => {
           <!-- 底部连接信息 -->
           <div class="agent-flow-view__connection-info">
             <el-text type="info" size="small">
-              SSE 状态：
-              <el-tag :type="isConnected ? 'success' : 'warning'" size="small" effect="plain">
-                {{ isConnected ? '已连接' : '未连接' }}
-              </el-tag>
+              <template v-if="agentStore.isReplayMode">
+                回放进度：{{ progress }}%
+              </template>
+              <template v-else>
+                SSE 状态：
+                <el-tag :type="isConnected ? 'success' : 'warning'" size="small" effect="plain">
+                  {{ isConnected ? '已连接' : '未连接' }}
+                </el-tag>
+              </template>
             </el-text>
             <el-button
-              v-if="!isConnected && !hasError"
+              v-if="!agentStore.isReplayMode && !isConnected && !hasError"
               type="primary"
               size="small"
               text
@@ -214,6 +416,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped lang="scss">
+@use '@/styles/mixins' as *;
+
 .agent-flow-view {
   max-width: var(--content-max-width, 1200px);
   margin: 0 auto;
@@ -230,6 +434,40 @@ onUnmounted(() => {
 
 .agent-flow-view__title {
   font-weight: 600;
+}
+
+/* 回放控制条 */
+.agent-flow-view__replay-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 8px);
+  padding: var(--spacing-sm, 8px) var(--spacing-md, 16px);
+  background: var(--el-fill-color-light, #f5f7fa);
+  border-radius: var(--radius-md, 8px);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.agent-flow-view__replay-progress {
+  flex: 1;
+  min-width: 200px;
+  margin: 0 var(--spacing-sm, 8px);
+}
+
+.agent-flow-view__replay-speed {
+  width: 90px;
+}
+
+.agent-flow-view__replay-info {
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+.agent-flow-view__replay-entry {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--spacing-sm, 8px);
+  flex-shrink: 0;
 }
 
 /* 连接状态指示点 */
@@ -340,5 +578,35 @@ onUnmounted(() => {
   padding-top: var(--spacing-sm, 8px);
   border-top: 1px solid var(--el-border-color-lighter);
   flex-shrink: 0;
+}
+
+/* Task 50: 移动端响应式 */
+@include respond-to(md) {
+  .agent-flow-view {
+    height: auto;
+    min-height: calc(100vh - 64px);
+    padding: var(--spacing-md);
+  }
+
+  .agent-flow-view__chart-section {
+    flex: none;
+    height: var(--chart-height-sm);
+    min-height: var(--chart-height-sm);
+  }
+
+  .agent-flow-view__panel-section {
+    flex: none;
+    min-height: 300px;
+  }
+
+  .agent-flow-view__replay-bar {
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+  }
+
+  .agent-flow-view__replay-progress {
+    min-width: 100%;
+    margin: 0;
+  }
 }
 </style>

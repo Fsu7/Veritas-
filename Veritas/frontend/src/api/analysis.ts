@@ -39,5 +39,13 @@ export const analysisApi = {
 
   /** 导出综述报告为 Word（返回 Blob） */
   exportWord: (analysisId: string): Promise<Blob> =>
-    http.get(`/analysis/${analysisId}/export/word`, { responseType: 'blob' })
+    http.get(`/analysis/${analysisId}/export/word`, { responseType: 'blob' }),
+
+  /**
+   * 保存用户编辑后的综述内容
+   * @param analysisId 分析 ID
+   * @param content 编辑后的 Markdown 内容
+   */
+  saveReportContent: (analysisId: string, content: string): Promise<void> =>
+    http.post(`/analysis/${analysisId}/content`, { content })
 }

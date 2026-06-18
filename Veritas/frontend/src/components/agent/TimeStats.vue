@@ -174,7 +174,7 @@ onUnmounted(disposeChart)
 
   &__chart {
     width: 100%;
-    height: 400px;
+    height: var(--chart-height-md);
   }
 }
 </style>

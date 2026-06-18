@@ -1,0 +1,303 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M5 / AM5：混合检索与功能完善",
+    "requirement": "优化 SearchService.keyword_search() 的关键词分词与召回质量，支持中文 bigram + 英文 token 混合检索，支持短语查询精确匹配，关键词检索失败时降级为语义检索。本任务对应 AM5 Week 9 Day 1，是混合检索优化的第一步，为后续 RRF 调优（task47）和准确率基准测试（task48）奠定基础。",
+    "requirement_ids": ["F3.2.3", "F3.2.4"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "了解 SearchService 与 VectorStoreService 的架构设计、混合检索流程"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "确认 AM5 Week 9 Day 1 关键词检索优化的交付物与验收标准"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "确认 Python AI 服务命名规范、分层规范、降级约束"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-005 混合 RAG 检索策略、RRF k=60 决策依据"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app.services.search_service",
+        "description": "SearchService 提供 search/keyword_search/hybrid_search/suggest 四个方法，hybrid_search 通过 asyncio.gather 并行调用语义+关键词检索后用 RRF 融合"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app.services.vector_store_service",
+        "description": "VectorStoreService 封装 ChromaDB 操作，search_by_keywords 使用 where_document 过滤"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/services/search_service.py",
+        "description": "SearchService.keyword_search() 已实现，调用 vector_store_service.search_by_keywords()，返回 _format_results 格式化结果。当前分词依赖 ChromaDB 内置 where_document 过滤，无显式中文分词，召回率较低。",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/vector_store_service.py",
+        "description": "search_by_keywords() 使用 ChromaDB where_document={\"$contains\": query} 过滤，对中文查询支持不佳（ChromaDB 内置 contains 对中文不分词）。",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/search_service.py",
+        "description": "SearchService.search() 语义检索方法已稳定，可作为 keyword_search 失败时的降级目标。",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "SearchService",
+      "path": "Veritas/ai-service/app/services/search_service.py",
+      "responsibility": "检索服务，提供语义/关键词/混合检索统一接口",
+      "key_interfaces": [
+        {
+          "name": "keyword_search",
+          "signature": "async def keyword_search(self, query: str, top_k: int = 10, filters: Optional[Dict] = None) -> List[dict]",
+          "description": "关键词检索，当前直接透传 query 到 vector_store_service.search_by_keywords，需优化分词逻辑"
+        },
+        {
+          "name": "hybrid_search",
+          "signature": "async def hybrid_search(self, query: str, top_k: int = 10, filters: Optional[Dict] = None) -> List[dict]",
+          "description": "混合检索，并行调用 search + keyword_search 后 RRF 融合，依赖 keyword_search 质量"
+        },
+        {
+          "name": "_format_results",
+          "signature": "def _format_results(self, raw_results: List[dict]) -> List[dict]",
+          "description": "格式化检索结果，返回 paper_id/title/abstract/score/year/venue/citation_count"
+        }
+      ]
+    },
+    {
+      "name": "VectorStoreService",
+      "path": "Veritas/ai-service/app/services/vector_store_service.py",
+      "responsibility": "ChromaDB 向量存储操作封装",
+      "key_interfaces": [
+        {
+          "name": "search_by_keywords",
+          "signature": "async def search_by_keywords(self, query_text: str, top_k: int = 10, filters: Optional[Dict] = None) -> List[dict]",
+          "description": "基于 where_document 的关键词检索，需优化为支持多 token OR 查询"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/services/search_service.py",
+      "description": "优化 keyword_search 分词逻辑：新增 _tokenize_query 方法，支持中文 bigram + 英文 token 混合分词；支持短语查询（双引号包裹）精确匹配；keyword_search 异常时降级调用 self.search() 语义检索",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/services/vector_store_service.py",
+      "description": "优化 search_by_keywords：支持多 token OR 查询（where_document={\"$or\": [{\"$contains\": token1}, {\"$contains\": token2}]}）；支持短语精确匹配（quoted phrase 用 $contains 直接匹配）",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_keyword_search_optimization.py",
+      "description": "关键词检索优化测试：中文查询召回率、中英文混合分词、短语查询、降级路径",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "在 SearchService 中新增 _tokenize_query(query: str) -> Tuple[List[str], List[str]] 方法，返回 (tokens, phrases)。分词规则：1) 双引号包裹的部分作为 phrase 加入 phrases 列表；2) 英文按空格分词，转小写，过滤停用词（a/an/the/of/for/in/on/with/and/or/to）；3) 中文按 bigram 切分（每两个相邻中文字符为一个 token），单字中文字符作为独立 token；4) 中英文混合查询（如 'Multi-Agent 协同决策'）同时产生英文 token 和中文 bigram。",
+        "priority": "P0",
+        "acceptance_condition": "_tokenize_query('Multi-Agent 协同决策') 返回 tokens 含 ['multi-agent', '协同', '同决', '决策']，phrases 为空；_tokenize_query('\"graph neural network\"') 返回 phrases 含 ['graph neural network']"
+      },
+      {
+        "id": "FR-002",
+        "description": "修改 keyword_search 方法：1) 调用 _tokenize_query 获取 tokens 和 phrases；2) 调用 vector_store_service.search_by_keywords 传入 tokens 和 phrases；3) 对返回结果按命中 token 数量加权排序（命中越多分越高）；4) 召回率目标 > 70%（基于 20 条测试查询人工评估）。",
+        "priority": "P0",
+        "acceptance_condition": "20 条测试查询（中文 10 + 英文 10）的 Top10 召回率 > 70%"
+      },
+      {
+        "id": "FR-003",
+        "description": "修改 vector_store_service.search_by_keywords 方法签名，新增 tokens: List[str] 和 phrases: List[str] 参数。构建 where_document 查询：1) phrases 非空时，每个 phrase 用 {\"$contains\": phrase} 构建 AND 条件；2) tokens 非空时，用 {\"$or\": [{\"$contains\": t} for t in tokens]} 构建 OR 条件；3) phrases 和 tokens 同时存在时用 {\"$and\": [phrase_conditions, token_or_condition]} 组合。",
+        "priority": "P0",
+        "acceptance_condition": "search_by_keywords 传入 tokens=['multi-agent', '协同'] 时，ChromaDB 查询使用 $or 组合，返回包含任一 token 的论文"
+      },
+      {
+        "id": "FR-004",
+        "description": "keyword_search 异常处理：捕获任何 Exception（含 ChromaDB 查询失败、分词异常），记录 logger.warning，降级调用 self.search(query, top_k, filters) 语义检索，返回语义检索结果。降级时在结果中不添加额外标记（保持返回格式一致），仅在日志中记录降级原因。",
+        "priority": "P0",
+        "acceptance_condition": "mock vector_store_service.search_by_keywords 抛出异常时，keyword_search 仍返回 List[dict]（来自语义检索降级），不抛出异常"
+      },
+      {
+        "id": "FR-005",
+        "description": "短语查询支持：当 query 含双引号包裹的部分（如 \"graph neural network\"），将该部分作为 phrase 精确匹配（ChromaDB $contains 直接匹配子串）。phrase 匹配的结果排名高于 token 匹配的结果。",
+        "priority": "P1",
+        "acceptance_condition": "_tokenize_query('\"transformer architecture\" 综述') 返回 phrases=['transformer architecture'], tokens=['综述']"
+      }
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "keyword_search 失败时降级为语义检索 self.search()，不阻塞 hybrid_search 流程",
+        "multi_agent_failure": "N/A（本任务不涉及多 Agent）",
+        "review_retry_limit": 0
+      }
+    },
+    "security_requirements": [
+      {
+        "category": "sql_injection",
+        "requirement": "ChromaDB where_document 查询使用 SDK 参数化构建，禁止字符串拼接 query 到 where_document"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "enum_value": "lower_case",
+        "config_key": "UPPER_SNAKE_CASE"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"}
+      ]
+    },
+    "layering": {
+      "python": {
+        "rule": "Router → Service → Agent，逻辑不在路由函数中。keyword_search 逻辑在 SearchService 中，不在 endpoint 中"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "try-except，keyword_search 异常降级为语义检索，不阻塞 hybrid_search 流程",
+        "agent_error_handling": "logger.warning(f'Keyword search failed, degrading to semantic search: {e}'); return await self.search(query, top_k, filters)"
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "检索结果", "key_pattern": "search:result:{queryHash}", "ttl": "10min"}
+      ]
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "security": {
+      "ai_content_label": "AI生成，仅供参考",
+      "sql_injection_prevention": "ChromaDB where_document 使用 SDK 参数化构建"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改 SearchService.search() 语义检索方法的核心逻辑", "reason": "本任务仅优化 keyword_search，语义检索已稳定", "severity": "high"},
+    {"id": "FA-003", "action": "修改 hybrid_search 或 _reciprocal_rank_fusion 方法", "reason": "RRF 融合逻辑在 task47 调优，本任务不涉及", "severity": "high"},
+    {"id": "FA-004", "action": "引入 jieba 等外部中文分词库", "reason": "保持依赖最小化，使用 bigram 简单分词即可满足需求", "severity": "medium"},
+    {"id": "FA-005", "action": "硬编码停用词列表到业务代码", "reason": "停用词应作为模块级常量 STOP_WORDS", "severity": "medium"},
+    {"id": "FA-006", "action": "在 keyword_search 失败时抛出异常中断 hybrid_search", "reason": "必须降级为语义检索，保证混合检索不中断", "severity": "critical"},
+    {"id": "FA-007", "action": "修改 _format_results 返回格式", "reason": "保持返回格式一致，前端和下游依赖该格式", "severity": "high"},
+    {"id": "FA-008", "action": "在分词循环中打印 INFO 日志", "reason": "性能约束，分词循环可能高频执行", "severity": "medium"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_tokenize_query_chinese",
+        "description": "测试中文查询分词：'多智能体协同决策' → tokens 含 ['多智', '智能', '能体', '体协', '协同', '同决', '决策']",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_tokenize_query_english",
+        "description": "测试英文查询分词：'multi agent system' → tokens 含 ['multi', 'agent', 'system']（停用词已过滤）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_tokenize_query_mixed",
+        "description": "测试中英文混合查询：'Multi-Agent 协同决策' → tokens 含英文和中文 bigram",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_tokenize_query_phrase",
+        "description": "测试短语查询：'\"graph neural network\" 综述' → phrases=['graph neural network'], tokens=['综述']",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_keyword_search_degradation",
+        "description": "测试降级路径：mock vector_store_service.search_by_keywords 抛出异常，验证 keyword_search 降级为语义检索返回结果",
+        "framework": "pytest",
+        "coverage": ["error_flow", "degradation"]
+      },
+      {
+        "test_name": "test_keyword_search_recall",
+        "description": "测试召回率：20 条测试查询（中文 10 + 英文 10），验证 Top10 召回率 > 70%",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_keyword_search_optimization.py -v",
+        "expected_result": "所有测试用例通过，召回率 > 70%"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python -m pytest tests/test_keyword_search_optimization.py::test_keyword_search_degradation -v",
+        "expected_result": "降级测试通过，异常时返回语义检索结果"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "keyword_search 对中文查询返回相关论文，Top10 召回率 > 70%",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "中英文混合查询（如 'Multi-Agent 协同'）正确分词，tokens 同时包含英文 token 和中文 bigram",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "keyword_search 异常时降级为语义检索，不抛出异常，返回 List[dict] 格式结果",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "短语查询（双引号包裹）正确识别为 phrase，精确匹配",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "未修改 SearchService.search() 语义检索方法核心逻辑",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "未修改 hybrid_search / _reciprocal_rank_fusion 方法",
+      "verified_by": "code_review"
+    }
+  ]
+}

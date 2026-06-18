@@ -14,6 +14,8 @@ import { analysisApi } from '@/api/analysis'
 const props = defineProps<{
   analysisId: string
   reportTitle?: string
+  /** 自定义综述内容（用户编辑后），若提供则导出时使用此内容 */
+  customContent?: string
 }>()
 
 const emit = defineEmits<{
@@ -48,6 +50,10 @@ async function handleExport(format: ExportFormat) {
   exporting.value = format
   try {
     const apiFn = format === 'pdf' ? analysisApi.exportPdf : analysisApi.exportWord
+    // 若提供了 customContent，先保存到后端再导出，确保导出内容与编辑内容一致
+    if (props.customContent !== undefined) {
+      await analysisApi.saveReportContent(props.analysisId, props.customContent)
+    }
     const blob = await apiFn(props.analysisId)
     downloadBlob(blob, buildFilename(format))
     ElMessage.success(`${format.toUpperCase()} 导出成功`)

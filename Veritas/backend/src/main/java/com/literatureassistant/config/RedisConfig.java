@@ -3,7 +3,7 @@ package com.literatureassistant.config;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
+import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -33,7 +33,12 @@ public class RedisConfig {
         om.registerModule(new JavaTimeModule());
         om.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         om.activateDefaultTyping(
-                LaissezFaireSubTypeValidator.instance,
+                BasicPolymorphicTypeValidator.builder()
+                        .allowIfSubType("com.literatureassistant.")
+                        .allowIfSubType("java.util.")
+                        .allowIfSubType("java.time.")
+                        .allowIfSubType("java.lang.")
+                        .build(),
                 ObjectMapper.DefaultTyping.NON_FINAL,
                 JsonTypeInfo.As.PROPERTY);
         return new GenericJackson2JsonRedisSerializer(om);
@@ -50,12 +55,25 @@ public class RedisConfig {
                         .fromSerializer(jsonRedisSerializer));
 
         Map<String, RedisCacheConfiguration> cacheConfigurations = new HashMap<>();
+        // 用户相关：TTL=1h（54min~66min with ±10% jitter）
         cacheConfigurations.put("userProfile", defaultConfig.entryTtl(applyJitter(Duration.ofHours(1))));
+        // task32: 补齐 userProfileJson 缓存空间配置（修复 @CacheEvict 引用未配置缓存名的 Bug）
+        // userProfileJson 用于 syncProfileToRedis 写入的画像 JSON，供 Python AI 服务跨语言读取
+        cacheConfigurations.put("userProfileJson", defaultConfig.entryTtl(applyJitter(Duration.ofHours(1))));
         cacheConfigurations.put("userInfo", defaultConfig.entryTtl(applyJitter(Duration.ofHours(1))));
+        // 论文相关：TTL=30min / 10min
         cacheConfigurations.put("paperDetail", defaultConfig.entryTtl(applyJitter(Duration.ofMinutes(30))));
         cacheConfigurations.put("paperSearch", defaultConfig.entryTtl(applyJitter(Duration.ofMinutes(10))));
+        // task33: 论文列表缓存（与 paperSearch 一致 TTL=10min）
+        cacheConfigurations.put("paperList", defaultConfig.entryTtl(applyJitter(Duration.ofMinutes(10))));
+        // 分析结果：TTL=30min
         cacheConfigurations.put("analysisResult", defaultConfig.entryTtl(applyJitter(Duration.ofMinutes(30))));
+        // 会话状态：TTL=2h
         cacheConfigurations.put("sessionState", defaultConfig.entryTtl(applyJitter(Duration.ofHours(2))));
+        // task34: 会话列表缓存（与 paperSearch 一致 TTL=10min）
+        cacheConfigurations.put("sessionList", defaultConfig.entryTtl(applyJitter(Duration.ofMinutes(10))));
+        // task36: 收藏列表缓存（TTL=10min）
+        cacheConfigurations.put("favoriteList", defaultConfig.entryTtl(applyJitter(Duration.ofMinutes(10))));
 
         return RedisCacheManager.builder(factory)
                 .cacheDefaults(defaultConfig)

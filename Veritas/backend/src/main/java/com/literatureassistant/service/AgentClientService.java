@@ -164,6 +164,14 @@ public class AgentClientService {
     /**
      * 把 Agent 状态写入 Redis Hash。
      * <p>key = agent:state:{analysisId}；field = agentName；value = JSON(AgentStateResponse)；TTL=5min。
+     *
+     * <p><b>task34 缓存分工说明</b>：Agent 状态使用手动 RedisTemplate（Hash 结构）而非 Spring Cache 注解，
+     * 原因：
+     * <ul>
+     *   <li>实时性要求高：SSE 事件触发字段级更新（单个 agent 的 progress/status），Hash 支持 putAll 单字段更新</li>
+     *   <li>TTL=5min 自然过期：Agent 状态是临时数据，无需持久化，5min 后自动清理</li>
+     *   <li>与 SSE 同步：writeAgentStateToRedis 在 SSE 事件 doOnNext 中调用，保证 Redis 与 SSE 实时一致</li>
+     * </ul>
      */
     public void updateAgentState(String analysisId, List<AgentStateResponse> agentStates) {
         if (analysisId == null || analysisId.isBlank() || agentStates == null || agentStates.isEmpty()) {
@@ -344,6 +352,17 @@ public class AgentClientService {
 
     /**
      * 把分析结果写入 Redis 缓存（analysis:result:{analysisId}, TTL=30min）。
+     *
+     * <p><b>task34 缓存分工说明</b>：分析结果存在两套 Redis Key 并存：
+     * <ul>
+     *   <li>{@code analysis:result:{analysisId}}（本方法手动写入）：供 {@link #handleFallback} 降级时读取，
+     *       使用手动 RedisTemplate 写入 JSON 字符串，TTL=30min</li>
+     *   <li>{@code analysisResult::{analysisId}}（Spring Cache @Cacheable on AnalysisService.getAnalysisResult）：
+     *       供 Java 内部查询使用，由 Spring Cache 自动管理序列化/反序列化，TTL=30min</li>
+     * </ul>
+     * 两套 Key 并存的合理性：降级路径需要直接读取 JSON 字符串（避免反序列化兼容性问题），
+     * 而正常查询路径使用 Spring Cache 注解体系（自动序列化/反序列化，开发效率高）。
+     * AnalysisService 写方法调用 completeAnalysis 后会手动 evict Spring Cache 的 analysisResult 缓存。
      */
     private void cacheAnalysisResult(String analysisId, AnalysisResultDTO dto) {
         if (analysisId == null || analysisId.isBlank() || dto == null) {

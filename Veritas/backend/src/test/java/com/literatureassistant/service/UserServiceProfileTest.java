@@ -7,7 +7,6 @@ import com.literatureassistant.entity.UserProfile;
 import com.literatureassistant.enums.EducationLevel;
 import com.literatureassistant.enums.KnowledgeLevel;
 import com.literatureassistant.enums.PreferredStyle;
-import com.literatureassistant.exception.AuthenticationException;
 import com.literatureassistant.exception.BusinessException;
 import com.literatureassistant.exception.ResourceNotFoundException;
 import com.literatureassistant.mapper.UserMapper;
@@ -127,26 +126,10 @@ class UserServiceProfileTest {
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
-    @Test
-    @DisplayName("getProfile - 未认证抛出AuthenticationException")
-    void getProfile_notAuthenticated_throwsAuthenticationException() {
-        SecurityContextHolder.clearContext();
-
-        assertThatThrownBy(() -> userService.getProfile("usr_test1234"))
-                .isInstanceOf(AuthenticationException.class)
-                .hasMessageContaining("未认证");
-    }
-
-    @Test
-    @DisplayName("getProfile - 越权访问抛出BusinessException")
-    void getProfile_forbiddenAccess_throwsBusinessException() {
-        SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken("usr_other", null, java.util.List.of()));
-
-        assertThatThrownBy(() -> userService.getProfile("usr_test1234"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("无权限");
-    }
+    // 修复 B-001: 数据隔离校验已上移到 UserController.validateUserIdMatch，
+    // Service 层不再负责认证/越权校验。原 getProfile_notAuthenticated_throwsAuthenticationException
+    // 和 getProfile_forbiddenAccess_throwsBusinessException 测试已删除，
+    // 数据隔离测试由 UserControllerTest 和 Jm5IntegrationTest 覆盖。
 
     @Test
     @DisplayName("createProfile - 正常创建画像返回ProfileResponse")

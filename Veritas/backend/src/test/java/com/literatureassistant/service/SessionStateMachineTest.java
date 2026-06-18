@@ -1,5 +1,6 @@
 package com.literatureassistant.service;
 
+import com.literatureassistant.cache.CacheEvictionHelper;
 import com.literatureassistant.entity.Session;
 import com.literatureassistant.enums.SessionStatus;
 import com.literatureassistant.exception.BusinessException;
@@ -41,13 +42,16 @@ class SessionStateMachineTest {
     @Mock
     private AnalysisResultRepository analysisResultRepository;
 
+    @Mock
+    private CacheEvictionHelper cacheEvictionHelper;
+
     private SessionService sessionService;
 
     private static final String SESSION_ID = "ses_a1b2c3d4";
 
     @BeforeEach
     void setUp() {
-        sessionService = new SessionService(sessionRepository, sessionMapper, analysisResultRepository);
+        sessionService = new SessionService(sessionRepository, sessionMapper, analysisResultRepository, cacheEvictionHelper);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(new UsernamePasswordAuthenticationToken("usr_001", null, List.of()));
         SecurityContextHolder.setContext(context);

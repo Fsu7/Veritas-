@@ -1,0 +1,139 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M6：交付就绪 / FM5：功能完善与UI打磨",
+    "requirement": "实现论文收藏列表完整功能。当前PaperCard已实现收藏/取消收藏按钮（乐观更新+失败回滚），paperStore.toggleFavorite已实现，但fetchFavorites是空实现（注释标注'FM5待实现'），无独立收藏列表页面、无/favorites路由、UserCenterView无收藏数量统计。本次任务需新增paperApi.getFavorites、实现paperStore.fetchFavorites真实拉取、新建FavoritesView页面、新增/favorites路由、AppHeader菜单增加'我的收藏'入口、UserCenterView增加收藏数量统计卡片。",
+    "requirement_ids": ["F1.2.5"],
+    "reference_docs": [
+      {"path": "AGENTS.md", "purpose": "项目全景上下文与前端约束"},
+      {"path": "docs/frontend/前端模块系统架构文档.md", "purpose": "前端架构规范、F1.2 论文检索模块设计、PaperCard组件"},
+      {"path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM5里程碑任务分解（Week 11 Day 2）"},
+      {"path": "docs/开发规范文档.md", "purpose": "前端编码规范（View→Store→API分层、命名规范）"},
+      {"path": "docs/架构决策记录(ADR).md", "purpose": "架构决策（三层分离、状态管理）"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      {"layer": "frontend", "module_path": "src/api/paper.ts", "description": "论文API：list/getDetail/search/addFavorite/removeFavorite（26行，缺少getFavorites）"},
+      {"layer": "frontend", "module_path": "src/stores/paperStore.ts", "description": "论文状态：searchResults/selectedPapers/favorites/toggleFavorite（169行，fetchFavorites空实现）"},
+      {"layer": "frontend", "module_path": "src/components/paper/PaperCard.vue", "description": "论文卡片组件：收藏按钮已实现，emit favorite事件（203行）"},
+      {"layer": "frontend", "module_path": "src/components/layout/AppHeader.vue", "description": "顶部导航：Logo+菜单（首页/用户中心）+用户名+退出（80行，缺少'我的收藏'）"},
+      {"layer": "frontend", "module_path": "src/views/UserCenterView.vue", "description": "用户中心页：用户信息+画像编辑+历史记录（176行，缺少收藏数量统计）"},
+      {"layer": "frontend", "module_path": "src/router/index.ts", "description": "路由配置：9条路由（84行，缺少/favorites）"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/frontend/src/components/paper/PaperCard.vue", "description": "已实现收藏按钮：emit('favorite', paperId)，isFavorited prop控制状态（Star/StarFilled图标）。可直接复用", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/frontend/src/stores/paperStore.ts", "description": "已实现toggleFavorite（乐观更新+失败回滚）+favorites数组。fetchFavorites是空实现（返回[]），需替换为真实API调用", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/api/paper.ts", "description": "已实现addFavorite(POST)/removeFavorite(DELETE)。缺少getFavorites列表API", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/views/SearchView.vue", "description": "检索结果页已使用PaperCard列表+分页+空状态，可作为FavoritesView的参考实现", "reuse_type": "reference"},
+      {"file_path": "Veritas/frontend/src/composables/usePagination.ts", "description": "分页组合函数，可复用于收藏列表分页", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "paperApi",
+      "path": "Veritas/frontend/src/api/paper.ts",
+      "responsibility": "论文相关API封装",
+      "key_interfaces": [
+        {"name": "getFavorites", "signature": "(params: { page: number; size: number }) => Promise<PageResponse<Paper>>", "description": "获取当前用户收藏的论文列表（分页）"}
+      ]
+    },
+    {
+      "name": "paperStore",
+      "path": "Veritas/frontend/src/stores/paperStore.ts",
+      "responsibility": "论文状态管理，包含检索结果、选中论文、收藏列表",
+      "key_interfaces": [
+        {"name": "fetchFavorites", "signature": "async (page?: number) => Promise<void>", "description": "拉取收藏列表，更新favoritesList和favoritesTotal"},
+        {"name": "favoritesList", "signature": "Ref<Paper[]>", "description": "收藏论文列表（分页当前页）"},
+        {"name": "favoritesTotal", "signature": "Ref<number>", "description": "收藏论文总数"}
+      ]
+    },
+    {
+      "name": "FavoritesView",
+      "path": "Veritas/frontend/src/views/FavoritesView.vue",
+      "responsibility": "收藏列表页：展示收藏论文卡片+分页+空状态",
+      "key_interfaces": [
+        {"name": "onMounted", "signature": "() => void", "description": "页面挂载时调用paperStore.fetchFavorites(1)"},
+        {"name": "handlePageChange", "signature": "(page: number) => void", "description": "页码切换时重新拉取收藏列表"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/frontend/src/api/paper.ts", "description": "新增getFavorites(params)方法，调用GET /papers/favorites接口", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/stores/paperStore.ts", "description": "实现fetchFavorites真实拉取（替换空实现）；新增favoritesList/favoritesTotal/favoritesCurrentPage状态；toggleFavorite成功后同步更新favoritesTotal", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/views/FavoritesView.vue", "description": "新建收藏列表页：PaperCard列表+分页（usePagination）+空状态（el-empty）+loading状态", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/router/index.ts", "description": "新增/favorites路由（name: Favorites, component懒加载, meta.requiresAuth: true）", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/components/layout/AppHeader.vue", "description": "菜单增加'我的收藏'项（route: /favorites），位于'首页'和'用户中心'之间", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/views/UserCenterView.vue", "description": "增加收藏数量统计卡片（el-card展示favoritesTotal+跳转/favorites按钮）", "layer": "frontend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "paperApi.getFavorites(params: { page: number; size: number })调用GET /papers/favorites接口，返回PageResponse<Paper>", "priority": "P0", "acceptance_condition": "API调用成功返回分页收藏列表"},
+      {"id": "FR-002", "description": "paperStore.fetchFavorites真实拉取后端数据，更新favoritesList（当前页论文数组）和favoritesTotal（总数）；toggleFavorite取消收藏后从favoritesList移除并favoritesTotal减1", "priority": "P0", "acceptance_condition": "Store状态正确更新，与后端数据一致"},
+      {"id": "FR-003", "description": "FavoritesView页面展示收藏论文卡片列表（复用PaperCard组件）+底部分页器（usePagination）+空状态（el-empty，description='暂无收藏论文'）+loading状态（v-loading）", "priority": "P0", "acceptance_condition": "页面正确渲染收藏列表、分页、空状态"},
+      {"id": "FR-004", "description": "收藏列表为空时展示EmptyState友好提示（'暂无收藏论文，去检索看看吧'+'去检索'按钮跳转/）", "priority": "P1", "acceptance_condition": "空收藏列表展示友好提示和操作入口"},
+      {"id": "FR-005", "description": "AppHeader菜单增加'我的收藏'项，位于'首页'和'用户中心'之间，仅登录用户可见", "priority": "P0", "acceptance_condition": "菜单显示'我的收藏'，点击跳转/favorites"},
+      {"id": "FR-006", "description": "UserCenterView增加收藏数量统计卡片，展示favoritesTotal+'查看收藏列表'按钮跳转/favorites", "priority": "P2", "acceptance_condition": "用户中心展示收藏数量，点击跳转收藏列表"},
+      {"id": "FR-007", "description": "FavoritesView页面onMounted时调用paperStore.fetchFavorites(1)加载第一页；页码切换时调用fetchFavorites(page)", "priority": "P0", "acceptance_condition": "页面加载和分页切换正确拉取数据"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue",
+        "enum_value": "PascalCase",
+        "config_key": "camelCase"
+      }
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → Store → API，异步操作在Actions中，组件内不直接调用Axios"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "Axios响应拦截器统一错误处理，FavoritesView加载失败时展示ErrorState（或el-result）+重试按钮"
+      }
+    },
+    "caching": {
+      "pattern": "前端无缓存，收藏列表每次进入页面或切换页码都重新请求后端"
+    },
+    "logging": {
+      "frontend": "console.warn仅用于开发调试，生产环境不输出"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（如修改SearchView检索逻辑、PaperDetailView等）", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-011", "action": "破坏View→Store→API分层规范（FavoritesView内直接调用paperApi）", "reason": "前端分层约束", "severity": "high"},
+    {"id": "FA-012", "action": "在FavoritesView内直接调用Axios（必须通过paperStore.fetchFavorites）", "reason": "状态管理一致性", "severity": "high"},
+    {"id": "FA-013", "action": "使用硬编码尺寸值（必须使用CSS变量如var(--spacing-md)）", "reason": "UI设计系统统一", "severity": "medium"},
+    {"id": "FA-015", "action": "前端缓存收藏列表（每次进入页面必须重新请求）", "reason": "数据一致性", "severity": "medium"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "FavoritesView.spec.ts", "description": "测试收藏列表渲染、分页切换、空状态展示、loading状态、收藏按钮交互", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition", "error_flow"]},
+      {"test_name": "paperStore.spec.ts", "description": "扩展测试：fetchFavorites真实拉取、toggleFavorite后favoritesList同步更新", "framework": "vitest", "coverage": ["normal_flow", "error_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run test -- --run FavoritesView paperStore", "expected_result": "所有测试通过"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run lint", "expected_result": "无lint错误"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run build", "expected_result": "构建成功无TypeScript错误"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "收藏/取消收藏后，收藏列表实时同步（取消收藏后列表移除，添加后列表新增）", "verified_by": "manual_test"},
+    {"id": "AC-002", "criterion": "访问 /favorites 展示收藏论文列表，PaperCard正确渲染", "verified_by": "manual_test"},
+    {"id": "AC-003", "criterion": "收藏列表分页正常，页码切换无报错", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "空收藏列表展示友好提示和'去检索'操作入口", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "AppHeader菜单显示'我的收藏'，点击跳转/favorites", "verified_by": "manual_test"},
+    {"id": "AC-006", "criterion": "UserCenterView展示收藏数量统计，点击跳转收藏列表", "verified_by": "manual_test"},
+    {"id": "AC-007", "criterion": "所有新增/修改的代码通过lint和build验证", "verified_by": "code_review"}
+  ]
+}

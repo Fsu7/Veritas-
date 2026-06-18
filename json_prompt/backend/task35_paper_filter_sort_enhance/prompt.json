@@ -1,0 +1,202 @@
+{
+  "meta": {
+    "project": "XH-202630 科研文献智能助手",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善",
+    "feature_id": ["F2.2.3"],
+    "task_name": "task35_paper_filter_sort_enhance",
+    "day": "Day 4",
+    "created_at": "2026-06-17"
+  },
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善（Week 9 Day 4）",
+    "requirement": "论文筛选排序增强：PaperRepositoryCustomImpl 扩展过滤条件，新增 author（LIKE 模糊匹配）和 keywords（JSON_CONTAINS）过滤；排序增强，SORT_MAPPING 新增 title 排序项，支持 sortDirection 参数（asc/desc，默认 desc）；PaperService.searchPapers 方法签名扩展；PaperController 搜索端点参数扩展；缓存Key同步更新（paperSearch key 包含 author/keywords/sortDirection）。",
+    "requirement_ids": ["F2.2.3"],
+    "reference_docs": [
+      {"path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "第4章 论文管理模块 + 第9章 缓存管理（paperSearch 缓存策略）"},
+      {"path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "第7章 JM5 Week 9 Day 4 筛选排序任务分解"},
+      {"path": "AGENTS.md", "purpose": "关键规则第4条 跨系统字段转换 + 第6条 Cache-Aside 写后删"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {"layer": "java_backend", "module_path": "com.literatureassistant.repository.PaperRepositoryCustomImpl", "description": "论文自定义Repository实现，当前仅支持 yearFrom/yearTo/venue 过滤 + relevance/year/citations 排序（固定DESC）"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.PaperService", "description": "论文服务，searchPapers 已有 @Cacheable(paperSearch) 复合key（task33已修复null风险），ALLOWED_SORTS 仅含 relevance/year/citations"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.controller.PaperController", "description": "论文Controller，searchPapers 端点参数：q/yearFrom/yearTo/venue/sort/page/size，缺少 author/keywords/sortDirection"},
+      {"layer": "data_layer", "module_path": "com.literatureassistant.entity.Paper", "description": "论文Entity，authors/keywords 字段为 JSON 列（columnDefinition=JSON），citation_count 为引用数"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepositoryCustomImpl.java", "description": "SORT_MAPPING=Map.of(relevance/year/citations, 固定DESC)；DATA_SQL_TEMPLATE 使用 String.format 拼接 ORDER BY；searchByKeyword 签名(keyword,yearFrom,yearTo,venue,sort,pageable)", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepositoryCustom.java", "description": "接口定义 searchByKeyword(keyword,yearFrom,yearTo,venue,sort,pageable)", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java", "description": "ALLOWED_SORTS=Set.of(relevance/year/citations)；searchPapers 有 @Cacheable(paperSearch) 复合key（q_yearFrom_yearTo_venue_sort_page_size）；参数校验 yearFrom>yearTo 抛 BusinessException", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/PaperController.java", "description": "searchPapers 端点 @GetMapping(/search)，参数 q/yearFrom/yearTo/venue/sort/page/size", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/entity/Paper.java", "description": "Paper Entity：authors(JSON)/keywords(JSON)/year/venue/citation_count/title 字段", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java", "description": "已有 paperDetailKey/paperListKey/searchResultKey 方法", "reuse_type": "extend"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PaperRepositoryCustomImpl",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepositoryCustomImpl.java",
+      "responsibility": "论文全文检索+筛选+排序的自定义SQL实现",
+      "key_interfaces": [
+        {"name": "searchByKeyword", "signature": "public Page<Paper> searchByKeyword(String keyword, Integer yearFrom, Integer yearTo, String venue, String sort, Pageable pageable)", "description": "当前签名，需扩展为支持 author/keywords/sortDirection"},
+        {"name": "SORT_MAPPING", "signature": "private static final Map<String, String> SORT_MAPPING = Map.of(\"relevance\", \"...DESC\", \"year\", \"year DESC\", \"citations\", \"citation_count DESC\")", "description": "排序白名单，需新增 title 项并支持方向参数"},
+        {"name": "DATA_SQL_TEMPLATE", "signature": "private static final String DATA_SQL_TEMPLATE = \"SELECT * FROM papers WHERE MATCH(...) AGAINST(?1) AND (?2 IS NULL OR year >= ?2) AND (?3 IS NULL OR year <= ?3) AND (?4 IS NULL OR venue = ?4) ORDER BY %s\"", "description": "数据SQL模板，需扩展 author LIKE 和 keywords JSON_CONTAINS 条件"}
+      ]
+    },
+    {
+      "name": "PaperRepositoryCustom",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepositoryCustom.java",
+      "responsibility": "论文自定义Repository接口",
+      "key_interfaces": [
+        {"name": "searchByKeyword", "signature": "Page<Paper> searchByKeyword(String keyword, Integer yearFrom, Integer yearTo, String venue, String sort, Pageable pageable)", "description": "接口签名，需同步扩展"}
+      ]
+    },
+    {
+      "name": "PaperService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java",
+      "responsibility": "论文服务业务，检索/详情/列表",
+      "key_interfaces": [
+        {"name": "searchPapers", "signature": "@Cacheable(value=\"paperSearch\", key=\"T(String).format('%s_%s_%s_%s_%s_%d_%d', #q, #yearFrom, #yearTo, #venue, #sort, #page, #size)\") public PageResponse<PaperResponse> searchPapers(String q, Integer yearFrom, Integer yearTo, String venue, String sort, int page, int size)", "description": "检索方法，需扩展签名和缓存key"},
+        {"name": "ALLOWED_SORTS", "signature": "private static final Set<String> ALLOWED_SORTS = Set.of(SORT_RELEVANCE, SORT_YEAR, SORT_CITATIONS)", "description": "排序白名单，需新增 SORT_TITLE"}
+      ]
+    },
+    {
+      "name": "PaperController",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/PaperController.java",
+      "responsibility": "论文Controller，REST端点",
+      "key_interfaces": [
+        {"name": "searchPapers", "signature": "@GetMapping(\"/search\") public ApiResponse<PageResponse<PaperResponse>> searchPapers(@RequestParam String q, @RequestParam(required=false) Integer yearFrom, @RequestParam(required=false) Integer yearTo, @RequestParam(required=false) String venue, @RequestParam(defaultValue=\"relevance\") String sort, @RequestParam(defaultValue=\"1\") int page, @RequestParam(defaultValue=\"10\") int size)", "description": "搜索端点，需新增 author/keywords/sortDirection 参数"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepositoryCustom.java", "description": "接口签名扩展：searchByKeyword 新增 String author, String keywords, String sortDirection 参数", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepositoryCustomImpl.java", "description": "SORT_MAPPING 新增 title 项；DATA_SQL_TEMPLATE/COUNT_SQL 扩展 author LIKE 和 keywords JSON_CONTAINS 条件；searchByKeyword 实现扩展；setParameters 扩展；排序方向支持 asc/desc", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java", "description": "ALLOWED_SORTS 新增 title；searchPapers 签名扩展（author/keywords/sortDirection）；@Cacheable key 扩展包含新参数；新增 ALLOWED_SORT_DIRECTIONS=Set.of(asc,desc)", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/PaperController.java", "description": "searchPapers 端点新增 @RequestParam author/keywords/sortDirection（defaultValue=desc）", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/test/java/com/literatureassistant/repository/PaperRepositoryFilterSortTest.java", "description": "筛选排序单元测试：author过滤/keywords过滤/title排序/sortDirection方向/参数校验", "layer": "java_backend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "PaperRepositoryCustomImpl 新增 author 过滤条件：SQL 添加 `AND (?N IS NULL OR authors LIKE CONCAT('%', ?N, '%'))`（authors 为 JSON 数组字符串，LIKE 模糊匹配作者名）", "priority": "P0", "acceptance_condition": "传入 author 参数时，返回结果集仅包含 authors JSON 包含该作者名的论文"},
+      {"id": "FR-002", "description": "PaperRepositoryCustomImpl 新增 keywords 过滤条件：SQL 添加 `AND (?N IS NULL OR JSON_CONTAINS(keywords, CONCAT('\"', ?N, '\"')))`（keywords 为 JSON 数组，JSON_CONTAINS 精确匹配关键词）", "priority": "P0", "acceptance_condition": "传入 keywords 参数时，返回结果集仅包含 keywords JSON 数组包含该关键词的论文"},
+      {"id": "FR-003", "description": "SORT_MAPPING 新增 title 排序项：`\"title\" -> \"title\"`（不含方向，方向由 sortDirection 参数动态拼接）", "priority": "P0", "acceptance_condition": "sort=title 时按论文标题排序"},
+      {"id": "FR-004", "description": "支持 sortDirection 参数（asc/desc），默认 desc。ORDER BY 子句动态拼接方向：`ORDER BY {sortField} {direction}`。direction 仅允许 asc/desc（白名单校验），否则 fallback desc", "priority": "P0", "acceptance_condition": "sortDirection=asc 时结果升序，sortDirection=desc 时结果降序，非法值 fallback desc"},
+      {"id": "FR-005", "description": "PaperService.ALLOWED_SORTS 新增 `\"title\"` 常量；新增 `ALLOWED_SORT_DIRECTIONS = Set.of(\"asc\", \"desc\")`；searchPapers 方法签名扩展为 `(String q, Integer yearFrom, Integer yearTo, String venue, String author, String keywords, String sort, String sortDirection, int page, int size)`", "priority": "P0", "acceptance_condition": "PaperService.searchPapers 签名包含所有新参数，参数校验逻辑完整"},
+      {"id": "FR-006", "description": "@Cacheable(paperSearch) 的 key 扩展为包含 author/keywords/sortDirection：`T(String).format('%s_%s_%s_%s_%s_%s_%s_%s_%d_%d', #q, #yearFrom, #yearTo, #venue, #author, #keywords, #sort, #sortDirection, #page, #size)`。不同参数组合缓存隔离", "priority": "P0", "acceptance_condition": "不同 author/keywords/sortDirection 参数组合生成不同缓存key，缓存隔离正确"},
+      {"id": "FR-007", "description": "PaperController.searchPapers 端点新增3个参数：`@RequestParam(required=false) String author`、`@RequestParam(required=false) String keywords`、`@RequestParam(defaultValue=\"desc\") String sortDirection`", "priority": "P0", "acceptance_condition": "端点接受新参数并传递给 PaperService"},
+      {"id": "FR-008", "description": "参数校验：sortDirection 仅允许 asc/desc（不区分大小写，统一转小写），否则 log.warn 并 fallback desc；sort 仅允许 relevance/year/citations/title，否则 fallback relevance（复用现有逻辑）", "priority": "P1", "acceptance_condition": "非法 sortDirection 不抛异常，fallback desc 并记录 warn 日志"}
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+          {"java": "citationCount", "python": "citation_count", "json": "citation_count"},
+          {"java": "yearFrom", "python": "year_from", "json": "year_from"},
+          {"java": "yearTo", "python": "year_to", "json": "year_to"},
+          {"java": "sortDirection", "python": "sort_direction", "json": "sort_direction"}
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/papers/search",
+          "method": "GET",
+          "request_format": {"q": "string(required)", "yearFrom": "int(optional)", "yearTo": "int(optional)", "venue": "string(optional)", "author": "string(optional)", "keywords": "string(optional)", "sort": "string(default=relevance, enum=[relevance,year,citations,title])", "sortDirection": "string(default=desc, enum=[asc,desc])", "page": "int(default=1)", "size": "int(default=10)"},
+          "response_format": {"code": 200, "message": "success", "data": {"items": [{"paperId": "string", "title": "string", "authors": "json", "year": "int", "venue": "string", "citationCount": "int"}], "total": "long", "page": "int", "size": "int", "totalPages": "int"}, "timestamp": "string"}
+        }
+      ],
+      "data_flow": "前端 GET /api/papers/search?q=...&author=...&keywords=...&sort=title&sortDirection=asc → PaperController → PaperService(@Cacheable paperSearch) → PaperRepositoryCustomImpl(原生SQL) → MySQL papers 表"
+    },
+    "security_requirements": [
+      {"category": "sql_injection", "requirement": "排序字段必须来自白名单（SORT_MAPPING），方向参数必须来自白名单（asc/desc），禁止用户输入直接拼接到SQL；author/keywords 使用参数化查询（?N 占位符）"},
+      {"category": "data_isolation", "requirement": "论文检索为公开数据，无需 userId 隔离；但分页参数 page/size 需校验（size 上限 MAX_SIZE=100）"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {"class_name": "PascalCase", "method_variable": "camelCase", "constant": "UPPER_SNAKE_CASE", "file_name": "PascalCase.java", "enum_value": "UPPER_SNAKE_CASE", "config_key": "kebab-case"},
+      "database": {"table_name": "snake_case, 复数形式", "column_name": "snake_case", "index_name": "idx_/uk_/ft_ + 字段名"},
+      "json": {"field_name": "snake_case"},
+      "cross_system_mapping": [
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+        {"java": "citationCount", "python": "citation_count", "json": "citation_count"},
+        {"java": "sortDirection", "python": "sort_direction", "json": "sort_direction"}
+      ]
+    },
+    "layering": {
+      "java": {"rule": "Controller → Service → Repository → Client，禁止跨层", "entity_dto_separation": true, "dto_naming": "XxxRequestDTO, XxxResponseDTO"}
+    },
+    "error_handling": {
+      "java": {"approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)", "business_exception_fields": ["code", "message", "errorKey"]}
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "paperSearch", "key_pattern": "paperSearch::{q}_{yearFrom}_{yearTo}_{venue}_{author}_{keywords}_{sort}_{sortDirection}_{page}_{size}", "ttl": "10min"}
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息"]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "fulltext_parser": "ngram",
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "sql_injection_prevention": "JPA参数化查询，排序字段白名单校验，禁止SQL拼接",
+      "data_isolation": "论文检索公开数据，分页参数校验"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-004", "action": "破坏分层调用规范（Controller直接操作Repository等）", "reason": "分层架构约束", "severity": "critical"},
+    {"id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high"},
+    {"id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high"},
+    {"id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium"},
+    {"id": "FA-009", "action": "使用SQL拼接（必须参数化查询，排序字段白名单）", "reason": "SQL注入防护", "severity": "critical"},
+    {"id": "FA-010", "action": "忽略降级场景（LLM/Agent失败时的处理）", "reason": "可用性约束ADR-003", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "testAuthorFilter", "description": "验证 author 过滤：传入存在的作者名，返回结果集所有论文 authors JSON 包含该作者；传入不存在的作者名，返回空集", "framework": "junit5", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "testKeywordsFilter", "description": "验证 keywords 过滤：传入存在的关键词，返回结果集所有论文 keywords JSON 数组包含该关键词；传入不存在的关键词，返回空集", "framework": "junit5", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "testTitleSort", "description": "验证 sort=title 排序：结果按 title 字母序排序", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testSortDirectionAsc", "description": "验证 sortDirection=asc 时结果升序（year/title/citations）", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testSortDirectionDesc", "description": "验证 sortDirection=desc 时结果降序（默认）", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testInvalidSortDirectionFallback", "description": "验证非法 sortDirection（如 'random'）fallback desc 并记录 warn 日志", "framework": "junit5", "coverage": ["error_flow", "boundary_condition"]},
+      {"test_name": "testCombinedFilterSort", "description": "验证组合条件：author + keywords + yearFrom + yearTo + venue + sort=title + sortDirection=asc 同时生效", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testCacheKeyIsolation", "description": "验证不同 author/keywords/sortDirection 参数组合生成不同缓存key，缓存隔离正确", "framework": "junit5", "coverage": ["normal_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=PaperRepositoryFilterSortTest", "expected_result": "所有测试通过，BUILD SUCCESS"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=PaperServiceCacheTest", "expected_result": "缓存key隔离测试通过"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "author 过滤返回正确结果集，所有结果 authors JSON 包含传入的作者名", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "keywords 过滤返回正确结果集，所有结果 keywords JSON 数组包含传入的关键词", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "sort=title 时结果按论文标题字母序排序", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "sortDirection=asc 时结果升序，sortDirection=desc 时结果降序", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "非法 sortDirection fallback desc 并记录 warn 日志，不抛异常", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "缓存Key包含 author/keywords/sortDirection 参数，不同参数组合缓存隔离", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "PaperController /api/papers/search 端点接受 author/keywords/sortDirection 参数", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "排序字段白名单校验，无SQL注入风险", "verified_by": "code_review"},
+    {"id": "AC-009", "criterion": "mvn test 全量通过", "verified_by": "automated_test"}
+  ]
+}

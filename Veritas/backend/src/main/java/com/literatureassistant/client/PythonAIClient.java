@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -165,9 +166,10 @@ public class PythonAIClient {
     /**
      * SSE 流式调用私有方法（task27 公共方法）。
      * <p>三个 public SSE 方法（analyzeStream/compareStream/reportStream）复用此实现，仅 endpoint 不同。
-     * <p>流程：构造请求 → 透传 Last-Event-ID → 接收 byte[] 块流 → 累积到 StringBuilder →
-     * 按 {@code \n\n} 切分事件 → 解析为 AgentSseEvent → 120s 超时保护 → 408 转降级事件。
-     * <p>注：使用 bodyToFlux(byte[].class) + 手动 SSE 解析，兼容 Spring WebClient 默认 decoder 不解析 SSE 文本流的限制。
+     * <p>流程：构造请求 → 透传 Last-Event-ID → 接收 ServerSentEvent 流 → 转换为 AgentSseEvent →
+     * 120s 超时保护 → 408 转降级事件。
+     * <p>P0-5 修复：使用 bodyToFlux(ServerSentEvent.class) 替代手动 byte[] 解析，
+     * Spring 的 ServerSentEventHttpMessageReader 已正确处理跨 TCP 块分片与 SSE 协议解析。
      */
     private Flux<AgentSseEvent> streamSse(String endpoint, AgentRequest request, String lastEventId) {
         WebClient.RequestBodySpec bodySpec = sseWebClient.post().uri(endpoint);
@@ -178,12 +180,11 @@ public class PythonAIClient {
         return bodySpec
                 .bodyValue(request)
                 .retrieve()
-                .bodyToFlux(byte[].class)
-                .timeout(Duration.ofSeconds(SSE_RESPONSE_TIMEOUT_SECONDS))
-                .flatMapIterable(this::splitSseEvents)
-                .map(this::parseSseEvent)
+                .bodyToFlux(ServerSentEvent.class)
+                .map(this::convertServerSentEvent)
                 .filter(e -> e.getEvent() != null || e.getData() != null)
                 .flatMap(this::transformTimeoutEvents)
+                .timeout(Duration.ofSeconds(SSE_RESPONSE_TIMEOUT_SECONDS))
                 .doOnError(e -> log.warn("SSE stream error: endpoint={}, analysisId={}, error={}",
                         endpoint, request.getAnalysisId(), e.getMessage()))
                 .onErrorContinue((err, item) ->
@@ -191,49 +192,38 @@ public class PythonAIClient {
     }
 
     /**
-     * 将 byte[] 块拆分为完整 SSE 事件文本（每个事件以 {@code \n\n} 结尾）。
+     * 将 Spring 的 ServerSentEvent 转换为 AgentSseEvent。
+     * <p>ServerSentEventHttpMessageReader 已处理 SSE 协议解析（id/event/data 字段、跨块分片），
+     * 此方法仅做字段映射与 data JSON 解析。
+     * <p>注意：ServerSentEventHttpMessageReader 可能将 JSON data 解析为 Map（当目标类型无泛型参数时），
+     * 也可能保持为 String，此处兼容两种情况。
      */
-    private List<String> splitSseEvents(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) {
-            return Collections.emptyList();
-        }
-        String chunk = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-        // 按 \n\n 切分；保留末尾不完整块时返回单元素（最简实现，假设 Mock 测试用完整事件块）
-        String[] parts = chunk.split("\\n\\n");
-        return List.of(parts);
-    }
-
-    /**
-     * 解析单条 SSE 事件文本为 AgentSseEvent。
-     * <p>SSE 格式：每行 {@code id:} / {@code event:} / {@code data:}；事件以空行分隔。
-     */
-    private AgentSseEvent parseSseEvent(String sseText) {
-        if (sseText == null || sseText.isBlank()) {
-            return AgentSseEvent.builder().build();
-        }
+    @SuppressWarnings("unchecked")
+    private AgentSseEvent convertServerSentEvent(ServerSentEvent<?> sse) {
         AgentSseEvent.AgentSseEventBuilder builder = AgentSseEvent.builder();
-        StringBuilder dataBuf = new StringBuilder();
-        for (String line : sseText.split("\n")) {
-            String trimmed = line.endsWith("\r") ? line.substring(0, line.length() - 1) : line;
-            if (trimmed.startsWith("id:")) {
-                try {
-                    builder.id(Long.parseLong(trimmed.substring(3).trim()));
-                } catch (NumberFormatException ignored) {
-                }
-            } else if (trimmed.startsWith("event:")) {
-                builder.event(trimmed.substring(6).trim());
-            } else if (trimmed.startsWith("data:")) {
-                if (dataBuf.length() > 0) dataBuf.append("\n");
-                dataBuf.append(trimmed.substring(5).trim());
+        if (sse.id() != null) {
+            try {
+                builder.id(Long.parseLong(sse.id()));
+            } catch (NumberFormatException ignored) {
             }
         }
-        if (dataBuf.length() > 0) {
-            String dataJson = dataBuf.toString();
-            try {
-                Map<String, Object> dataMap = objectMapper.readValue(dataJson, Map.class);
-                builder.data(dataMap);
-            } catch (Exception e) {
-                log.debug("SSE data 解析失败: {}", e.getMessage());
+        if (sse.event() != null) {
+            builder.event(sse.event());
+        }
+        if (sse.data() != null) {
+            Object data = sse.data();
+            if (data instanceof Map) {
+                // ServerSentEventHttpMessageReader 已将 JSON data 解析为 Map
+                builder.data((Map<String, Object>) data);
+            } else {
+                // data 为 String，手动解析 JSON
+                String dataStr = data.toString();
+                try {
+                    Map<String, Object> dataMap = objectMapper.readValue(dataStr, Map.class);
+                    builder.data(dataMap);
+                } catch (Exception e) {
+                    log.debug("SSE data 解析失败: {}", e.getMessage());
+                }
             }
         }
         return builder.build();

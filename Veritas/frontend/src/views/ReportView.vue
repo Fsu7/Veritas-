@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { View, Connection, Download } from '@element-plus/icons-vue'
+import { View, Connection, Download, Edit, Check } from '@element-plus/icons-vue'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useUserStore } from '@/stores/userStore'
 import { usePaperStore } from '@/stores/paperStore'
@@ -11,6 +11,9 @@ import { splitReportSegments, extractCitationData } from '@/utils/citation'
 import { formatDate } from '@/utils/format'
 import ExportPanel from '@/components/report/ExportPanel.vue'
 import CitationLink from '@/components/report/CitationLink.vue'
+import ReportEditor from '@/components/report/ReportEditor.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import ErrorState from '@/components/common/ErrorState.vue'
 import type { AnalysisResult, Citation } from '@/types/analysis'
 import type { CitationPopupData } from '@/utils/citation'
 
@@ -26,24 +29,36 @@ const result = ref<AnalysisResult | null>(null)
 const loading = ref(true)
 const loadError = ref<string | null>(null)
 
+// 编辑模式状态
+const editMode = ref(false)
+const editableContent = ref('')
+const editorMode = ref<'edit' | 'preview' | 'split'>('edit')
+const savingContent = ref(false)
+
 /** CitationLink 弹窗状态 */
 const citePopupVisible = ref(false)
 const selectedCitation = ref<CitationPopupData | null>(null)
 
+const reportRawText = computed(() => result.value?.result?.report ?? '')
+
 const reportMarkdown = computed(() => {
-  if (!result.value?.result?.report) return ''
-  return renderMarkdown(result.value.result.report)
+  if (!reportRawText.value) return ''
+  return renderMarkdown(reportRawText.value)
 })
 
 const reportSegments = computed(() => {
-  if (!result.value?.result?.report) return []
-  const citations = (result.value.result.citations ?? []) as Citation[]
-  return splitReportSegments(result.value.result.report, citations)
+  if (!reportRawText.value) return []
+  const citations = (result.value?.result?.citations ?? []) as Citation[]
+  return splitReportSegments(reportRawText.value, citations)
 })
 
 const reportTitle = computed(() => {
   return result.value?.result?.analysis?.researchQuestion ?? '文献综述报告'
 })
+
+const citationsList = computed<Citation[]>(() =>
+  (result.value?.result?.citations ?? []) as Citation[]
+)
 
 const profileTags = computed(() => {
   const p = userStore.profile
@@ -64,7 +79,7 @@ const paperCount = computed(() => {
 
 const generatedAt = computed<string | undefined>(() => {
   if (!result.value) return undefined
-  return new Date().toISOString()
+  return (result.value as any).createdAt || (result.value as any).completedAt || undefined
 })
 
 async function loadResult() {
@@ -78,6 +93,8 @@ async function loadResult() {
   try {
     const res = await sessionStore.fetchAnalysisResult(analysisId.value)
     result.value = res
+    // 初始化编辑内容
+    editableContent.value = res.result?.report ?? ''
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : '加载综述失败'
     loadError.value = message
@@ -114,7 +131,7 @@ function goAgentFlow() {
 }
 
 function copyMarkdown() {
-  const raw = result.value?.result?.report
+  const raw = reportRawText.value
   if (!raw) {
     ElMessage.warning('综述内容为空')
     return
@@ -125,6 +142,38 @@ function copyMarkdown() {
       .catch(() => ElMessage.error('复制失败，请手动复制'))
   } else {
     ElMessage.error('当前浏览器不支持剪贴板 API')
+  }
+}
+
+/** 进入编辑模式 */
+function handleEnterEdit() {
+  editableContent.value = reportRawText.value
+  editMode.value = true
+  editorMode.value = 'edit'
+}
+
+/** 退出编辑模式（不保存） */
+function handleExitEdit() {
+  editMode.value = false
+  editableContent.value = reportRawText.value
+}
+
+/** 保存编辑内容到后端 */
+async function handleSaveContent() {
+  if (!analysisId.value) return
+  savingContent.value = true
+  try {
+    await sessionStore.saveReportContent(analysisId.value, editableContent.value)
+    // 更新本地 result 中的 report，使预览模式立即反映新内容
+    if (result.value?.result) {
+      result.value.result.report = editableContent.value
+    }
+    ElMessage.success('综述内容保存成功')
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : '保存失败'
+    ElMessage.error(`保存失败：${msg}`)
+  } finally {
+    savingContent.value = false
   }
 }
 
@@ -145,27 +194,21 @@ onMounted(() => {
 
     <el-skeleton v-if="loading" :rows="8" animated />
 
-    <el-result
+    <ErrorState
       v-else-if="loadError"
-      icon="error"
       title="加载失败"
-      :sub-title="loadError"
-    >
-      <template #extra>
-        <el-button type="primary" @click="loadResult">重试</el-button>
-      </template>
-    </el-result>
+      :description="loadError"
+      @retry="loadResult"
+    />
 
-    <el-result
+    <EmptyState
       v-else-if="!result"
-      icon="warning"
+      icon="document"
       title="综述未找到"
-      sub-title="该分析可能不存在或已被删除"
-    >
-      <template #extra>
-        <el-button type="primary" @click="router.push({ name: 'Home' })">返回首页</el-button>
-      </template>
-    </el-result>
+      description="该分析可能不存在或已被删除"
+      action-text="返回首页"
+      @action="router.push({ name: 'Home' })"
+    />
 
     <template v-else>
       <!-- 元数据卡 -->
@@ -216,18 +259,35 @@ onMounted(() => {
         <div class="report-view__meta-actions">
           <el-button :icon="View" @click="goAgentFlow">查看 Agent 协同过程</el-button>
           <el-button :icon="Download" @click="copyMarkdown">复制 Markdown</el-button>
+          <el-button
+            v-if="!editMode"
+            type="warning"
+            :icon="Edit"
+            @click="handleEnterEdit"
+          >
+            编辑综述
+          </el-button>
+          <el-button
+            v-else
+            type="info"
+            :icon="Check"
+            @click="handleExitEdit"
+          >
+            完成编辑
+          </el-button>
         </div>
 
         <!-- FM4 导出面板 -->
         <ExportPanel
           :analysis-id="analysisId"
           :report-title="reportTitle"
+          :custom-content="editMode ? editableContent : undefined"
           class="report-view__export"
         />
       </el-card>
 
       <!-- 综述内容主体 -->
-      <el-card v-if="result.result?.report" class="report-view__content">
+      <el-card v-if="reportRawText" class="report-view__content">
         <template #header>
           <div class="report-view__content-header">
             <span>综述内容</span>
@@ -237,35 +297,48 @@ onMounted(() => {
           </div>
         </template>
 
-        <div class="report-view__segments">
-          <template v-for="(segment, i) in reportSegments" :key="i">
-            <span v-if="segment.type === 'text'" class="report-view__segment-text">{{ segment.value }}</span>
-            <el-link
-              v-else
-              type="primary"
-              :underline="false"
-              :disabled="!segment.paperId"
-              class="report-view__citation"
-              @click="handleCitationClick(segment.paperId, segment.value)"
-            >
-              [{{ segment.authors }}, {{ segment.year }}]
-            </el-link>
-          </template>
-        </div>
-
-        <!-- Markdown 渲染备份 -->
-        <div
-          v-if="reportMarkdown"
-          class="markdown-body report-view__markdown"
-          v-html="reportMarkdown"
-          @click="(e) => {
-            const target = e.target as HTMLElement
-            if (target.tagName === 'A' && target.getAttribute('href')?.startsWith('paper:')) {
-              e.preventDefault()
-              handleCitationClick(target.getAttribute('href')?.replace('paper:', '') ?? undefined)
-            }
-          }"
+        <!-- 编辑模式 -->
+        <ReportEditor
+          v-if="editMode"
+          v-model="editableContent"
+          v-model:mode="editorMode"
+          :citations="citationsList"
+          :saving="savingContent"
+          @save="handleSaveContent"
         />
+
+        <!-- 预览模式 -->
+        <template v-else>
+          <div class="report-view__segments">
+            <template v-for="(segment, i) in reportSegments" :key="i">
+              <span v-if="segment.type === 'text'" class="report-view__segment-text">{{ segment.value }}</span>
+              <el-link
+                v-else
+                type="primary"
+                :underline="false"
+                :disabled="!segment.paperId"
+                class="report-view__citation"
+                @click="handleCitationClick(segment.paperId, segment.value)"
+              >
+                [{{ segment.authors }}, {{ segment.year }}]
+              </el-link>
+            </template>
+          </div>
+
+          <!-- Markdown 渲染备份 -->
+          <div
+            v-if="reportMarkdown"
+            class="markdown-body report-view__markdown"
+            v-html="reportMarkdown"
+            @click="(e) => {
+              const target = e.target as HTMLElement
+              if (target.tagName === 'A' && target.getAttribute('href')?.startsWith('paper:')) {
+                e.preventDefault()
+                handleCitationClick(target.getAttribute('href')?.replace('paper:', '') ?? undefined)
+              }
+            }"
+          />
+        </template>
       </el-card>
 
       <el-empty v-else description="综述内容为空" />
@@ -281,6 +354,8 @@ onMounted(() => {
 </template>
 
 <style scoped lang="scss">
+@use '@/styles/mixins' as *;
+
 .report-view {
   max-width: var(--content-max-width, 1200px);
   margin: 0 auto;
@@ -370,6 +445,20 @@ onMounted(() => {
 
   :deep(a) {
     color: var(--el-color-primary);
+  }
+}
+
+/* Task 50: 移动端响应式 */
+@include respond-to(md) {
+  .report-view {
+    padding: var(--spacing-md);
+  }
+  .report-view__title {
+    font-size: var(--font-size-lg);
+  }
+  .report-view__meta-header {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

@@ -161,6 +161,30 @@ TERM_DENSITY_TARGET = {
     "expert": 0.50,
 }
 
+# task55: 学术术语列表（用于 knowledge_level 匹配，复制自 generator.py 避免循环导入）
+ACADEMIC_TERMS = [
+    "attention mechanism",
+    "gradient descent",
+    "fine-tuning",
+    "pre-training",
+    "transformer",
+    "reinforcement learning",
+    "contrastive learning",
+    "self-supervised",
+    "multi-agent",
+    "knowledge distillation",
+    "graph neural",
+    "diffusion model",
+    "large language model",
+    "chain-of-thought",
+    " retrieval-augmented",
+    "embedding",
+    "contrastive",
+    "multimodal",
+    "alignment",
+    "prompt",
+]
+
 _CAMEL_TO_SNAKE_MAP = {
     "educationLevel": "education_level",
     "knowledgeLevel": "knowledge_level",
@@ -530,3 +554,92 @@ class PersonalizationService:
         parts.append(f"术语密度{int(term_density * 100)}%")
 
         return "/".join(parts)
+
+    # ============================================================
+    # task55: F3.4.6 推荐策略
+    # ============================================================
+
+    def get_recommendation_strategy(self, user_profile: dict, paper: dict) -> float:
+        """F3.4.6 推荐策略：基于 4 维度计算论文推荐分 [0, 1]
+
+        权重：
+            - research_field: 0.4（论文研究方向与用户 research_field 一致加分）
+            - education_level: 0.2（论文难度与用户教育水平匹配加分）
+            - knowledge_level: 0.2（论文技术深度与用户知识水平匹配）
+            - preferred_style: 0.2（论文写作风格与用户偏好匹配）
+        """
+        profile = self._normalize_profile(user_profile)
+
+        # 1. research_field 匹配（0.4）
+        research_field = (profile.get("research_field") or "").upper()
+        paper_keywords = paper.get("keywords") or []
+        paper_venue = (paper.get("venue") or "").upper()
+        paper_abstract = (paper.get("abstract") or "").lower()
+        paper_title = (paper.get("title") or "").lower()
+
+        if research_field:
+            # 完全匹配 1.0，部分匹配 0.5，不匹配 0.0
+            if research_field in paper_venue:
+                field_score = 1.0
+            elif any(
+                research_field.lower() in (kw.lower() if isinstance(kw, str) else "")
+                for kw in paper_keywords
+            ):
+                field_score = 1.0
+            elif research_field.lower() in paper_abstract or research_field.lower() in paper_title:
+                field_score = 0.5
+            else:
+                field_score = 0.0
+        else:
+            field_score = 0.5  # 未设置时中性
+
+        # 2. education_level 匹配（0.2）
+        # 启发式：abstract 长度估算论文难度
+        education_level = profile.get("education_level", _DEFAULT_EDUCATION)
+        abstract_len = len(paper_abstract)
+        if education_level == "undergraduate":
+            edu_score = 1.0 if abstract_len < 500 else 0.3
+        elif education_level == "master":
+            edu_score = 1.0 if 300 <= abstract_len <= 800 else 0.5
+        elif education_level == "phd":
+            edu_score = 1.0 if abstract_len > 500 else 0.5
+        else:  # faculty
+            edu_score = 0.8  # 教师适配范围广
+
+        # 3. knowledge_level 匹配（0.2）
+        # 启发式：术语密度估算论文技术深度
+        knowledge_level = profile.get("knowledge_level", _DEFAULT_KNOWLEDGE)
+        term_count = sum(1 for term in ACADEMIC_TERMS if term in paper_abstract) if paper_abstract else 0
+        term_density = term_count / max(abstract_len / 100, 1)
+
+        if knowledge_level == "beginner":
+            know_score = 1.0 if term_density < 0.2 else 0.3
+        elif knowledge_level == "intermediate":
+            know_score = 1.0 if 0.1 <= term_density <= 0.4 else 0.5
+        elif knowledge_level == "advanced":
+            know_score = 1.0 if term_density > 0.2 else 0.5
+        else:  # expert
+            know_score = 1.0 if term_density > 0.3 else 0.4
+
+        # 4. preferred_style 匹配（0.2）
+        # 启发式：论文含"实验"→实验型；含"理论/证明"→理论型；含"综述/survey"→综述型
+        preferred_style = profile.get("preferred_style", _DEFAULT_STYLE)
+        is_experimental = any(w in paper_abstract for w in ["实验", "experiment", "empirical"])
+        is_theoretical = any(w in paper_abstract for w in ["理论", "theorem", "proof", "证明"])
+        is_survey = any(w in paper_abstract for w in ["综述", "survey", "review"])
+
+        if preferred_style == "simple":
+            style_score = 1.0 if is_survey else 0.4
+        elif preferred_style == "balanced":
+            style_score = 1.0 if is_experimental else 0.6
+        else:  # technical
+            style_score = 1.0 if is_theoretical else 0.5
+
+        # 加权求和
+        score = (
+            field_score * 0.4
+            + edu_score * 0.2
+            + know_score * 0.2
+            + style_score * 0.2
+        )
+        return max(0.0, min(1.0, score))

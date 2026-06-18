@@ -38,4 +38,18 @@
 
   --transition-fast: 0.15s ease;
   --transition-normal: 0.3s ease;
+
+  /* Task 49: 展示型字号 */
+  --font-size-display: 48px;
+
+  /* Task 49: 响应式断点（供 mixins.scss respond-to 使用，JS 也可读取） */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+
+  /* Task 49: 图表高度 */
+  --chart-height-lg: 450px;
+  --chart-height-md: 400px;
+  --chart-height-sm: 300px;
 }

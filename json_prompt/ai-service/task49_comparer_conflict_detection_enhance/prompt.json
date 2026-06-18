@@ -1,0 +1,94 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M5 / AM5：混合检索与功能完善",
+    "requirement": "增强 ComparerAgent 矛盾检测逻辑，覆盖 5 类根因（dataset_bias/metric_difference/condition_difference/assumption_difference/methodological_conflict）的端到端验证。优化矛盾发现 Prompt，明确 5 类根因输出格式。验证 AM4 遗留：ComparerAgent 在 graph.py 条件分支中正确激活。本任务对应 AM5 Week 9 Day 4。",
+    "requirement_ids": ["F3.1.4", "F3.1.5"],
+    "reference_docs": [
+      {"path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "了解 ComparerAgent 6-Agent 工作流位置和矛盾检测职责"},
+      {"path": "docs/ai-service/AI服务模块项目里程碑文档.md", "purpose": "确认 AM5 Week 9 Day 4 矛盾发现交付物和 AM4 遗留验证项"},
+      {"path": "AGENTS.md", "purpose": "确认 Agent 降级约束和 Prompt 管理规范"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {"layer": "python_ai_service", "module_path": "app.agents.comparer", "description": "ComparerAgent 已实现 4 维度对比 + 5 类矛盾根因枚举 + 规则降级"},
+      {"layer": "python_ai_service", "module_path": "app.agents.graph", "description": "graph.py should_compare 条件分支：requires_compare=True 且 papers>=2 时激活 comparer"},
+      {"layer": "python_ai_service", "module_path": "prompts.comparer", "description": "comparer.txt Prompt 模板，需优化矛盾发现输出格式"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/ai-service/app/agents/comparer.py", "description": "ComparerAgent 已实现 VALID_ROOT_CAUSES 5 类枚举、_rule_based_comparison 降级、_detect_conflict_keywords 关键词检测", "reuse_type": "extend"},
+      {"file_path": "Veritas/ai-service/app/agents/graph.py", "description": "should_compare 条件分支已实现，compare_node 调用 ComparerAgent", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/ai-service/prompts/comparer.txt", "description": "对比 Prompt 模板已存在，需优化矛盾标注格式", "reuse_type": "extend"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "ComparerAgent",
+      "path": "Veritas/ai-service/app/agents/comparer.py",
+      "responsibility": "多论文对比与矛盾发现",
+      "key_interfaces": [
+        {"name": "_run", "signature": "async def _run(self, prompt: str, input_data: dict, context: dict) -> dict", "description": "核心执行：调 LLM 解析对比结果，失败降级到 _rule_based_comparison"},
+        {"name": "_parse_comparison", "signature": "def _parse_comparison(self, llm_output: str, input_data: dict) -> dict", "description": "解析 LLM 输出，校验矛盾根因 ∈ VALID_ROOT_CAUSES"},
+        {"name": "_rule_based_comparison", "signature": "def _rule_based_comparison(self, input_data: dict) -> dict", "description": "规则降级对比，C(N,2) 两两对比 + 关键词矛盾检测"},
+        {"name": "_detect_conflict_keywords", "signature": "def _detect_conflict_keywords(self, text1: str, text2: str) -> List[str]", "description": "检测矛盾关键词，需增强为语义矛盾检测"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/ai-service/app/agents/comparer.py", "description": "增强 _detect_conflict_keywords：除关键词匹配外，增加基于数值/方向/结论的简单语义矛盾检测（如论文A说'提升20%'，论文B说'下降15%'）", "layer": "python_ai_service"},
+    {"operation": "modify", "path": "Veritas/ai-service/prompts/comparer.txt", "description": "优化矛盾发现 Prompt：1) 明确要求输出 contradictions 数组；2) 每项含 papers/topic/claim_a/claim_b/evidence_a/evidence_b/root_cause/resolution_suggestion；3) root_cause 必须 ∈ 5 类枚举；4) 增加 1-2 个 few-shot 示例", "layer": "python_ai_service"},
+    {"operation": "create", "path": "Veritas/ai-service/tests/test_comparer_conflict_detection.py", "description": "矛盾检测测试：5 类根因各 1 个用例 + 条件分支激活测试 + 降级路径测试", "layer": "python_ai_service"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "增强 _detect_conflict_keywords 方法为 _detect_conflicts（保留原方法兼容）：1) 保留原关键词检测；2) 新增数值矛盾检测（正则匹配数值+方向词，如'提升20%' vs '下降15%'）；3) 新增结论方向矛盾检测（'优于' vs '劣于'，'有效' vs '无效'）。返回 List[Dict] 而非 List[str]，每项含 {type, keywords, claim_a, claim_b}。", "priority": "P0", "acceptance_condition": "_detect_conflicts 对含数值矛盾的论文对返回非空列表"},
+      {"id": "FR-002", "description": "优化 prompts/comparer.txt：1) 明确 contradictions 数组输出格式；2) 每项必含 papers/topic/claim_a/claim_b/evidence_a/evidence_b/root_cause/resolution_suggestion 8 个字段；3) root_cause 必须 ∈ {dataset_bias, metric_difference, condition_difference, assumption_difference, methodological_conflict}；4) 增加 1 个 few-shot 示例展示 dataset_bias 类矛盾的标注格式。", "priority": "P0", "acceptance_condition": "Prompt 模板含 8 字段输出要求和 few-shot 示例"},
+      {"id": "FR-003", "description": "创建 5 类根因测试用例（test_comparer_conflict_detection.py）：1) dataset_bias：两论文使用不同数据集导致结论矛盾；2) metric_difference：使用不同评估指标；3) condition_difference：实验条件不同；4) assumption_difference：假设前提不同；5) methodological_conflict：方法论根本冲突。每用例 mock LLM 返回对应根因的 contradictions，验证 _parse_comparison 正确解析。", "priority": "P0", "acceptance_condition": "5 类根因测试用例全部通过，contradictions 数组结构符合 schema"},
+      {"id": "FR-004", "description": "AM4 遗留验证：测试 ComparerAgent 在 graph.py 条件分支中正确激活。1) requires_compare=True 且 papers>=2 时 should_compare 返回 'compare'；2) requires_compare=False 时返回 'generate'；3) papers<2 时返回 'generate'。", "priority": "P0", "acceptance_condition": "should_compare 条件分支测试 3 个场景全部通过"},
+      {"id": "FR-005", "description": "降级路径测试：mock LLM 超时/异常，验证 _fallback_result 调用 _rule_based_comparison，返回 degraded=True 的结果，contradictions 数组不为空（当存在矛盾时）。", "priority": "P1", "acceptance_condition": "LLM 失败时降级为规则矛盾检测，输出 degraded=True"}
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {"single_agent_failure": "ComparerAgent LLM 失败时降级为 _rule_based_comparison，返回 degraded=True", "multi_agent_failure": "N/A", "review_retry_limit": 0}
+    }
+  },
+  "constraints": {
+    "naming": {"python": {"class_name": "PascalCase", "function_variable": "snake_case", "constant": "UPPER_SNAKE_CASE", "file_name": "snake_case.py"}},
+    "layering": {"python": {"rule": "Agent 逻辑在 agents/，Prompt 在 prompts/，测试在 tests/"}},
+    "error_handling": {"python": {"approach": "LLM 失败降级为规则对比，不抛出异常", "agent_error_handling": "logger.warning + _fallback_result"}},
+    "logging": {"python": "Loguru", "prohibited": ["在对比循环中打印 INFO 日志"]}
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改 VALID_ROOT_CAUSES 枚举值", "reason": "5 类根因已定义，仅增强检测逻辑", "severity": "high"},
+    {"id": "FA-003", "action": "修改 COMPARE_DIMENSIONS 4 维度", "reason": "对比维度保持不变", "severity": "high"},
+    {"id": "FA-004", "action": "删除 _rule_based_comparison 降级方法", "reason": "降级路径必须保留", "severity": "critical"},
+    {"id": "FA-005", "action": "修改 graph.py should_compare 条件分支逻辑", "reason": "仅测试不修改，逻辑已正确", "severity": "high"},
+    {"id": "FA-006", "action": "在 Prompt 中硬编码论文数据", "reason": "Prompt 应使用模板变量", "severity": "medium"},
+    {"id": "FA-007", "action": "引入外部 NLP 库做语义矛盾检测", "reason": "保持依赖最小化，用规则+正则", "severity": "medium"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "test_conflict_detection_dataset_bias", "description": "dataset_bias 根因测试：mock LLM 返回 dataset_bias 类矛盾，验证解析", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_conflict_detection_metric_difference", "description": "metric_difference 根因测试", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_conflict_detection_condition_difference", "description": "condition_difference 根因测试", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_conflict_detection_assumption_difference", "description": "assumption_difference 根因测试", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_conflict_detection_methodological_conflict", "description": "methodological_conflict 根因测试", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_should_compare_conditional_branch", "description": "AM4 遗留：should_compare 条件分支 3 场景测试", "framework": "pytest", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "test_comparer_degradation_path", "description": "降级路径：LLM 超时 → 规则矛盾检测 → degraded=True", "framework": "pytest", "coverage": ["error_flow", "degradation"]},
+      {"test_name": "test_detect_conflicts_numeric", "description": "数值矛盾检测：'提升20%' vs '下降15%' 返回非空", "framework": "pytest", "coverage": ["normal_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "python", "command": "cd Veritas/ai-service && python -m pytest tests/test_comparer_conflict_detection.py -v", "expected_result": "8 个测试用例全部通过"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "5 类根因测试用例全部通过，contradictions 数组结构符合 schema（含 8 字段）", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "ComparerAgent 在 graph.py 中条件激活正确（3 场景测试）", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "LLM 失败时降级为规则矛盾检测，输出 degraded=True", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "数值矛盾检测生效（'提升20%' vs '下降15%' 返回非空）", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "Prompt 模板含 8 字段输出要求和 few-shot 示例", "verified_by": "code_review"}
+  ]
+}

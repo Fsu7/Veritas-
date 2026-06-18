@@ -1,0 +1,103 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M5 / AM5：混合检索与功能完善",
+    "requirement": "扩展 EmbeddingService 支持 Jina/OpenAI 作为 DashScope 的备选 Provider。重构为多 Provider 架构（DashScopeProvider/JinaProvider/OpenAIProvider），通过 EMBEDDING_PROVIDER 环境变量选择。JinaProvider 调用 jina-embeddings-v3（1024维），OpenAIProvider 调用 text-embedding-3-small（1536维，需降维到1024或调整ChromaDB维度）。维度校验：所有 Provider 输出维度必须与 ChromaDB collection 维度一致。Provider 失败时降级到下一个 Provider（dashscope→jina→openai）。本任务对应 AM5 Week 10 Day 3。",
+    "requirement_ids": ["F5.2.1", "F5.2.2"],
+    "reference_docs": [
+      {"path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "了解 EmbeddingService 当前单一 DashScope Provider 实现"},
+      {"path": "docs/ai-service/AI服务模块项目里程碑文档.md", "purpose": "确认 AM5 Week 10 Day 3 外接 Embedding API 交付物"},
+      {"path": "AGENTS.md", "purpose": "确认降级约束和配置管理规范"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {"layer": "python_ai_service", "module_path": "app.services.embedding_service", "description": "EmbeddingService 当前仅支持 DashScope API（text-embedding-v4，1024维），无备选 Provider"},
+      {"layer": "python_ai_service", "module_path": "app.core.config", "description": "Settings 配置类，需新增 EMBEDDING_PROVIDER/JINA_API_KEY/OPENAI_API_KEY"},
+      {"layer": "python_ai_service", "module_path": "app.services.vector_store_service", "description": "ChromaDB 向量存储，collection 维度 1024"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/ai-service/app/services/embedding_service.py", "description": "EmbeddingService 单一 DashScope 实现，embed_query/embed_documents 方法已存在", "reuse_type": "refactor"},
+      {"file_path": "Veritas/ai-service/app/core/config.py", "description": "Settings 已有 DASHSCOPE_API_KEY 配置，需新增 Jina/OpenAI 配置", "reuse_type": "extend"},
+      {"file_path": "Veritas/ai-service/.env.example", "description": "环境变量示例文件，需追加外接 Embedding 配置", "reuse_type": "extend"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "EmbeddingService",
+      "path": "Veritas/ai-service/app/services/embedding_service.py",
+      "responsibility": "文本向量化服务",
+      "key_interfaces": [
+        {"name": "embed_query", "signature": "async def embed_query(self, text: str) -> List[float]", "description": "查询单条文本向量化"},
+        {"name": "embed_documents", "signature": "async def embed_documents(self, texts: List[str]) -> List[List[float]]", "description": "批量文本向量化"}
+      ]
+    },
+    {
+      "name": "VectorStoreService",
+      "path": "Veritas/ai-service/app/services/vector_store_service.py",
+      "responsibility": "ChromaDB 向量存储",
+      "key_interfaces": [
+        {"name": "collection", "signature": "collection.dimension = 1024", "description": "ChromaDB collection 维度固定 1024"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/ai-service/app/services/embedding_service.py", "description": "重构为多 Provider 架构：1) 新增 BaseEmbeddingProvider 抽象基类（含 embed_query/embed_documents 抽象方法 + dimension 属性）；2) DashScopeProvider 封装现有 DashScope 逻辑（text-embedding-v4，1024维）；3) JinaProvider 调用 https://api.jina.ai/v1/embeddings，模型 jina-embeddings-v3，维度1024；4) OpenAIProvider 调用 https://api.openai.com/v1/embeddings，模型 text-embedding-3-small，维度1536（需降维到1024：截断或PCA，推荐截断前1024维并归一化）；5) EmbeddingService 持有 active_provider 和 fallback_providers 列表；6) embed_query/embed_documents 委托 active_provider，失败时降级到 fallback_providers；7) 维度校验：provider.dimension 必须等于 ChromaDB collection 维度（1024），否则抛 ModelNotLoadedException。", "layer": "python_ai_service"},
+    {"operation": "modify", "path": "Veritas/ai-service/app/core/config.py", "description": "Settings 类新增配置项：1) EMBEDDING_PROVIDER: str = 'dashscope'（可选值 dashscope/jina/openai）；2) JINA_API_KEY: Optional[str] = None；3) OPENAI_API_KEY: Optional[str] = None；4) EMBEDDING_DIMENSION: int = 1024（ChromaDB collection 维度，用于校验）。", "layer": "python_ai_service"},
+    {"operation": "modify", "path": "Veritas/ai-service/.env.example", "description": "追加配置示例：EMBEDDING_PROVIDER=dashscope\\nJINA_API_KEY=\\nOPENAI_API_KEY=\\nEMBEDDING_DIMENSION=1024", "layer": "python_ai_service"},
+    {"operation": "create", "path": "Veritas/ai-service/tests/test_external_embedding.py", "description": "测试：1) test_jina_provider_activated 验证 EMBEDDING_PROVIDER=jina 时使用 JinaProvider；2) test_openai_provider_activated 验证 EMBEDDING_PROVIDER=openai 时使用 OpenAIProvider；3) test_dimension_mismatch_raises 验证维度不一致抛 ModelNotLoadedException；4) test_provider_fallback 验证 dashscope 失败降级到 jina；5) test_openai_dimension_truncation 验证 OpenAI 1536维降维到1024维。", "layer": "python_ai_service"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "EmbeddingService 重构为 Provider 模式：1) BaseEmbeddingProvider 抽象基类：abstract async embed_query(text) -> List[float]、abstract async embed_documents(texts) -> List[List[float]]、property dimension -> int；2) DashScopeProvider 继承基类，封装现有 DashScope 逻辑，dimension=1024；3) JinaProvider 继承基类，dimension=1024；4) OpenAIProvider 继承基类，dimension=1024（1536截断）；5) EmbeddingService.__init__ 根据 settings.EMBEDDING_PROVIDER 选择 active_provider，其余加入 fallback_providers 列表。", "priority": "P0", "acceptance_condition": "EmbeddingService 支持 3 个 Provider 切换"},
+      {"id": "FR-002", "description": "通过 EMBEDDING_PROVIDER 环境变量选择 Provider：1) settings.EMBEDDING_PROVIDER='dashscope' 时 active_provider=DashScopeProvider，fallback=[JinaProvider, OpenAIProvider]；2) ='jina' 时 active=JinaProvider，fallback=[DashScopeProvider, OpenAIProvider]；3) ='openai' 时 active=OpenAIProvider，fallback=[DashScopeProvider, JinaProvider]；4) 默认值 'dashscope'。", "priority": "P0", "acceptance_condition": "EMBEDDING_PROVIDER 环境变量正确切换 active_provider"},
+      {"id": "FR-003", "description": "JinaProvider 实现：1) 调用 POST https://api.jina.ai/v1/embeddings；2) 请求头 Authorization: Bearer {JINA_API_KEY}；3) 请求体 {model: 'jina-embeddings-v3', input: [texts], dimensions: 1024}；4) 解析响应 data[].embedding；5) dimension=1024；6) 使用 httpx.AsyncClient 异步调用；7) 超时 30s，重试 1 次。", "priority": "P0", "acceptance_condition": "JinaProvider 正确调用 Jina API 并返回 1024 维向量"},
+      {"id": "FR-004", "description": "OpenAIProvider 实现：1) 调用 POST https://api.openai.com/v1/embeddings；2) 请求头 Authorization: Bearer {OPENAI_API_KEY}；3) 请求体 {model: 'text-embedding-3-small', input: [texts]}；4) 解析响应 data[].embedding（1536维）；5) 降维到1024：截断前1024维 + L2归一化；6) dimension=1024；7) 使用 httpx.AsyncClient 异步调用；8) 超时 30s，重试 1 次。", "priority": "P0", "acceptance_condition": "OpenAIProvider 正确调用 OpenAI API 并返回降维后的 1024 维向量"},
+      {"id": "FR-005", "description": "维度校验：1) EmbeddingService.__init__ 检查 active_provider.dimension == settings.EMBEDDING_DIMENSION（1024）；2) 不一致时抛 ModelNotLoadedException(f'Provider {name} dimension {dim} != ChromaDB dimension {expected}')；3) 不静默失败，不自动降维（OpenAIProvider 内部已降维，对外 dimension=1024）。", "priority": "P0", "acceptance_condition": "维度不一致时抛 ModelNotLoadedException"},
+      {"id": "FR-006", "description": "Provider 失败时降级到下一个 Provider：1) embed_query/embed_documents try-except 包裹 active_provider 调用；2) 捕获 Exception，logger.warning 输出降级原因；3) 遍历 fallback_providers 依次尝试；4) 全部失败抛出最后一个异常；5) 降级顺序：active → fallback[0] → fallback[1]。", "priority": "P1", "acceptance_condition": "Provider 失败时降级到下一个 Provider，日志记录降级"},
+      {"id": "FR-007", "description": "/api/model/status 返回当前 Embedding Provider 信息：1) 响应新增 embedding_provider 字段，含 {name: str, dimension: int, fallbacks: List[str]}；2) name 为 active_provider 类名；3) fallbacks 为 fallback_providers 类名列表。", "priority": "P1", "acceptance_condition": "/api/model/status 返回 embedding_provider 信息"}
+    ],
+    "degradation_requirements": {
+      "embedding_degradation": {"provider_failure": "active_provider 失败降级到 fallback_providers 列表", "all_providers_failure": "全部 Provider 失败抛出最后一个异常"}
+    }
+  },
+  "constraints": {
+    "naming": {"python": {"class_name": "PascalCase", "function_variable": "snake_case", "constant": "UPPER_SNAKE_CASE", "file_name": "snake_case.py"}},
+    "layering": {"python": {"rule": "Embedding 服务在 services/，配置在 core/，测试在 tests/"}},
+    "error_handling": {"python": {"approach": "Provider 失败降级到下一个，全部失败抛异常", "dimension_mismatch": "抛 ModelNotLoadedException，不静默失败"}},
+    "logging": {"python": "Loguru", "required_logs": ["Provider 降级日志"], "prohibited": ["打印 API Key 明文"]}
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或 TODO 注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "删除现有 DashScope 实现逻辑", "reason": "DashScopeProvider 封装现有逻辑，不删除", "severity": "critical"},
+    {"id": "FA-003", "action": "在代码中硬编码 API Key", "reason": "必须从 settings 读取", "severity": "critical"},
+    {"id": "FA-004", "action": "修改 ChromaDB collection 维度为 1536", "reason": "保持 1024 维，OpenAI 在 Provider 内部降维", "severity": "high"},
+    {"id": "FA-005", "action": "使用同步 requests 库调用 API", "reason": "必须用 httpx.AsyncClient 异步", "severity": "high"},
+    {"id": "FA-006", "action": "在 .env.example 中填入真实 API Key", "reason": "仅占位符，不填真实值", "severity": "critical"},
+    {"id": "FA-007", "action": "跳过维度校验", "reason": "维度不一致必须抛异常", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "test_jina_provider_activated", "description": "EMBEDDING_PROVIDER=jina 时 EmbeddingService 使用 JinaProvider", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_openai_provider_activated", "description": "EMBEDDING_PROVIDER=openai 时 EmbeddingService 使用 OpenAIProvider", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_dashscope_provider_default", "description": "默认 EMBEDDING_PROVIDER=dashscope 时使用 DashScopeProvider", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_dimension_mismatch_raises", "description": "维度不一致时抛 ModelNotLoadedException", "framework": "pytest", "coverage": ["error_flow"]},
+      {"test_name": "test_provider_fallback", "description": "dashscope 失败降级到 jina，日志记录降级", "framework": "pytest", "coverage": ["error_flow", "degradation"]},
+      {"test_name": "test_openai_dimension_truncation", "description": "OpenAI 1536维降维到1024维 + L2归一化", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_model_status_returns_provider_info", "description": "/api/model/status 返回 embedding_provider 信息", "framework": "pytest", "coverage": ["normal_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "python", "command": "cd Veritas/ai-service && python -m pytest tests/test_external_embedding.py -v", "expected_result": "7 个测试用例全部通过"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "EMBEDDING_PROVIDER=jina 时，EmbeddingService 使用 JinaProvider", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "EMBEDDING_PROVIDER=openai 时，EmbeddingService 使用 OpenAIProvider", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "维度不一致时抛出 ModelNotLoadedException，不静默失败", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "Provider 失败时降级到下一个 Provider，日志记录降级", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "OpenAI 1536维正确降维到1024维 + L2归一化", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "/api/model/status 返回 embedding_provider 信息", "verified_by": "automated_test"}
+  ]
+}

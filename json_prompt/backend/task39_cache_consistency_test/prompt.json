@@ -1,0 +1,201 @@
+{
+  "meta": {
+    "project": "XH-202630 科研文献智能助手",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善",
+    "feature_id": ["F2.6.1", "F2.6.2", "F2.6.3", "F2.6.4", "F2.6.5", "F2.6.6"],
+    "task_name": "task39_cache_consistency_test",
+    "day": "Week10 D3-4",
+    "created_at": "2026-06-17"
+  },
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善（Week 10 Day 3-4）",
+    "requirement": "缓存命中率测试 + 一致性验证：缓存命中率测试（UserService/PaperService/SessionService/AnalysisService，命中率>50%）；Cache-Aside写后删策略验证（写操作后缓存立即失效，读操作回填）；双重失效验证（userProfile+userProfileJson+userInfo同步失效）；缓存穿透防护验证（空值缓存TTL=60s）；缓存雪崩防护验证（TTL ±10%随机偏移）；Agent状态Hash与SSE同步验证；缓存Key命名规范验证（RedisKeyUtil统一生成）。",
+    "requirement_ids": ["F2.6.1", "F2.6.2", "F2.6.3", "F2.6.4", "F2.6.5", "F2.6.6"],
+    "reference_docs": [
+      {"path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "第9章 缓存管理（Cache-Aside/TTL分层/穿透防护/雪崩防护）"},
+      {"path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "第7章 JM5 Week 10 Day 3-4 缓存命中率测试 + 一致性验证任务分解"},
+      {"path": "AGENTS.md", "purpose": "关键规则第6条 Cache-Aside 写后删 Redis"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.UserService", "description": "用户服务，task32 已添加 @Cacheable(userInfo/userProfile) + @CacheEvict(userProfile+userProfileJson+userInfo)，syncProfileToRedis 手动写Redis"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.PaperService", "description": "论文服务，task33 已添加 @Cacheable(paperDetail/paperSearch)，listPapers 已加缓存，paperSearch 复合key已修复null风险"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.SessionService", "description": "会话服务，task34 已为 createSession/listSessions 添加缓存，getSessionDetail @Cacheable(sessionState)"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.AnalysisService", "description": "分析服务，task34 已为写方法补 @CacheEvict(analysisResult)，getAnalysisResult @Cacheable(analysisResult)"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.AgentClientService", "description": "AI服务调用，手动RedisTemplate：agent:state Hash(TTL=5min) + analysis:result String(TTL=30min)"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.config.RedisConfig", "description": "Redis配置，task32-34 已配置7个缓存空间（userProfile/userInfo/paperDetail/paperSearch/analysisResult/sessionState/favoriteList），TTL_JITTER_RATIO=0.1"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.util.RedisKeyUtil", "description": "Redis Key 工具类，已有11个key方法（userProfile/userInfo/paperDetail/paperList/searchResult/analysisResult/sessionState/agentState/agentFallback/authBlacklist/favoriteList）"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java", "description": "RedisConfig：cacheManager 配置7个缓存空间，applyJitter 方法实现±10%随机偏移，TTL_JITTER_RATIO=0.1", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java", "description": "RedisKeyUtil：11个静态key方法，统一命名规范 {域}:{操作}:{标识符}", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java", "description": "UserService：@Cacheable(userInfo/userProfile) + @CacheEvict(userProfile+userProfileJson+userInfo) + syncProfileToRedis", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java", "description": "PaperService：@Cacheable(paperDetail/paperSearch) + listPapers缓存，task35 扩展 author/keywords/sortDirection 参数", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/SessionService.java", "description": "SessionService：@Cacheable(sessionState/sessionList) + @CacheEvict，task34 为 createSession/listSessions 加缓存", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "AnalysisService：@Cacheable(analysisResult) + 写方法 @CacheEvict(analysisResult)", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "description": "AgentClientService：手动RedisTemplate，agent:state Hash(TTL=5min) + analysis:result String(TTL=30min)", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "CacheHitRateTest（新建）",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/cache/CacheHitRateTest.java",
+      "responsibility": "缓存命中率测试：验证 UserService/PaperService/SessionService/AnalysisService 缓存命中率 > 50%",
+      "key_interfaces": [
+        {"name": "testUserServiceCacheHitRate", "signature": "@Test void testUserServiceCacheHitRate()", "description": "验证 UserService 缓存命中率：相同 userId 第二次查询命中缓存，命中率 > 50%"},
+        {"name": "testPaperServiceCacheHitRate", "signature": "@Test void testPaperServiceCacheHitRate()", "description": "验证 PaperService 缓存命中率：相同 paperId/查询条件 第二次命中缓存"},
+        {"name": "testSessionServiceCacheHitRate", "signature": "@Test void testSessionServiceCacheHitRate()", "description": "验证 SessionService 缓存命中率"},
+        {"name": "testAnalysisServiceCacheHitRate", "signature": "@Test void testAnalysisServiceCacheHitRate()", "description": "验证 AnalysisService 缓存命中率"}
+      ]
+    },
+    {
+      "name": "CacheConsistencyTest（新建）",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/cache/CacheConsistencyTest.java",
+      "responsibility": "缓存一致性验证：Cache-Aside写后删策略 + 双重失效 + Agent状态Hash与SSE同步",
+      "key_interfaces": [
+        {"name": "testCacheAsideWriteAfterDelete", "signature": "@Test void testCacheAsideWriteAfterDelete()", "description": "验证写操作（update/delete）后缓存立即失效，读操作回填缓存"},
+        {"name": "testDoubleInvalidationUserProfile", "signature": "@Test void testDoubleInvalidationUserProfile()", "description": "验证画像更新时 userProfile + userProfileJson + userInfo 同步失效"},
+        {"name": "testReadRefillCache", "signature": "@Test void testReadRefillCache()", "description": "验证读操作回填缓存（缓存miss后从DB读取并写入缓存）"},
+        {"name": "testAgentStateHashSseSync", "signature": "@Test void testAgentStateHashSseSync()", "description": "验证 Agent 状态 Hash 与 SSE 推送同步"}
+      ]
+    },
+    {
+      "name": "CachePenetrationAvalancheTest（新建）",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/cache/CachePenetrationAvalancheTest.java",
+      "responsibility": "缓存穿透与雪崩防护验证",
+      "key_interfaces": [
+        {"name": "testPenetrationProtectionEmptyCache", "signature": "@Test void testPenetrationProtectionEmptyCache()", "description": "验证空值缓存（TTL=60s）：查询不存在的记录，第一次查DB，第二次命中空值缓存"},
+        {"name": "testAvalancheProtectionTtlJitter", "signature": "@Test void testAvalancheProtectionTtlJitter()", "description": "验证 TTL ±10% 随机偏移：多次创建缓存，TTL 在 baseSeconds±10% 范围内"},
+        {"name": "testCacheKeyNamingConvention", "signature": "@Test void testCacheKeyNamingConvention()", "description": "验证缓存Key命名规范：RedisKeyUtil 统一生成，格式 {域}:{操作}:{标识符}"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "create", "path": "Veritas/backend/src/test/java/com/literatureassistant/cache/CacheHitRateTest.java", "description": "新建缓存命中率测试：UserService/PaperService/SessionService/AnalysisService 命中率 > 50%", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/test/java/com/literatureassistant/cache/CacheConsistencyTest.java", "description": "新建缓存一致性测试：Cache-Aside写后删 + 双重失效 + 读回填 + Agent状态Hash与SSE同步", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/test/java/com/literatureassistant/cache/CachePenetrationAvalancheTest.java", "description": "新建缓存穿透与雪崩防护测试：空值缓存TTL=60s + TTL±10%随机偏移 + Key命名规范", "layer": "java_backend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "CacheHitRateTest.testUserServiceCacheHitRate：1) 调用 userService.getUserProfile(userId) 10次（相同userId）；2) 通过 Redis CLI 或 RedisTemplate.keys 验证仅第一次查DB，后续9次命中缓存；3) 命中率 = 9/10 = 90% > 50%", "priority": "P0", "acceptance_condition": "UserService 缓存命中率 > 50%"},
+      {"id": "FR-002", "description": "CacheHitRateTest.testPaperServiceCacheHitRate：1) 调用 paperService.getPaperDetail(paperId) 10次（相同paperId）；2) 验证命中率 > 50%；3) 同样测试 searchPapers 相同查询条件", "priority": "P0", "acceptance_condition": "PaperService 缓存命中率 > 50%"},
+      {"id": "FR-003", "description": "CacheHitRateTest.testSessionServiceCacheHitRate：1) 调用 sessionService.getSessionDetail(sessionId) 10次；2) 验证命中率 > 50%", "priority": "P0", "acceptance_condition": "SessionService 缓存命中率 > 50%"},
+      {"id": "FR-004", "description": "CacheHitRateTest.testAnalysisServiceCacheHitRate：1) 调用 analysisService.getAnalysisResult(userId, analysisId) 10次；2) 验证命中率 > 50%", "priority": "P0", "acceptance_condition": "AnalysisService 缓存命中率 > 50%"},
+      {"id": "FR-005", "description": "CacheConsistencyTest.testCacheAsideWriteAfterDelete：1) 读取用户画像（缓存写入）；2) 更新用户画像（@CacheEvict 删除缓存）；3) 验证 Redis 中对应 key 不存在；4) 再次读取（缓存回填）；5) 验证 Redis 中对应 key 存在且值为最新", "priority": "P0", "acceptance_condition": "写操作后缓存立即失效，读操作回填缓存"},
+      {"id": "FR-006", "description": "CacheConsistencyTest.testDoubleInvalidationUserProfile：1) 读取用户画像（userProfile + userProfileJson + userInfo 三个缓存写入）；2) 更新用户画像；3) 验证三个缓存 key 均不存在（@CacheEvict 三重失效）；4) 再次读取，三个缓存均回填", "priority": "P0", "acceptance_condition": "userProfile + userProfileJson + userInfo 同步失效"},
+      {"id": "FR-007", "description": "CacheConsistencyTest.testReadRefillCache：1) 删除某缓存 key（模拟缓存过期）；2) 读取对应数据；3) 验证缓存 key 重新存在（读操作回填）", "priority": "P0", "acceptance_condition": "缓存miss后从DB读取并写入缓存"},
+      {"id": "FR-008", "description": "CacheConsistencyTest.testAgentStateHashSseSync：1) 触发分析任务，AgentClientService.updateAgentState 写入 agent:state:{analysisId} Hash；2) 验证 SSE 推送的 Agent 状态与 Hash 中字段一致；3) 验证 Hash TTL=5min", "priority": "P1", "acceptance_condition": "Agent状态Hash与SSE同步，TTL=5min"},
+      {"id": "FR-009", "description": "CachePenetrationAvalancheTest.testPenetrationProtectionEmptyCache：1) 查询不存在的 paperId（getPaperDetail）；2) 验证第一次查DB（日志/计数）；3) 验证第二次命中空值缓存（不查DB）；4) 验证空值缓存 TTL=60s（等待61s后缓存过期，再次查DB）", "priority": "P0", "acceptance_condition": "空值缓存 TTL=60s 生效"},
+      {"id": "FR-010", "description": "CachePenetrationAvalancheTest.testAvalancheProtectionTtlJitter：1) 多次（如20次）创建相同缓存空间的缓存条目；2) 通过 Redis TTL 命令获取每个 key 的剩余 TTL；3) 验证 TTL 在 baseSeconds±10% 范围内（如 paperSearch baseTTL=600s，TTL 范围 540~660s）", "priority": "P0", "acceptance_condition": "TTL 随机偏移在 ±10% 范围内"},
+      {"id": "FR-011", "description": "CachePenetrationAvalancheTest.testCacheKeyNamingConvention：1) 遍历 RedisKeyUtil 所有方法（userProfileKey/userInfoKey/paperDetailKey/paperListKey/searchResultKey/analysisResultKey/sessionStateKey/agentStateKey/agentFallbackKey/authBlacklistKey/favoriteListKey）；2) 验证每个方法返回的 key 符合 {域}:{操作}:{标识符} 格式；3) 验证 key 中无空格、无特殊字符", "priority": "P1", "acceptance_condition": "缓存Key命名符合 RedisKeyUtil 规范"},
+      {"id": "FR-012", "description": "测试使用 @SpringBootTest 注解，加载完整 Spring 上下文；使用 @Autowired 注入 UserService/PaperService/SessionService/AnalysisService/RedisTemplate；使用 @Transactional 或 @DirtiesContext 隔离测试数据，避免污染其他测试", "priority": "P0", "acceptance_condition": "测试隔离正确，不污染其他测试"}
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          {"java": "userId", "python": "user_id", "json": "user_id"},
+          {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+          {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"},
+          {"java": "sessionId", "python": "session_id", "json": "session_id"}
+        ]
+      },
+      "data_flow": "测试 → Service(@Cacheable/@CacheEvict) → RedisTemplate → Redis；验证缓存命中率/一致性/穿透防护/雪崩防护"
+    },
+    "security_requirements": [
+      {"category": "data_isolation", "requirement": "测试数据使用测试专用 userId/paperId/analysisId/sessionId，避免与生产数据冲突；测试后清理缓存（@AfterEach 清除测试 key）"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {"class_name": "PascalCase", "method_variable": "camelCase", "constant": "UPPER_SNAKE_CASE", "file_name": "PascalCase.java", "enum_value": "UPPER_SNAKE_CASE", "config_key": "kebab-case"},
+      "json": {"field_name": "snake_case"},
+      "cross_system_mapping": [
+        {"java": "userId", "python": "user_id", "json": "user_id"},
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"},
+        {"java": "sessionId", "python": "session_id", "json": "session_id"}
+      ]
+    },
+    "layering": {
+      "java": {"rule": "Controller → Service → Repository → Client，禁止跨层", "entity_dto_separation": true, "dto_naming": "XxxRequestDTO, XxxResponseDTO"}
+    },
+    "error_handling": {
+      "java": {"approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)", "business_exception_fields": ["code", "message", "errorKey"]}
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "userProfile", "key_pattern": "user:profile:{userId}", "ttl": "1h"},
+        {"cache_name": "userInfo", "key_pattern": "user:info:{userId}", "ttl": "1h"},
+        {"cache_name": "paperDetail", "key_pattern": "paper:detail:{paperId}", "ttl": "30min"},
+        {"cache_name": "paperSearch", "key_pattern": "paperSearch::{q}_{yearFrom}_{yearTo}_{venue}_{author}_{keywords}_{sort}_{sortDirection}_{page}_{size}", "ttl": "10min"},
+        {"cache_name": "analysisResult", "key_pattern": "analysisResult::{analysisId}", "ttl": "30min"},
+        {"cache_name": "sessionState", "key_pattern": "session:state:{sessionId}", "ttl": "2h"},
+        {"cache_name": "agentState", "key_pattern": "agent:state:{analysisId}", "ttl": "5min"},
+        {"cache_name": "favoriteList", "key_pattern": "favoriteList::{userId}", "ttl": "10min"}
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息"]
+    },
+    "security": {
+      "data_isolation": "测试数据使用测试专用ID，测试后清理"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-004", "action": "破坏分层调用规范（Controller直接操作Repository等）", "reason": "分层架构约束", "severity": "critical"},
+    {"id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high"},
+    {"id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high"},
+    {"id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium"},
+    {"id": "FA-009", "action": "使用SQL拼接（必须参数化查询）", "reason": "SQL注入防护", "severity": "critical"},
+    {"id": "FA-010", "action": "忽略降级场景（LLM/Agent失败时的处理）", "reason": "可用性约束ADR-003", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "testUserServiceCacheHitRate", "description": "验证 UserService 缓存命中率 > 50%（10次相同查询，9次命中）", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testPaperServiceCacheHitRate", "description": "验证 PaperService 缓存命中率 > 50%", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testSessionServiceCacheHitRate", "description": "验证 SessionService 缓存命中率 > 50%", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testAnalysisServiceCacheHitRate", "description": "验证 AnalysisService 缓存命中率 > 50%", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testCacheAsideWriteAfterDelete", "description": "验证写后删策略：写操作后缓存失效，读操作回填", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testDoubleInvalidationUserProfile", "description": "验证双重失效：userProfile + userProfileJson + userInfo 同步失效", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testReadRefillCache", "description": "验证读操作回填缓存", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testAgentStateHashSseSync", "description": "验证 Agent 状态 Hash 与 SSE 同步", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testPenetrationProtectionEmptyCache", "description": "验证空值缓存 TTL=60s", "framework": "junit5", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "testAvalancheProtectionTtlJitter", "description": "验证 TTL ±10% 随机偏移", "framework": "junit5", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "testCacheKeyNamingConvention", "description": "验证缓存Key命名规范（RedisKeyUtil）", "framework": "junit5", "coverage": ["normal_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=CacheHitRateTest", "expected_result": "所有测试通过，BUILD SUCCESS"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=CacheConsistencyTest", "expected_result": "所有测试通过，BUILD SUCCESS"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=CachePenetrationAvalancheTest", "expected_result": "所有测试通过，BUILD SUCCESS"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "UserService 缓存命中率 > 50%", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "PaperService 缓存命中率 > 50%", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "SessionService 缓存命中率 > 50%", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "AnalysisService 缓存命中率 > 50%", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "写操作后缓存立即失效（Cache-Aside 写后删）", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "双重失效：userProfile + userProfileJson + userInfo 同步失效", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "读操作回填缓存", "verified_by": "automated_test"},
+    {"id": "AC-008", "criterion": "空值缓存 TTL=60s 生效", "verified_by": "automated_test"},
+    {"id": "AC-009", "criterion": "TTL 随机偏移在 ±10% 范围内", "verified_by": "automated_test"},
+    {"id": "AC-010", "criterion": "Agent状态Hash与SSE同步", "verified_by": "automated_test"},
+    {"id": "AC-011", "criterion": "缓存Key命名符合 RedisKeyUtil 规范", "verified_by": "automated_test"},
+    {"id": "AC-012", "criterion": "mvn test 全量通过", "verified_by": "automated_test"}
+  ]
+}

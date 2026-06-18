@@ -1,0 +1,94 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M5 / AM5：混合检索与功能完善",
+    "requirement": "端到端验证 6-Agent 工作流中 ComparerAgent 的矛盾发现能力。优化矛盾发现 Prompt，增加 few-shot 示例。测试 3 篇含矛盾观点的论文输入，验证 contradictions 数组非空且结构完整。验证 ComparerAgent 降级路径：LLM 超时 → 规则矛盾检测 → 输出降级标记。本任务对应 AM5 Week 9 Day 5。",
+    "requirement_ids": ["F3.1.4", "F3.1.5"],
+    "reference_docs": [
+      {"path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "了解 ComparerAgent 端到端调用链路"},
+      {"path": "docs/ai-service/AI服务模块项目里程碑文档.md", "purpose": "确认 AM5 Week 9 Day 5 矛盾发现端到端测试交付物"},
+      {"path": "AGENTS.md", "purpose": "确认 Agent 降级约束和 Prompt few-shot 规范"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {"layer": "python_ai_service", "module_path": "app.agents.comparer", "description": "ComparerAgent 已实现 5 类根因检测和规则降级"},
+      {"layer": "python_ai_service", "module_path": "prompts.comparer", "description": "comparer.txt Prompt 模板，需增加 few-shot 示例"},
+      {"layer": "python_ai_service", "module_path": "app.agents.graph", "description": "6-Agent LangGraph 工作流，compare_node 调用 ComparerAgent"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/ai-service/app/agents/comparer.py", "description": "ComparerAgent 已实现 _run/_parse_comparison/_rule_based_comparison/_detect_conflicts", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/ai-service/prompts/comparer.txt", "description": "对比 Prompt 模板已存在（task49 已优化 8 字段输出），需增加 few-shot 示例", "reuse_type": "extend"},
+      {"file_path": "Veritas/ai-service/app/agents/graph.py", "description": "6-Agent 工作流已实现，端到端测试复用", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "ComparerAgent",
+      "path": "Veritas/ai-service/app/agents/comparer.py",
+      "responsibility": "多论文对比与矛盾发现",
+      "key_interfaces": [
+        {"name": "_run", "signature": "async def _run(self, prompt: str, input_data: dict, context: dict) -> dict", "description": "核心执行：调 LLM 解析对比结果，失败降级到 _rule_based_comparison"},
+        {"name": "_parse_comparison", "signature": "def _parse_comparison(self, llm_output: str, input_data: dict) -> dict", "description": "解析 LLM 输出，校验矛盾根因和 8 字段结构"},
+        {"name": "_rule_based_comparison", "signature": "def _rule_based_comparison(self, input_data: dict) -> dict", "description": "规则降级对比，C(N,2) 两两对比 + 矛盾检测"}
+      ]
+    },
+    {
+      "name": "ComparerPrompt",
+      "path": "Veritas/ai-service/prompts/comparer.txt",
+      "responsibility": "矛盾发现 Prompt 模板",
+      "key_interfaces": [
+        {"name": "template_variables", "signature": "papers: List[Dict], compare_dimensions: List[str]", "description": "Prompt 模板变量"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/ai-service/prompts/comparer.txt", "description": "增加 1-2 个 few-shot 示例，展示矛盾标注格式（含 8 字段完整输出）。示例应覆盖 dataset_bias 和 methodological_conflict 两类典型矛盾。", "layer": "python_ai_service"},
+    {"operation": "create", "path": "Veritas/ai-service/tests/e2e/test_comparer_e2e.py", "description": "端到端测试：3 篇含矛盾观点的论文 → ComparerAgent 输出 contradictions 数组。验证数组非空、每项含 papers/topic/claim_a/claim_b/root_cause。验证降级路径：mock LLM 超时 → 规则矛盾检测 → degraded=True。", "layer": "python_ai_service"},
+    {"operation": "create", "path": "Veritas/ai-service/tests/e2e/test_data/conflict_papers.json", "description": "3 篇含矛盾观点的论文测试数据：论文A（方法X在数据集D1上提升20%）、论文B（方法X在数据集D2上下降15%）、论文C（方法Y与方法X方法论冲突）。每篇含 title/abstract/method/experiment/conclusion 字段。", "layer": "python_ai_service"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "端到端测试覆盖：加载 conflict_papers.json 中 3 篇含矛盾观点的论文，调用 ComparerAgent._run()，验证输出 contradictions 数组非空。测试通过 mock LLM 返回预设矛盾 JSON，确保结果可复现。", "priority": "P0", "acceptance_condition": "端到端测试 3 篇论文输入，输出 contradictions 数组非空"},
+      {"id": "FR-002", "description": "验证 contradictions 数组结构完整性：每项必含 papers（涉及论文ID列表）/topic（矛盾主题）/claim_a（论文A主张）/claim_b（论文B主张）/root_cause（5类根因之一）。AM5 验收硬指标。", "priority": "P0", "acceptance_condition": "contradictions 数组每项包含 papers/topic/claim_a/claim_b/root_cause"},
+      {"id": "FR-003", "description": "优化 prompts/comparer.txt 增加 few-shot 示例：1) 示例1展示 dataset_bias 类矛盾（两论文使用不同数据集导致结论矛盾），完整输出 8 字段；2) 示例2展示 methodological_conflict 类矛盾（方法论根本冲突），完整输出 8 字段。示例使用占位符论文ID，不硬编码真实数据。", "priority": "P1", "acceptance_condition": "Prompt 模板含 2 个 few-shot 示例，每个展示 8 字段完整输出"},
+      {"id": "FR-004", "description": "降级路径端到端验证：mock LLM 抛出 TimeoutError，调用 ComparerAgent._run()，验证：1) 降级到 _rule_based_comparison；2) 返回 degraded=True；3) contradictions 数组仍可能非空（当规则检测到矛盾时）；4) 不抛出异常。", "priority": "P0", "acceptance_condition": "LLM 超时降级路径正确触发，输出 degraded=True"}
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {"single_agent_failure": "ComparerAgent LLM 超时降级为 _rule_based_comparison，返回 degraded=True", "multi_agent_failure": "N/A", "review_retry_limit": 0}
+    }
+  },
+  "constraints": {
+    "naming": {"python": {"class_name": "PascalCase", "function_variable": "snake_case", "constant": "UPPER_SNAKE_CASE", "file_name": "snake_case.py"}},
+    "layering": {"python": {"rule": "端到端测试在 tests/e2e/，测试数据在 tests/e2e/test_data/，Prompt 在 prompts/"}},
+    "error_handling": {"python": {"approach": "LLM 超时降级为规则对比，不抛出异常", "agent_error_handling": "logger.warning + _fallback_result"}},
+    "logging": {"python": "Loguru", "prohibited": ["在端到端测试中打印 INFO 日志干扰断言"]}
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或 TODO 注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "在端到端测试中调用真实 LLM API", "reason": "必须 mock LLM 确保测试可复现", "severity": "critical"},
+    {"id": "FA-003", "action": "修改 ComparerAgent 核心逻辑", "reason": "本任务仅测试和优化 Prompt，不改 Agent 代码", "severity": "high"},
+    {"id": "FA-004", "action": "在 few-shot 示例中硬编码真实论文数据", "reason": "使用占位符 paper_id_1/paper_id_2", "severity": "medium"},
+    {"id": "FA-005", "action": "删除 task49 已添加的 8 字段输出要求", "reason": "在 task49 基础上增加 few-shot，不删除已有内容", "severity": "high"},
+    {"id": "FA-006", "action": "修改 graph.py 工作流逻辑", "reason": "本任务仅测试 ComparerAgent，不改工作流", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "test_comparer_e2e_three_papers_conflict", "description": "端到端测试：3 篇含矛盾论文 → contradictions 非空", "framework": "pytest", "coverage": ["normal_flow", "integration"]},
+      {"test_name": "test_comparer_e2e_contradictions_schema", "description": "验证 contradictions 数组每项含 papers/topic/claim_a/claim_b/root_cause", "framework": "pytest", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "test_comparer_e2e_degradation_timeout", "description": "降级路径：mock LLM 超时 → 规则矛盾检测 → degraded=True", "framework": "pytest", "coverage": ["error_flow", "degradation"]},
+      {"test_name": "test_comparer_prompt_has_few_shot", "description": "验证 comparer.txt 含 2 个 few-shot 示例", "framework": "pytest", "coverage": ["normal_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "python", "command": "cd Veritas/ai-service && python -m pytest tests/e2e/test_comparer_e2e.py -v", "expected_result": "4 个测试用例全部通过"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "端到端测试 3 篇论文输入，输出 contradictions 数组非空", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "contradictions 数组每项包含 papers/topic/claim_a/claim_b/root_cause", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "LLM 超时降级路径正确触发，输出 degraded=True", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "comparer.txt 含 2 个 few-shot 示例，每个展示 8 字段完整输出", "verified_by": "code_review"}
+  ]
+}

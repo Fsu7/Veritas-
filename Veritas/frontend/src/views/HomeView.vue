@@ -97,6 +97,8 @@ function handleClearRecent() {
 </template>
 
 <style scoped lang="scss">
+@use '@/styles/mixins' as *;
+
 .home-view {
   position: fixed;
   top: var(--header-height);
@@ -133,7 +135,7 @@ function handleClearRecent() {
 }
 
 .home-view__title {
-  font-size: 48px;
+  font-size: var(--font-size-display);
   font-weight: 700;
   line-height: 1.2;
   margin: 0 0 var(--spacing-md);
@@ -141,8 +143,8 @@ function handleClearRecent() {
   text-align: center;
   letter-spacing: -0.5px;
 
-  @media (max-width: 768px) {
-    font-size: 36px;
+  @include respond-to(md) {
+    font-size: var(--font-size-xxl);
   }
 }
 

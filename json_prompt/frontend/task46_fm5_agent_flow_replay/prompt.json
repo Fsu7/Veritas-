@@ -1,0 +1,146 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M6：交付就绪 / FM5：功能完善与UI打磨",
+    "requirement": "实现Agent流程回放功能。当前AgentFlowView仅支持实时SSE连接展示Agent协同过程，无历史回放能力。本次任务需新增useReplay composable封装回放控制（播放/暂停/进度条/倍速1x/2x/4x），agentStore新增replayStates/replayFrames/loadReplayData，AgentFlowView增加'回放模式'切换+回放控制条，支持从已完成分析的agentStates历史数据回放。",
+    "requirement_ids": ["F1.5.5"],
+    "reference_docs": [
+      {"path": "AGENTS.md", "purpose": "项目全景上下文与前端约束"},
+      {"path": "docs/frontend/前端模块系统架构文档.md", "purpose": "前端架构规范、F1.5 Agent可视化模块设计"},
+      {"path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM5里程碑任务分解（Week 11 Day 4）"},
+      {"path": "docs/开发规范文档.md", "purpose": "前端编码规范"},
+      {"path": "docs/架构决策记录(ADR).md", "purpose": "架构决策"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      {"layer": "frontend", "module_path": "src/views/AgentFlowView.vue", "description": "Agent可视化页：实时SSE+流程图+状态面板+中间结果+耗时统计+loading/empty/error状态（344行）"},
+      {"layer": "frontend", "module_path": "src/stores/agentStore.ts", "description": "Agent状态：agentStates字典+updateAgentState+resetStates+progress计算（48行）"},
+      {"layer": "frontend", "module_path": "src/composables/useSSE.ts", "description": "SSE composable：连接/断开/重连3s间隔最多5次/4种事件解析/onScopeDispose自动清理（180行）"},
+      {"layer": "frontend", "module_path": "src/components/agent/AgentFlowChart.vue", "description": "ECharts Graph 6节点+5连线+条件分支+状态色+脉冲动画+tooltip+resize（249行）"},
+      {"layer": "frontend", "module_path": "src/components/agent/AgentStatusPanel.vue", "description": "6个Agent状态卡片+进度条+popover中间结果（306行）"},
+      {"layer": "frontend", "module_path": "src/components/agent/IntermediateResult.vue", "description": "el-timeline时间线+自动滚动（155行）"},
+      {"layer": "frontend", "module_path": "src/components/agent/TimeStats.vue", "description": "ECharts Bar柱状图（180行）"},
+      {"layer": "frontend", "module_path": "src/api/analysis.ts", "description": "分析API：getResult(analysisId)返回AnalysisResult（含agentStates历史）"},
+      {"layer": "frontend", "module_path": "src/types/agent.ts", "description": "Agent类型：AgentState/FlowData/FlowNode/FlowLink"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/frontend/src/views/AgentFlowView.vue", "description": "已实现：实时SSE连接+4个子组件渲染+loading/empty/error状态。缺失：无回放模式、无回放控制条", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/stores/agentStore.ts", "description": "已实现：agentStates字典+updateAgentState+resetStates+progress。缺失：无replayStates/replayFrames/loadReplayData", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/components/agent/AgentFlowChart.vue", "description": "已实现：根据agentStore.agentStates渲染节点状态色。回放时可直接复用（watch agentStates响应式更新）", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/frontend/src/api/analysis.ts", "description": "已实现：getResult(analysisId)返回AnalysisResult，其中agentStates字段含历史Agent状态序列", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "useReplay",
+      "path": "Veritas/frontend/src/composables/useReplay.ts",
+      "responsibility": "回放控制器composable：播放/暂停/进度/倍速",
+      "key_interfaces": [
+        {"name": "loadFrames", "signature": "(frames: ReplayFrame[]) => void", "description": "加载回放帧序列"},
+        {"name": "play", "signature": "() => void", "description": "开始播放回放"},
+        {"name": "pause", "signature": "() => void", "description": "暂停回放"},
+        {"name": "seek", "signature": "(frameIndex: number) => void", "description": "跳转到指定帧"},
+        {"name": "setSpeed", "signature": "(speed: 1 | 2 | 4) => void", "description": "设置回放倍速"},
+        {"name": "currentFrame", "signature": "ComputedRef<ReplayFrame | null>", "description": "当前帧"},
+        {"name": "progress", "signature": "ComputedRef<number>", "description": "回放进度0-100"},
+        {"name": "isPlaying", "signature": "Ref<boolean>", "description": "是否正在播放"}
+      ]
+    },
+    {
+      "name": "agentStore",
+      "path": "Veritas/frontend/src/stores/agentStore.ts",
+      "responsibility": "Agent状态管理，新增回放相关状态",
+      "key_interfaces": [
+        {"name": "replayFrames", "signature": "Ref<ReplayFrame[]>", "description": "回放帧序列"},
+        {"name": "loadReplayData", "signature": "(analysisId: string) => Promise<void>", "description": "从analysisResult.agentStates加载历史帧"}
+      ]
+    },
+    {
+      "name": "AgentFlowView",
+      "path": "Veritas/frontend/src/views/AgentFlowView.vue",
+      "responsibility": "Agent可视化页，增加回放模式",
+      "key_interfaces": [
+        {"name": "toggleReplayMode", "signature": "() => void", "description": "切换实时/回放模式"},
+        {"name": "handleReplayControl", "signature": "(action: 'play' | 'pause' | 'seek' | 'speed', payload?: any) => void", "description": "回放控制处理"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "create", "path": "Veritas/frontend/src/composables/useReplay.ts", "description": "新建回放控制器composable：播放/暂停/进度/倍速/setInterval驱动帧切换", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/stores/agentStore.ts", "description": "新增replayFrames状态+loadReplayData(analysisId)方法（调用analysisApi.getResult获取agentStates历史）+isReplayMode标志", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/views/AgentFlowView.vue", "description": "增加'回放模式'切换按钮+回放控制条（播放/暂停按钮+进度条slider+倍速切换1x/2x/4x）；回放模式下useReplay驱动agentStore.agentStates更新", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/api/analysis.ts", "description": "新增getAgentHistory(analysisId)方法（若后端提供独立接口），否则复用getResult", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/types/agent.ts", "description": "新增ReplayFrame类型（timestamp+agentStates快照）", "layer": "frontend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "useReplay composable封装回放控制：loadFrames加载帧序列、play开始播放（setInterval按倍速切换帧）、pause暂停、seek跳转、setSpeed设置倍速、currentFrame当前帧、progress进度0-100、isPlaying状态", "priority": "P0", "acceptance_condition": "回放控制API完整可用"},
+      {"id": "FR-002", "description": "agentStore.loadReplayData(analysisId)调用analysisApi.getResult获取analysisResult，从result.agentStates构建ReplayFrame[]（按timestamp排序），存入replayFrames", "priority": "P0", "acceptance_condition": "可从历史分析加载回放帧"},
+      {"id": "FR-003", "description": "AgentFlowView顶部增加'回放模式'切换按钮（el-switch或el-button），切换时停止SSE连接（实时模式）并调用loadReplayData加载历史帧（回放模式）", "priority": "P0", "acceptance_condition": "可切换实时/回放模式"},
+      {"id": "FR-004", "description": "回放控制条：播放/暂停按钮（el-button icon）+进度条（el-slider 0-100，可拖拽）+倍速切换（el-radio-group 1x/2x/4x）+当前帧时间显示", "priority": "P1", "acceptance_condition": "回放控制条功能完整"},
+      {"id": "FR-005", "description": "回放时useReplay驱动agentStore.agentStates更新（每帧切换时updateAgentState），AgentFlowChart/AgentStatusPanel/IntermediateResult/TimeStats响应式更新", "priority": "P0", "acceptance_condition": "回放时4个子组件同步更新"},
+      {"id": "FR-006", "description": "回放结束后自动暂停并停留在最后一帧；播放过程中可拖拽进度条跳转；倍速切换实时生效", "priority": "P1", "acceptance_condition": "回放控制响应正确"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue",
+        "enum_value": "PascalCase",
+        "config_key": "camelCase"
+      }
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → Store → API，useReplay作为composable在AgentFlowView内使用，通过agentStore更新状态"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "loadReplayData失败时ElMessage.error提示+ErrorState展示；回放过程中帧数据异常时跳过该帧"
+      }
+    },
+    "caching": {
+      "pattern": "回放帧序列保存在agentStore.replayFrames，切换回放模式时重新加载（不前端缓存历史数据）"
+    },
+    "logging": {
+      "frontend": "console.warn仅用于开发调试，生产环境不输出"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（如修改ReportView、SearchView等）", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-011", "action": "破坏View→Store→API分层规范（useReplay内直接调用analysisApi）", "reason": "前端分层约束，数据加载必须通过agentStore.loadReplayData", "severity": "high"},
+    {"id": "FA-013", "action": "使用硬编码尺寸值（必须使用CSS变量如var(--spacing-md)）", "reason": "UI设计系统统一", "severity": "medium"},
+    {"id": "FA-018", "action": "回放时未清理setInterval（必须在pause/卸载时clearInterval）", "reason": "内存泄漏防护", "severity": "critical"},
+    {"id": "FA-019", "action": "回放模式与实时SSE模式同时运行（必须互斥）", "reason": "状态冲突防护", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "useReplay.spec.ts", "description": "测试loadFrames/play/pause/seek/setSpeed/progress计算/isPlaying状态切换/onScopeDispose清理", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition", "error_flow"]},
+      {"test_name": "AgentFlowView.spec.ts", "description": "扩展测试：回放模式切换、回放控制条交互、回放时子组件更新", "framework": "vitest", "coverage": ["normal_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run test -- --run useReplay AgentFlowView", "expected_result": "所有测试通过"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run lint", "expected_result": "无lint错误"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run build", "expected_result": "构建成功无TypeScript错误"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "可加载已完成分析的Agent历史数据（loadReplayData成功）", "verified_by": "manual_test"},
+    {"id": "AC-002", "criterion": "回放支持播放/暂停（点击按钮切换状态）", "verified_by": "manual_test"},
+    {"id": "AC-003", "criterion": "回放支持拖拽进度条跳转到指定帧", "verified_by": "manual_test"},
+    {"id": "AC-004", "criterion": "回放支持1x/2x/4x倍速切换（切换后播放速度变化）", "verified_by": "manual_test"},
+    {"id": "AC-005", "criterion": "回放时AgentFlowChart/AgentStatusPanel/IntermediateResult/TimeStats同步更新", "verified_by": "manual_test"},
+    {"id": "AC-006", "criterion": "回放结束后自动暂停在最后一帧", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "切换回实时模式时正确停止回放并恢复SSE连接", "verified_by": "manual_test"},
+    {"id": "AC-008", "criterion": "所有新增/修改的代码通过lint和build验证", "verified_by": "code_review"}
+  ]
+}

@@ -10,7 +10,6 @@ import com.literatureassistant.entity.Session;
 import com.literatureassistant.enums.AnalysisStatus;
 import com.literatureassistant.enums.AnalysisType;
 import com.literatureassistant.enums.SessionStatus;
-import com.literatureassistant.exception.BusinessException;
 import com.literatureassistant.exception.ResourceNotFoundException;
 import com.literatureassistant.repository.AnalysisResultRepository;
 import com.literatureassistant.repository.SessionRepository;
@@ -29,7 +28,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
@@ -71,7 +69,6 @@ class AnalysisServiceQueryTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private static final String CURRENT_USER_ID = "usr_001";
-    private static final String OTHER_USER_ID = "usr_002";
     private static final String SESSION_ID = "ses_a1b2c3d4";
     private static final String ANALYSIS_ID = "anl_abcdef012345";
 
@@ -123,7 +120,6 @@ class AnalysisServiceQueryTest {
                         .build());
         AnalysisResult entity = buildAnalysisResult(AnalysisStatus.COMPLETED, resultJson);
         when(analysisResultRepository.findByAnalysisId(ANALYSIS_ID)).thenReturn(Optional.of(entity));
-        when(sessionRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.of(buildSession(CURRENT_USER_ID)));
 
         AnalysisResponse response = analysisService.getAnalysisResult(CURRENT_USER_ID, ANALYSIS_ID);
 
@@ -142,7 +138,6 @@ class AnalysisServiceQueryTest {
         String resultJson = "{}";
         AnalysisResult entity = buildAnalysisResult(AnalysisStatus.COMPLETED, resultJson);
         when(analysisResultRepository.findByAnalysisId(ANALYSIS_ID)).thenReturn(Optional.of(entity));
-        when(sessionRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.of(buildSession(CURRENT_USER_ID)));
 
         // 第一次查询
         analysisService.getAnalysisResult(CURRENT_USER_ID, ANALYSIS_ID);
@@ -152,17 +147,9 @@ class AnalysisServiceQueryTest {
         verify(analysisResultRepository).findByAnalysisId(ANALYSIS_ID);
     }
 
-    @Test
-    @DisplayName("getAnalysisResult - 他人 analysisId → 403")
-    void getAnalysisResult_other_user_returns403() {
-        AnalysisResult entity = buildAnalysisResult(AnalysisStatus.COMPLETED, "{}");
-        when(analysisResultRepository.findByAnalysisId(ANALYSIS_ID)).thenReturn(Optional.of(entity));
-        when(sessionRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.of(buildSession(OTHER_USER_ID)));
-
-        assertThatThrownBy(() -> analysisService.getAnalysisResult(CURRENT_USER_ID, ANALYSIS_ID))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("他人分析结果");
-    }
+    // 修复 B-003: 数据隔离校验已上移到 Controller（validateAnalysisAccess），
+    // Service 层 getAnalysisResult 不再内部校验。原 getAnalysisResult_other_user_returns403
+    // 测试已删除，数据隔离测试由 Jm5IntegrationTest.testGetAnalysisResultDataIsolation（JM5-9）覆盖。
 
     // endregion
 

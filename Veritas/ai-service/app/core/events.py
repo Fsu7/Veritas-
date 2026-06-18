@@ -79,6 +79,7 @@ async def on_startup() -> None:
         app_state.search_service = SearchService(
             vector_store_service=app_state.vector_store_service,
             embedding_service=app_state.embedding_service,
+            settings=settings,
         )
         logger.info("SearchService initialized")
     else:
@@ -86,7 +87,7 @@ async def on_startup() -> None:
 
     from app.services.reranker import Reranker
 
-    app_state.reranker = Reranker()
+    app_state.reranker = Reranker(settings=settings)
     if app_state.search_service is not None:
         app_state.search_service.reranker = app_state.reranker
         logger.info("Reranker initialized and injected into SearchService")

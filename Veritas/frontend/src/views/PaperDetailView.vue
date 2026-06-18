@@ -7,6 +7,8 @@ import { usePaperStore } from '@/stores/paperStore'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useUserStore } from '@/stores/userStore'
 import AnalysisCard from '@/components/analysis/AnalysisCard.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import ErrorState from '@/components/common/ErrorState.vue'
 import { formatMeta } from '@/utils/format'
 import type { Paper } from '@/types/paper'
 
@@ -110,27 +112,21 @@ onUnmounted(() => {
   <div class="paper-detail-view">
     <el-skeleton v-if="paperLoading" :rows="5" animated />
 
-    <el-result
+    <ErrorState
       v-else-if="paperError"
-      icon="error"
       title="加载失败"
-      sub-title="无法获取论文信息，请稍后重试"
-    >
-      <template #extra>
-        <el-button type="primary" @click="fetchPaperDetail">重试</el-button>
-      </template>
-    </el-result>
+      :description="paperError"
+      @retry="fetchPaperDetail"
+    />
 
-    <el-result
+    <EmptyState
       v-else-if="!paper"
-      icon="warning"
+      icon="document"
       title="论文未找到"
-      sub-title="该论文可能已被删除或链接无效"
-    >
-      <template #extra>
-        <el-button type="primary" @click="router.push({ name: 'Home' })">返回首页</el-button>
-      </template>
-    </el-result>
+      description="该论文可能已被删除或链接无效"
+      action-text="返回首页"
+      @action="router.push({ name: 'Home' })"
+    />
 
     <template v-else>
       <div class="paper-detail-view__header">

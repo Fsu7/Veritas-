@@ -10,7 +10,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'saved'): void
+  (e: 'saved', profile: UserProfile): void
 }>()
 
 const userStore = useUserStore()
@@ -23,6 +23,20 @@ const form = reactive<UserProfile>({
   knowledgeLevel: 'intermediate',
   preferredStyle: 'balanced'
 })
+
+// 记录初始数据快照，用于重置表单
+const initialSnapshot = reactive<UserProfile>({ ...form })
+
+function syncFromInitial(data: UserProfile) {
+  form.educationLevel = data.educationLevel
+  form.researchField = data.researchField
+  form.knowledgeLevel = data.knowledgeLevel
+  form.preferredStyle = data.preferredStyle
+  initialSnapshot.educationLevel = data.educationLevel
+  initialSnapshot.researchField = data.researchField
+  initialSnapshot.knowledgeLevel = data.knowledgeLevel
+  initialSnapshot.preferredStyle = data.preferredStyle
+}
 
 const educationOptions = [
   { label: '本科生', value: 'undergraduate' as const },
@@ -63,10 +77,7 @@ watch(
   () => props.initialData,
   (data) => {
     if (data) {
-      form.educationLevel = data.educationLevel
-      form.researchField = data.researchField
-      form.knowledgeLevel = data.knowledgeLevel
-      form.preferredStyle = data.preferredStyle
+      syncFromInitial(data)
     }
   },
   { immediate: true }
@@ -78,14 +89,29 @@ async function handleSave() {
 
   saving.value = true
   try {
-    await userStore.saveProfile({ ...form })
+    const payload: UserProfile = { ...form }
+    await userStore.saveProfile(payload)
+    // 保存成功后同步快照，便于后续重置
+    initialSnapshot.educationLevel = form.educationLevel
+    initialSnapshot.researchField = form.researchField
+    initialSnapshot.knowledgeLevel = form.knowledgeLevel
+    initialSnapshot.preferredStyle = form.preferredStyle
     ElMessage.success('画像保存成功')
-    emit('saved')
+    emit('saved', payload)
   } catch {
     ElMessage.error('保存失败，请重试')
   } finally {
     saving.value = false
   }
+}
+
+function handleReset() {
+  // 重置为最近一次保存的快照（或初始数据）
+  form.educationLevel = initialSnapshot.educationLevel
+  form.researchField = initialSnapshot.researchField
+  form.knowledgeLevel = initialSnapshot.knowledgeLevel
+  form.preferredStyle = initialSnapshot.preferredStyle
+  formRef.value?.clearValidate()
 }
 </script>
 
@@ -160,6 +186,12 @@ async function handleSave() {
         @click="handleSave"
       >
         保存画像
+      </el-button>
+      <el-button
+        :disabled="saving"
+        @click="handleReset"
+      >
+        重置
       </el-button>
     </el-form-item>
   </el-form>

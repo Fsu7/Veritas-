@@ -30,6 +30,7 @@ import com.literatureassistant.repository.AnalysisResultRepository;
 import com.literatureassistant.repository.SessionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
@@ -45,6 +46,18 @@ import java.util.UUID;
  * <p>事务边界：@Transactional 仅覆盖 DB 写入（{@link AnalysisTransactionService#savePending} / {@link AnalysisTransactionService#completeAnalysis}）；
  * AI 调用（agentClientService.analyzePaper）显式无 @Transactional，避免 30s 长事务。
  * <p>重构历史：task24 消除 {@code @Autowired @Lazy self} 自注入反模式，事务方法迁移到 {@link AnalysisTransactionService}。
+ *
+ * <p><b>task34 缓存说明</b>：分析结果存在两套 Redis Key 并存：
+ * <ul>
+ *   <li>{@code analysisResult}（Spring Cache @Cacheable）：供 Java 内部 {@link #getAnalysisResult} 使用，
+ *       Key 格式为 "analysisResult::{analysisId}"（Spring Cache 自动加缓存空间前缀），TTL=30min</li>
+ *   <li>{@code analysis:result:{analysisId}}（手动 RedisTemplate）：供 {@link AgentClientService#handleFallback}
+ *       降级时读取，TTL=30min</li>
+ * </ul>
+ * 两套 Key 并存的合理性：Spring Cache 注解体系供 Java 内部高效读取（自动序列化/反序列化）；
+ * 手动 RedisTemplate 写入的 JSON 供降级路径读取（避免反序列化兼容性问题）。
+ * 写方法（analyzePaper/comparePapers/generateReport）调用 completeAnalysis 后，
+ * 通过 {@link CacheManager} 手动 evict {@code analysisResult} 缓存，保证一致性。
  *
  * @author XH-202630 Literature Assistant
  * @since 0.3
@@ -62,6 +75,7 @@ public class AnalysisService {
     private final AnalysisResultRepository analysisResultRepository;
     private final SessionRepository sessionRepository;
     private final ObjectMapper objectMapper;
+    private final CacheManager cacheManager;
 
     /**
      * 论文分析入口（POST /api/analysis/paper）。
@@ -98,7 +112,15 @@ public class AnalysisService {
         AnalysisResultDTO result = agentClientService.analyzePaper(agentRequest);
 
         // 7) 更新 AnalysisResult 状态 + result JSON — 短事务
-        return analysisTransactionService.completeAnalysis(pending.getId(), result);
+        // U-003 修复: 无论 completeAnalysis 是否抛异常，都 evict 缓存，避免缓存不一致
+        AnalysisTaskResponse response;
+        try {
+            response = analysisTransactionService.completeAnalysis(pending.getId(), result);
+        } finally {
+            // task34: 失效 analysisResult 缓存（completeAnalysis 的 id 是 Long 主键，无法用 @CacheEvict）
+            evictAnalysisResultCache(analysisId);
+        }
+        return response;
     }
 
     /**
@@ -140,7 +162,15 @@ public class AnalysisService {
         AnalysisResultDTO result = agentClientService.analyzePaper(agentRequest);
 
         // 7) 完成分析
-        return analysisTransactionService.completeAnalysis(pending.getId(), result);
+        // U-003 修复: 无论 completeAnalysis 是否抛异常，都 evict 缓存
+        AnalysisTaskResponse response;
+        try {
+            response = analysisTransactionService.completeAnalysis(pending.getId(), result);
+        } finally {
+            // task34: 失效 analysisResult 缓存
+            evictAnalysisResultCache(analysisId);
+        }
+        return response;
     }
 
     /**
@@ -187,7 +217,15 @@ public class AnalysisService {
         } else if (result != null) {
             log.info("综述报告完成: analysisId={}, citations={}", analysisId, result.getCitations().size());
         }
-        return analysisTransactionService.completeAnalysis(pending.getId(), result);
+        // U-003 修复: 无论 completeAnalysis 是否抛异常，都 evict 缓存
+        AnalysisTaskResponse response;
+        try {
+            response = analysisTransactionService.completeAnalysis(pending.getId(), result);
+        } finally {
+            // task34: 失效 analysisResult 缓存
+            evictAnalysisResultCache(analysisId);
+        }
+        return response;
     }
 
     // region 查询方法（task23）
@@ -201,8 +239,8 @@ public class AnalysisService {
     public AnalysisResponse getAnalysisResult(String userId, String analysisId) {
         AnalysisResult entity = analysisResultRepository.findByAnalysisId(analysisId)
                 .orElseThrow(() -> new ResourceNotFoundException("AnalysisResult", analysisId));
-        // 数据隔离
-        validateDataIsolation(userId, entity.getSessionId());
+        // 修复 B-003: 数据隔离校验已上移到 Controller（validateAnalysisAccess），此处信任入参。
+        // @Cacheable 命中时方法体不执行，内部校验会被绕过。
         // 反序列化 result JSON
         AnalysisResultDTO resultDto = deserializeResult(entity.getResult());
         return AnalysisResponse.builder()
@@ -246,6 +284,25 @@ public class AnalysisService {
 
     private String generateAnalysisId() {
         return "anl_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+    }
+
+    /**
+     * task34: 手动失效 analysisResult Spring Cache 缓存。
+     * <p>由于 {@link AnalysisTransactionService#completeAnalysis} 的 id 是 Long 主键，
+     * 无法用 @CacheEvict(key="#analysisId")（analysisId 是字符串字段），故在 AnalysisService
+     * 编排层调用 completeAnalysis 后手动 evict。
+     */
+    private void evictAnalysisResultCache(String analysisId) {
+        try {
+            org.springframework.cache.Cache cache = cacheManager.getCache("analysisResult");
+            if (cache != null) {
+                cache.evict(analysisId);
+                log.debug("analysisResult cache evicted: analysisId={}", analysisId);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to evict analysisResult cache: analysisId={}, error={}",
+                    analysisId, e.getMessage());
+        }
     }
 
     private UserProfileDTO buildUserProfile(String userId) {

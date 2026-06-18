@@ -1,0 +1,299 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M5 / AM5：混合检索与功能完善",
+    "requirement": "将 SearchService 的 RRF_K 常量和 Reranker 的权重常量（WEIGHT_RRF/WEIGHT_FIELD/WEIGHT_POPULARITY）改为从 settings 读取，支持环境变量覆盖。提供参数调优脚本，网格搜索 k 值和权重组合，输出 Top5 准确率对比表。本任务对应 AM5 Week 9 Day 2，依赖 task46 关键词检索优化完成。",
+    "requirement_ids": ["F3.2.4", "F3.2.5"],
+    "reference_docs": [
+      {
+        "path": "docs/ai-service/AI服务模块系统架构文档.md",
+        "purpose": "了解 RRF 融合算法和 Reranker 复合评分公式"
+      },
+      {
+        "path": "docs/ai-service/AI服务模块项目里程碑文档.md",
+        "purpose": "确认 AM5 Week 9 Day 2 RRF 融合算法和个性化排序调整的验收标准"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-005 RRF k=60 决策依据"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "确认 Python 配置规范（pydantic-settings BaseSettings + .env）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {
+        "layer": "python_ai_service",
+        "module_path": "app.services.search_service",
+        "description": "SearchService.RRF_K = 60 为类级常量，_reciprocal_rank_fusion 使用该常量"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app.services.reranker",
+        "description": "Reranker 权重 WEIGHT_RRF=0.5/WEIGHT_FIELD=0.3/WEIGHT_POPULARITY=0.2 为类级常量，rerank 方法使用这些权重计算 composite_score"
+      },
+      {
+        "layer": "python_ai_service",
+        "module_path": "app.core.config",
+        "description": "Settings 类使用 pydantic-settings BaseSettings，从 .env 读取配置"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/ai-service/app/services/search_service.py",
+        "description": "RRF_K = 60 类级常量，_reciprocal_rank_fusion(list1, list2, k=60) 方法实现 RRF 融合，score = 1/(k + rank + 1)",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/services/reranker.py",
+        "description": "WEIGHT_RRF=0.5/WEIGHT_FIELD=0.3/WEIGHT_POPULARITY=0.2 类级常量，composite_score = score_rrf*0.5 + field_score*0.3 + popularity_score*0.2",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/ai-service/app/core/config.py",
+        "description": "Settings 类已有 LLM_TIMEOUT/AGENT_FULL_TIMEOUT 等配置项，可参考新增 RRF/Reranker 配置",
+        "reuse_type": "reference"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "SearchService",
+      "path": "Veritas/ai-service/app/services/search_service.py",
+      "responsibility": "检索服务，含 RRF 融合算法",
+      "key_interfaces": [
+        {
+          "name": "_reciprocal_rank_fusion",
+          "signature": "def _reciprocal_rank_fusion(self, list1: List[dict], list2: List[dict], k: int = 60) -> List[dict]",
+          "description": "RRF 融合，k 值需改为从 settings 读取"
+        }
+      ]
+    },
+    {
+      "name": "Reranker",
+      "path": "Veritas/ai-service/app/services/reranker.py",
+      "responsibility": "重排序服务，复合评分",
+      "key_interfaces": [
+        {
+          "name": "rerank",
+          "signature": "async def rerank(self, query: str, results: List[dict], user_profile: Optional[Dict] = None) -> List[dict]",
+          "description": "复合评分重排序，权重需改为从 settings 读取"
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "path": "Veritas/ai-service/app/core/config.py",
+      "responsibility": "配置管理，pydantic-settings BaseSettings",
+      "key_interfaces": [
+        {
+          "name": "Settings",
+          "signature": "class Settings(BaseSettings)",
+          "description": "配置类，需新增 RRF_K/RERANKER_WEIGHT_RRF/RERANKER_WEIGHT_FIELD/RERANKER_WEIGHT_POPULARITY"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/config.py",
+      "description": "新增配置项：RRF_K: int = 60 / RERANKER_WEIGHT_RRF: float = 0.5 / RERANKER_WEIGHT_FIELD: float = 0.3 / RERANKER_WEIGHT_POPULARITY: float = 0.2",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/services/search_service.py",
+      "description": "删除 RRF_K = 60 类级常量，__init__ 中从 settings 读取 self.rrf_k = settings.RRF_K，_reciprocal_rank_fusion 使用 self.rrf_k",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/services/reranker.py",
+      "description": "删除 WEIGHT_RRF/FIELD/POPULARITY 类级常量，__init__ 中从 settings 读取，rerank 方法使用实例属性",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/app/core/events.py",
+      "description": "确保 Reranker 初始化时传入 settings（如未传入则补充）",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/scripts/tune_rrf_reranker.py",
+      "description": "参数调优脚本：网格搜索 k ∈ {30, 60, 90, 120} × 权重组合（RRF 0.3-0.7, FIELD 0.2-0.4, POPULARITY 0.1-0.3），输出 Top5 准确率对比 Markdown 表",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/ai-service/tests/test_rrf_reranker_tuning.py",
+      "description": "调优测试：验证 RRF_K 和权重可从环境变量覆盖，验证调优脚本可执行",
+      "layer": "python_ai_service"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/ai-service/.env.example",
+      "description": "新增 RRF_K=60 / RERANKER_WEIGHT_RRF=0.5 / RERANKER_WEIGHT_FIELD=0.3 / RERANKER_WEIGHT_POPULARITY=0.2 示例",
+      "layer": "python_ai_service"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "在 Settings 类中新增配置项（带默认值）：RRF_K: int = 60 / RERANKER_WEIGHT_RRF: float = 0.5 / RERANKER_WEIGHT_FIELD: float = 0.3 / RERANKER_WEIGHT_POPULARITY: float = 0.2。配置项需在 .env.example 中添加示例。",
+        "priority": "P0",
+        "acceptance_condition": "Settings 实例的 rrf_k == 60, reranker_weight_rrf == 0.5 等默认值正确"
+      },
+      {
+        "id": "FR-002",
+        "description": "修改 SearchService：1) 删除 RRF_K = 60 类级常量；2) __init__ 新增 settings 参数（如已有则复用），self.rrf_k = settings.RRF_K；3) _reciprocal_rank_fusion 的 k 参数默认值改为 self.rrf_k；4) hybrid_search 调用 _reciprocal_rank_fusion 时使用 self.rrf_k。",
+        "priority": "P0",
+        "acceptance_condition": "环境变量 RRF_K=90 时，SearchService.rrf_k == 90，_reciprocal_rank_fusion 使用 k=90"
+      },
+      {
+        "id": "FR-003",
+        "description": "修改 Reranker：1) 删除 WEIGHT_RRF/FIELD/POPULARITY 类级常量；2) __init__ 新增 settings 参数，self.weight_rrf = settings.RERANKER_WEIGHT_RRF 等；3) rerank 方法中使用 self.weight_rrf 等实例属性替代类常量；4) 保持 YEAR_DECAY_RATE/TITLE_MATCH_BOOST 等其他常量不变（本任务仅调优主权重）。",
+        "priority": "P0",
+        "acceptance_condition": "环境变量 RERANKER_WEIGHT_RRF=0.7 时，Reranker.weight_rrf == 0.7，rerank 使用 0.7 权重"
+      },
+      {
+        "id": "FR-004",
+        "description": "创建 scripts/tune_rrf_reranker.py 调优脚本：1) 网格搜索 k ∈ {30, 60, 90, 120}；2) 权重组合搜索（RRF ∈ {0.3, 0.5, 0.7}, FIELD ∈ {0.2, 0.3}, POPULARITY ∈ {0.1, 0.2, 0.3}，需归一化）；3) 对每组参数运行 20 条测试查询（复用 task48 的 test_queries.json，如不存在则用内置 5 条查询）；4) 计算 Top5 准确率；5) 输出 Markdown 表格到 stdout 和 logs/tune_rrf_reranker_results.md。",
+        "priority": "P1",
+        "acceptance_condition": "脚本可执行，输出 Markdown 表格含 k 值、权重组合、Top5 准确率列"
+      },
+      {
+        "id": "FR-005",
+        "description": "权重归一化校验：在 Reranker.__init__ 中验证 weight_rrf + weight_field + weight_popularity ≈ 1.0（允许 ±0.01 误差），否则 logger.warning 但不阻止初始化。",
+        "priority": "P1",
+        "acceptance_condition": "权重和为 0.8 时，logger.warning 但不抛出异常"
+      }
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "N/A（本任务不涉及 Agent）",
+        "multi_agent_failure": "N/A",
+        "review_retry_limit": 0
+      }
+    }
+  },
+  "constraints": {
+    "naming": {
+      "python": {
+        "class_name": "PascalCase",
+        "function_variable": "snake_case",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "snake_case.py",
+        "config_key": "UPPER_SNAKE_CASE"
+      }
+    },
+    "layering": {
+      "python": {
+        "rule": "配置在 core/config.py，业务逻辑在 services/，调优脚本在 scripts/"
+      }
+    },
+    "error_handling": {
+      "python": {
+        "approach": "权重归一化校验失败时 logger.warning 不阻止初始化；调优脚本单组参数失败时 continue 下一组"
+      }
+    },
+    "logging": {
+      "python": "Loguru",
+      "prohibited": ["在调优循环中打印 INFO 日志（用 DEBUG）"]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改 _reciprocal_rank_fusion 的核心算法（score = 1/(k + rank + 1)）", "reason": "仅改 k 值来源，算法不变", "severity": "high"},
+    {"id": "FA-003", "action": "修改 Reranker.rerank 的复合评分公式结构", "reason": "仅改权重来源，公式结构 composite = rrf*w1 + field*w2 + pop*w3 不变", "severity": "high"},
+    {"id": "FA-004", "action": "修改 YEAR_DECAY_RATE/TITLE_MATCH_BOOST/KEYWORD_DENSITY_WEIGHT 等次要常量", "reason": "本任务仅调优主权重，次要常量保持不变", "severity": "medium"},
+    {"id": "FA-005", "action": "删除 Reranker 现有的 personalization_boost 逻辑", "reason": "个性化加权在 task55 完善，本任务不涉及", "severity": "high"},
+    {"id": "FA-006", "action": "硬编码 k 值或权重到业务代码", "reason": "必须从 settings 读取", "severity": "critical"},
+    {"id": "FA-007", "action": "调优脚本依赖外部数据文件（如 task48 的 test_queries.json 不存在时）", "reason": "脚本应内置 fallback 测试查询", "severity": "medium"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "test_rrf_k_from_settings",
+        "description": "测试 RRF_K 从 settings 读取：默认 60，环境变量 RRF_K=90 时为 90",
+        "framework": "pytest",
+        "coverage": ["normal_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_reranker_weights_from_settings",
+        "description": "测试 Reranker 权重从 settings 读取：默认 0.5/0.3/0.2，环境变量覆盖后生效",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_weight_normalization_warning",
+        "description": "测试权重归一化校验：权重和为 0.8 时 logger.warning 但不抛出异常",
+        "framework": "pytest",
+        "coverage": ["error_flow", "boundary_condition"]
+      },
+      {
+        "test_name": "test_tune_script_executable",
+        "description": "测试调优脚本可执行：subprocess 运行 scripts/tune_rrf_reranker.py，验证退出码 0 和输出含 Markdown 表格",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "test_rrf_fusion_uses_configured_k",
+        "description": "测试 _reciprocal_rank_fusion 使用配置的 k 值：mock 两个列表，验证 rrf_score 计算使用 k=90（而非默认 60）",
+        "framework": "pytest",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "verification_commands": [
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && RRF_K=90 RERANKER_WEIGHT_RRF=0.7 python -m pytest tests/test_rrf_reranker_tuning.py -v",
+        "expected_result": "所有测试通过，RRF_K 和权重从环境变量读取"
+      },
+      {
+        "layer": "python",
+        "command": "cd Veritas/ai-service && python scripts/tune_rrf_reranker.py",
+        "expected_result": "输出 Markdown 表格含 k 值、权重组合、Top5 准确率"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "criterion": "RRF_K 可通过环境变量 RRF_K=90 覆盖，SearchService.rrf_k == 90",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-002",
+      "criterion": "Reranker 权重可通过环境变量 RERANKER_WEIGHT_RRF=0.7 覆盖",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-003",
+      "criterion": "调优脚本输出 k=60 vs k=90 的 Top5 准确率对比 Markdown 表",
+      "verified_by": "manual_test"
+    },
+    {
+      "id": "AC-004",
+      "criterion": "权重归一化校验：权重和 ≠ 1.0 时 logger.warning 但不阻止初始化",
+      "verified_by": "automated_test"
+    },
+    {
+      "id": "AC-005",
+      "criterion": "未修改 _reciprocal_rank_fusion 核心算法（score = 1/(k + rank + 1)）",
+      "verified_by": "code_review"
+    },
+    {
+      "id": "AC-006",
+      "criterion": "未修改 Reranker.rerank 复合评分公式结构",
+      "verified_by": "code_review"
+    }
+  ]
+}

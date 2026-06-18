@@ -1,0 +1,396 @@
+{
+  "meta": {
+    "project": "XH-202630 科研文献智能助手",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善",
+    "feature_id": ["F2.6.1", "F2.1.5", "F2.1.6", "F2.1.7"],
+    "task_name": "task32_cache_user_profile_info",
+    "day": "Day 1",
+    "created_at": "2026-06-17"
+  },
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善（Week 9 Day 1）",
+    "requirement": "完善用户画像缓存与用户信息缓存：修复 userProfileJson 缓存名在 RedisConfig 未配置 TTL 的 Bug；完善 UserService 的 @Cacheable/@CacheEvict 注解；统一 Spring Cache 注解体系与 syncProfileToRedis 手动 Redis 操作；实现缓存穿透防护（空值缓存 TTL=60s）；验证缓存雪崩防护（TTL ±10% 随机偏移）；保障双重失效（userProfile + userProfileJson + userInfo 同步失效）。",
+    "requirement_ids": ["F2.6.1", "F2.1.5", "F2.1.6", "F2.1.7"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "第9章 缓存管理模块（F2.6）— 9大缓存空间定义、TTL分层、Cache-Aside策略"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "第7章 JM5 缓存优化与功能完善 — Day 1 用户画像缓存 + 用户信息缓存任务分解"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "关键规则第6条 Cache-Aside 写后删 Redis；速查表统一响应格式"
+      },
+      {
+        "path": "docs/架构决策记录(ADR).md",
+        "purpose": "ADR-007 缓存策略决策（Cache-Aside + TTL分层）"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.config.RedisConfig",
+        "description": "Redis缓存配置类，管理6个缓存空间TTL（userProfile/userInfo/paperDetail/paperSearch/analysisResult/sessionState），默认TTL=30min，已实现±10%随机偏移防雪崩"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service.UserService",
+        "description": "用户管理业务，已实现@Cacheable(userInfo/userProfile) + @CacheEvict(userProfile+userProfileJson+userInfo)，但userProfileJson缓存名在RedisConfig未配置TTL（Bug）"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.util.RedisKeyUtil",
+        "description": "Redis Key生成工具，已实现userProfileKey等方法"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java",
+        "description": "RedisConfig已配置6个缓存空间TTL（userProfile=1h, userInfo=1h, paperDetail=30min, paperSearch=10min, analysisResult=30min, sessionState=2h），默认TTL=30min，已实现TTL_JITTER_RATIO=0.1随机偏移；使用GenericJackson2JsonRedisSerializer（启用NON_FINAL默认类型信息）",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java",
+        "description": "UserService已实现：getUserInfo(@Cacheable userInfo)、updateUser(@CacheEvict userInfo)、getProfile(@Cacheable userProfile)、createProfile(@CacheEvict userProfile+userProfileJson+userInfo)、updateProfile(@CacheEvict userProfile+userProfileJson+userInfo)；私有方法syncProfileToRedis手动写Redis（key=RedisKeyUtil.userProfileKey, TTL=1h）",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+        "description": "RedisKeyUtil已实现userProfileKey(userId)等方法，返回 user:profile:{userId} 格式",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/BusinessException.java",
+        "description": "BusinessException体系（code+message+errorKey），ResourceNotFoundException(code=404)用于用户/画像不存在场景",
+        "reuse_type": "direct_reuse"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "RedisConfig",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java",
+      "responsibility": "Redis缓存配置，管理缓存空间TTL、序列化、连接池",
+      "key_interfaces": [
+        {
+          "name": "cacheManager",
+          "signature": "@Bean public RedisCacheManager cacheManager(RedisConnectionFactory factory)",
+          "description": "缓存管理器，配置各缓存空间TTL与序列化"
+        },
+        {
+          "name": "redisTemplate",
+          "signature": "@Bean public RedisTemplate<String, String> redisTemplate(RedisConnectionFactory factory)",
+          "description": "RedisTemplate Bean，供AgentClientService手动操作Hash使用"
+        }
+      ]
+    },
+    {
+      "name": "UserService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java",
+      "responsibility": "用户管理业务，注册/登录/画像CRUD，缓存管理",
+      "key_interfaces": [
+        {
+          "name": "getUserInfo",
+          "signature": "@Cacheable(value=\"userInfo\", key=\"#userId\") public UserResponse getUserInfo(String userId)",
+          "description": "查询用户信息，缓存命中则直接返回"
+        },
+        {
+          "name": "getProfile",
+          "signature": "@Cacheable(value=\"userProfile\", key=\"#userId\", unless=\"#result == null\") public ProfileResponse getProfile(String userId)",
+          "description": "查询用户画像，缓存命中则直接返回"
+        },
+        {
+          "name": "createProfile",
+          "signature": "@CacheEvict(value={\"userProfile\",\"userProfileJson\",\"userInfo\"}, key=\"#userId\") public ProfileResponse createProfile(String userId, ProfileUpdateRequest request)",
+          "description": "创建画像，三重失效（userProfile+userProfileJson+userInfo）"
+        },
+        {
+          "name": "syncProfileToRedis",
+          "signature": "private void syncProfileToRedis(String userId, UserProfile profile)",
+          "description": "私有方法，将画像JSON写入Redis（key=RedisKeyUtil.userProfileKey, TTL=1h），供Python服务使用"
+        }
+      ]
+    },
+    {
+      "name": "RedisKeyUtil",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+      "responsibility": "Redis Key统一生成工具，确保Key命名规范一致",
+      "key_interfaces": [
+        {
+          "name": "userProfileKey",
+          "signature": "public static String userProfileKey(String userId)",
+          "description": "生成 user:profile:{userId} 格式Key"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java",
+      "description": "补齐 userProfileJson 缓存空间TTL配置（1h，与userProfile一致），修复@CacheEvict引用未配置缓存名的Bug",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java",
+      "description": "完善缓存注解：getProfile添加unless=#result==null空值防护；getUserInfo添加unless空值防护；syncProfileToRedis与Spring Cache注解体系对齐注释说明",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+      "description": "新增 userProfileJsonKey(userId) 方法，生成 user:profile:json:{userId} 格式Key，用于syncProfileToRedis手动写入的Key规范化",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/UserServiceCacheTest.java",
+      "description": "新增缓存测试类：验证缓存命中、缓存失效、双重失效、空值缓存穿透防护、TTL随机偏移",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "修复 RedisConfig 中 userProfileJson 缓存名未配置TTL的Bug：在 cacheConfigurations Map 中新增 userProfileJson 条目，TTL=1小时（与userProfile一致），确保@CacheEvict(value={...,\"userProfileJson\",...})能正确失效该缓存空间",
+        "priority": "P0",
+        "acceptance_condition": "RedisConfig.cacheConfigurations 包含 userProfileJson 条目，TTL=Duration.ofHours(1)"
+      },
+      {
+        "id": "FR-002",
+        "description": "完善 UserService.getProfile 缓存穿透防护：添加 @Cacheable(unless=\"#result == null\") 已存在，需补充空值缓存策略——当画像不存在时，缓存空值（TTL=60s）防止缓存穿透。实现方式：getProfile方法在画像不存在时返回null（当前抛ResourceNotFoundException），需调整为先查缓存（含空值标记），再查数据库；或使用 @Cacheable(unless=\"#result == null || #result.userId == null\") 配合空对象模式",
+        "priority": "P1",
+        "acceptance_condition": "画像不存在时，60秒内重复查询不命中数据库（空值缓存生效）"
+      },
+      {
+        "id": "FR-003",
+        "description": "完善 UserService.getUserInfo 缓存穿透防护：添加 unless=\"#result == null\" 条件，用户不存在时不缓存（避免缓存无效空值）；或采用空值缓存策略（TTL=60s）",
+        "priority": "P1",
+        "acceptance_condition": "用户不存在时，缓存策略正确（不缓存或缓存空值60s）"
+      },
+      {
+        "id": "FR-004",
+        "description": "统一 syncProfileToRedis 与 Spring Cache 注解体系的Key命名：syncProfileToRedis 当前使用 RedisKeyUtil.userProfileKey(userId) 生成 user:profile:{userId}，而 Spring Cache @Cacheable(value=\"userProfile\") 使用 userProfile::userId 格式。需在代码注释中明确两套Key并存的合理性（Spring Cache供Java内部使用，syncProfileToRedis供Python服务跨语言读取），或统一为同一Key",
+        "priority": "P2",
+        "acceptance_condition": "两套Key命名策略在代码注释中清晰说明，或统一为同一Key"
+      },
+      {
+        "id": "FR-005",
+        "description": "验证缓存雪崩防护：RedisConfig 已实现 TTL_JITTER_RATIO=0.1（±10%随机偏移），需在测试中验证 userProfile/userInfo 缓存的TTL在 54min~66min 范围内（1h ± 10%）",
+        "priority": "P1",
+        "acceptance_condition": "测试验证 userProfile 缓存TTL在 54min~66min 范围内"
+      },
+      {
+        "id": "FR-006",
+        "description": "保障双重失效：createProfile/updateProfile 的 @CacheEvict(value={\"userProfile\",\"userProfileJson\",\"userInfo\"}, key=\"#userId\") 必须同时失效三个缓存空间。需在测试中验证：更新画像后，三个缓存空间的Key均被删除",
+        "priority": "P0",
+        "acceptance_condition": "更新画像后，userProfile/userProfileJson/userInfo 三个缓存Key均被删除"
+      },
+      {
+        "id": "FR-007",
+        "description": "RedisKeyUtil 新增 userProfileJsonKey(userId) 方法，生成 user:profile:json:{userId} 格式Key，供 syncProfileToRedis 使用（规范化手动Redis操作的Key命名）",
+        "priority": "P2",
+        "acceptance_condition": "RedisKeyUtil.userProfileJsonKey(userId) 返回 user:profile:json:{userId}"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          {"java": "userId", "python": "user_id", "json": "user_id"},
+          {"java": "educationLevel", "python": "education_level", "json": "education_level"},
+          {"java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level"},
+          {"java": "preferredStyle", "python": "preferred_style", "json": "preferred_style"},
+          {"java": "researchField", "python": "research_field", "json": "research_field"}
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "用户画像数据流：前端 → Java UserService（@Cacheable userProfile/userInfo）→ MySQL user_profiles 表；同时 syncProfileToRedis 写入 Redis user:profile:{userId}（TTL=1h）供 Python AI 服务通过 Redis 读取画像实现个性化生成"
+    },
+    "degradation_requirements": {},
+    "security_requirements": [
+      {
+        "category": "data_isolation",
+        "requirement": "缓存Key必须包含userId，确保用户A无法读取用户B的缓存数据；@Cacheable key=\"#userId\" 已实现数据隔离"
+      },
+      {
+        "category": "sensitive_info",
+        "requirement": "缓存中不得存储密码哈希（passwordHash）；UserResponse DTO 不包含 passwordHash 字段，确保缓存值安全"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.java",
+        "enum_value": "UPPER_SNAKE_CASE",
+        "config_key": "kebab-case"
+      },
+      "database": {
+        "table_name": "snake_case, 复数形式",
+        "column_name": "snake_case",
+        "index_name": "idx_/uk_/ft_ + 字段名"
+      },
+      "json": {
+        "field_name": "snake_case"
+      },
+      "cross_system_mapping": [
+        {"java": "userId", "python": "user_id", "json": "user_id"},
+        {"java": "educationLevel", "python": "education_level", "json": "education_level"},
+        {"java": "knowledgeLevel", "python": "knowledge_level", "json": "knowledge_level"},
+        {"java": "preferredStyle", "python": "preferred_style", "json": "preferred_style"},
+        {"java": "researchField", "python": "research_field", "json": "research_field"}
+      ]
+    },
+    "layering": {
+      "java": {
+        "rule": "Controller → Service → Repository → Client，禁止跨层",
+        "entity_dto_separation": true,
+        "dto_naming": "XxxRequest, XxxResponse"
+      }
+    },
+    "error_handling": {
+      "java": {
+        "approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)",
+        "business_exception_fields": ["code", "message", "errorKey"]
+      }
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "userProfile", "key_pattern": "user:profile:{userId}", "ttl": "1h (54min~66min with ±10% jitter)"},
+        {"cache_name": "userProfileJson", "key_pattern": "user:profile:json:{userId}", "ttl": "1h (54min~66min with ±10% jitter)"},
+        {"cache_name": "userInfo", "key_pattern": "user:info:{userId}", "ttl": "1h (54min~66min with ±10% jitter)"}
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%），RedisConfig.TTL_JITTER_RATIO=0.1",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": [
+        "在循环中打印INFO及以上级别日志",
+        "在日志中输出敏感信息（密码、Token、API Key）"
+      ]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "primary_key": "id BIGINT AUTO_INCREMENT",
+      "business_id": "xxx_id VARCHAR(100) UNIQUE NOT NULL",
+      "comment_required": true,
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（如PaperService/SessionService/AnalysisService）", "reason": "本任务仅涉及UserService/RedisConfig/RedisKeyUtil缓存完善", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-004", "action": "破坏分层调用规范（Controller直接操作Repository等）", "reason": "分层架构约束", "severity": "critical"},
+    {"id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high"},
+    {"id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-007", "action": "违反跨系统字段命名约定（Java camelCase ↔ Python/JSON snake_case）", "reason": "跨系统一致性约束", "severity": "high"},
+    {"id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium"},
+    {"id": "FA-009", "action": "使用SQL拼接（必须参数化查询）", "reason": "SQL注入防护", "severity": "critical"},
+    {"id": "FA-010", "action": "忽略降级场景（本任务不涉及AI服务，但缓存失效时需回源数据库）", "reason": "可用性约束", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {
+        "test_name": "UserServiceCacheTest.getProfile_cacheHit_returnsCached",
+        "description": "验证getProfile缓存命中：第一次查询命中数据库并回填缓存，第二次查询直接返回缓存数据（不调用UserProfileRepository）",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "UserServiceCacheTest.createProfile_tripleInvalidation",
+        "description": "验证createProfile三重失效：创建画像后，userProfile/userProfileJson/userInfo三个缓存空间的Key均被删除",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "UserServiceCacheTest.updateProfile_tripleInvalidation",
+        "description": "验证updateProfile三重失效：更新画像后，userProfile/userProfileJson/userInfo三个缓存空间的Key均被删除",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "UserServiceCacheTest.getProfile_notFound_cachesNullForPenetration",
+        "description": "验证缓存穿透防护：画像不存在时，60秒内重复查询不命中数据库（空值缓存生效）",
+        "framework": "junit5",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "RedisConfigTest.userProfileJson_ttlConfigured",
+        "description": "验证RedisConfig中userProfileJson缓存空间TTL已配置为1小时",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      },
+      {
+        "test_name": "RedisConfigTest.userProfile_ttlJitterApplied",
+        "description": "验证userProfile缓存TTL在54min~66min范围内（1h ± 10%随机偏移）",
+        "framework": "junit5",
+        "coverage": ["boundary_condition"]
+      },
+      {
+        "test_name": "RedisKeyUtilTest.userProfileJsonKey_format",
+        "description": "验证userProfileJsonKey(userId)返回 user:profile:json:{userId} 格式",
+        "framework": "junit5",
+        "coverage": ["normal_flow"]
+      }
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=UserServiceCacheTest",
+        "expected_result": "所有测试通过，0失败0错误"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn test -Dtest=RedisConfigTest",
+        "expected_result": "RedisConfig测试通过，userProfileJson TTL配置验证通过"
+      },
+      {
+        "layer": "java",
+        "command": "cd Veritas/backend && mvn compile",
+        "expected_result": "编译成功，无错误"
+      }
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "RedisConfig中userProfileJson缓存空间TTL已配置为1小时（Duration.ofHours(1)）", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "UserService.getProfile缓存命中时直接返回缓存数据，不调用UserProfileRepository", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "UserService.createProfile/updateProfile触发三重失效（userProfile+userProfileJson+userInfo）", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "画像不存在时缓存穿透防护生效（空值缓存TTL=60s）", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "userProfile/userInfo缓存TTL在54min~66min范围内（±10%随机偏移）", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "RedisKeyUtil.userProfileJsonKey(userId)返回 user:profile:json:{userId} 格式", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "缓存Key包含userId，确保数据隔离（用户A无法读取用户B缓存）", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "缓存值不含passwordHash等敏感信息", "verified_by": "code_review"},
+    {"id": "AC-009", "criterion": "syncProfileToRedis与Spring Cache注解体系的关系在代码注释中清晰说明", "verified_by": "code_review"},
+    {"id": "AC-010", "criterion": "mvn test 全部通过，0失败0错误", "verified_by": "automated_test"},
+    {"id": "AC-011", "criterion": "未修改UserService以外的Service类（PaperService/SessionService/AnalysisService）", "verified_by": "code_review"}
+  ]
+}

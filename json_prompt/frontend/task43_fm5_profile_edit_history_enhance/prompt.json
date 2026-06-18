@@ -1,0 +1,145 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M6：交付就绪 / FM5：功能完善与UI打磨",
+    "requirement": "完善用户画像编辑功能（保存后实时生效）+ 增强历史记录查看（分页、关键词搜索、按时间倒序）。当前UserCenterView已实现画像编辑表单和历史记录时间线，但画像保存后页面画像标签未即时刷新；历史记录仅展示前10条，无分页、无搜索、未明确按时间倒序。本次任务需补全这些P1功能。",
+    "requirement_ids": ["F1.1.3", "F1.1.4"],
+    "reference_docs": [
+      {"path": "AGENTS.md", "purpose": "项目全景上下文与前端约束"},
+      {"path": "docs/frontend/前端模块系统架构文档.md", "purpose": "前端架构规范、用户界面模块F1.1设计"},
+      {"path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM5里程碑任务分解（Week 11 Day 1）"},
+      {"path": "docs/开发规范文档.md", "purpose": "前端编码规范（View→Store→API分层、命名规范）"},
+      {"path": "docs/架构决策记录(ADR).md", "purpose": "架构决策（三层分离、状态管理）"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      {"layer": "frontend", "module_path": "src/views/UserCenterView.vue", "description": "用户中心页：用户信息展示+画像编辑+历史记录时间线（176行，已实现基础版）"},
+      {"layer": "frontend", "module_path": "src/components/common/UserProfileForm.vue", "description": "画像表单组件：4维度（学历/研究方向/知识水平/偏好风格）设置+校验+保存（174行）"},
+      {"layer": "frontend", "module_path": "src/stores/userStore.ts", "description": "用户状态：login/logout/fetchProfile/saveProfile，Token+userId+username持久化（92行）"},
+      {"layer": "frontend", "module_path": "src/api/user.ts", "description": "用户API：register/login/getUserInfo/getProfile/createProfile/updateProfile（22行）"},
+      {"layer": "frontend", "module_path": "src/api/session.ts", "description": "会话API：create/list/getDetail/delete"},
+      {"layer": "frontend", "module_path": "src/composables/usePagination.ts", "description": "分页组合函数：页码切换+数据加载（FM2已实现）"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/frontend/src/views/UserCenterView.vue", "description": "已实现：el-descriptions展示用户信息、UserProfileForm画像编辑、el-timeline展示历史记录（最多10条，点击跳转/search?sessionId=xxx）。缺失：画像保存后画像标签未即时刷新、历史记录无分页、无搜索、未明确按createdAt倒序", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/components/common/UserProfileForm.vue", "description": "已实现：4维度表单+校验+保存逻辑+watch initialData回填。缺失：无'重置'按钮、保存成功未emit事件通知父组件", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/stores/userStore.ts", "description": "已实现：saveProfile区分create/update，更新profile.value。缺失：保存后未触发页面级响应式刷新机制", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/api/user.ts", "description": "已实现：getUserInfo/getProfile/createProfile/updateProfile。缺失：无getHistorySessions方法（历史记录当前通过sessionApi.list获取）", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/api/session.ts", "description": "已实现：list(params)获取会话列表。缺失：不支持q关键词搜索参数", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/composables/usePagination.ts", "description": "已实现：分页逻辑封装，可复用于历史记录分页", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "UserCenterView",
+      "path": "Veritas/frontend/src/views/UserCenterView.vue",
+      "responsibility": "用户中心页面，整合用户信息、画像编辑、历史记录三大区块",
+      "key_interfaces": [
+        {"name": "handleProfileSaved", "signature": "(profile: UserProfile) => void", "description": "画像保存成功回调，需刷新页面画像标签"},
+        {"name": "fetchHistorySessions", "signature": "(page: number, q?: string) => Promise<void>", "description": "拉取历史会话记录，支持分页和搜索"}
+      ]
+    },
+    {
+      "name": "UserProfileForm",
+      "path": "Veritas/frontend/src/components/common/UserProfileForm.vue",
+      "responsibility": "用户画像4维度表单组件",
+      "key_interfaces": [
+        {"name": "saved", "signature": "emit('saved', profile: UserProfile)", "description": "保存成功事件，向父组件传递新画像数据"},
+        {"name": "handleReset", "signature": "() => void", "description": "重置表单到初始值"}
+      ]
+    },
+    {
+      "name": "userStore",
+      "path": "Veritas/frontend/src/stores/userStore.ts",
+      "responsibility": "用户状态管理，包含Token、用户信息、画像",
+      "key_interfaces": [
+        {"name": "saveProfile", "signature": "async (data: UserProfile) => Promise<UserProfile>", "description": "保存画像（区分create/update），更新profile.value"},
+        {"name": "profile", "signature": "ComputedRef<UserProfile | null>", "description": "当前用户画像响应式状态"}
+      ]
+    },
+    {
+      "name": "sessionApi",
+      "path": "Veritas/frontend/src/api/session.ts",
+      "responsibility": "会话API封装",
+      "key_interfaces": [
+        {"name": "list", "signature": "(params: { page: number; size: number; q?: string }) => Promise<PageResponse<SessionResponse>>", "description": "获取会话列表，支持分页和关键词搜索"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/frontend/src/views/UserCenterView.vue", "description": "画像保存后同步刷新画像标签（监听UserProfileForm的saved事件）；历史记录增加分页（usePagination）、关键词搜索框、按createdAt倒序", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/components/common/UserProfileForm.vue", "description": "增加'重置'按钮（恢复initialData初始值）；保存成功后emit('saved', profile)事件", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/stores/userStore.ts", "description": "saveProfile后确保profile.value更新触发响应式（已有，需验证）；新增profileVersion计数器强制刷新计算属性", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/api/user.ts", "description": "新增getHistorySessions(userId, params)方法（若历史记录走user维度）；或确认复用sessionApi.list", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/api/session.ts", "description": "list方法params类型扩展，支持q?: string关键词搜索参数", "layer": "frontend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "UserCenterView监听UserProfileForm的saved事件，画像保存成功后立即刷新页面画像标签区域（el-tags展示4维度），无需手动刷新页面", "priority": "P0", "acceptance_condition": "修改画像保存后，页面画像标签立即反映新值"},
+      {"id": "FR-002", "description": "历史记录按createdAt倒序展示（最新的在最上方），使用Array.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())", "priority": "P0", "acceptance_condition": "历史记录第一条为最新创建的会话"},
+      {"id": "FR-003", "description": "历史记录支持分页，每页10条，使用usePagination composable，底部分页器支持页码切换", "priority": "P1", "acceptance_condition": "页码切换时正确加载对应页数据，无报错"},
+      {"id": "FR-004", "description": "历史记录增加关键词搜索框（el-input + Search图标），输入关键词后300ms防抖触发搜索（按topic模糊匹配），搜索结果重置到第1页", "priority": "P1", "acceptance_condition": "输入关键词后结果正确筛选，清空关键词恢复完整列表"},
+      {"id": "FR-005", "description": "UserProfileForm增加'重置'按钮，点击后恢复initialData初始值（未保存的修改丢弃），重置按钮位于保存按钮左侧", "priority": "P2", "acceptance_condition": "点击重置后表单恢复到初始值"},
+      {"id": "FR-006", "description": "userStore新增profileVersion ref<number>，每次saveProfile成功后自增，用于强制触发依赖profile的计算属性重新计算", "priority": "P1", "acceptance_condition": "画像保存后profileVersion自增，页面画像标签刷新"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue",
+        "enum_value": "PascalCase",
+        "config_key": "camelCase"
+      }
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → Store → API，异步操作在Actions中，组件内不直接调用Axios"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "Axios响应拦截器统一错误处理，组件内try-catch处理业务错误并ElMessage提示"
+      }
+    },
+    "caching": {
+      "pattern": "前端无缓存，历史记录每次切换页码或搜索都重新请求后端"
+    },
+    "logging": {
+      "frontend": "console.warn仅用于开发调试，生产环境不输出"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（如修改SearchView、PaperCard等无关组件）", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-011", "action": "破坏View→Store→API分层规范（组件内直接调用Axios）", "reason": "前端分层约束", "severity": "high"},
+    {"id": "FA-012", "action": "在UserProfileForm内直接调用userApi（必须通过userStore Action）", "reason": "状态管理一致性", "severity": "high"},
+    {"id": "FA-013", "action": "使用硬编码尺寸值（必须使用CSS变量如var(--spacing-md)）", "reason": "UI设计系统统一", "severity": "medium"},
+    {"id": "FA-014", "action": "前端排序历史记录（必须由后端按createdAt倒序返回）", "reason": "数据一致性，前端仅做展示", "severity": "medium"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "UserCenterView.spec.ts", "description": "测试画像保存后画像标签刷新、历史记录分页、历史记录搜索、历史记录倒序展示", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition", "error_flow"]},
+      {"test_name": "UserProfileForm.spec.ts", "description": "测试重置按钮、saved事件emit", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition"]}
+    ],
+    "verification_commands": [
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run test -- --run UserCenterView UserProfileForm", "expected_result": "所有测试通过"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run lint", "expected_result": "无lint错误"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run build", "expected_result": "构建成功无TypeScript错误"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "画像修改保存后，UserCenterView页面画像标签立即反映新值（无需刷新页面）", "verified_by": "manual_test"},
+    {"id": "AC-002", "criterion": "历史记录按createdAt倒序展示，最新会话在第一条", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "历史记录分页正常，页码切换无报错，每页10条", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "历史记录搜索框输入关键词后结果正确筛选，清空后恢复完整列表", "verified_by": "manual_test"},
+    {"id": "AC-005", "criterion": "UserProfileForm重置按钮可恢复表单到初始值", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "所有新增/修改的代码通过lint和build验证", "verified_by": "code_review"}
+  ]
+}

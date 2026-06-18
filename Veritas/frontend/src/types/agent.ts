@@ -55,3 +55,16 @@ export interface SSEEvent {
   data: Record<string, unknown>
   timestamp: number
 }
+
+/**
+ * 回放帧：记录某一时刻的 Agent 状态快照与原始事件
+ * 用于 Agent 流程回放功能
+ */
+export interface ReplayFrame {
+  /** 帧时间戳（ms） */
+  timestamp: number
+  /** 该时刻所有 Agent 的状态快照 */
+  agentStates: Record<string, AgentState>
+  /** 触发该帧的原始 SSE 事件 */
+  event: SSEEvent
+}

@@ -1,0 +1,183 @@
+{
+  "meta": {
+    "project": "XH-202630 科研文献智能助手",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善",
+    "feature_id": ["F2.6.3", "F2.6.4", "F2.6.5", "F2.3.1", "F2.3.2", "F2.4.1", "F2.4.4"],
+    "task_name": "task34_cache_analysis_session_agent",
+    "day": "Day 3",
+    "created_at": "2026-06-17"
+  },
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善（Week 9 Day 3）",
+    "requirement": "完善分析结果缓存、会话状态缓存、Agent状态缓存：AnalysisService写方法补@CacheEvict（analyzePaper/comparePapers/generateReport）；统一AnalysisService的Spring Cache与AgentClientService手动Redis（analysis:result vs analysisResult）；SessionService为createSession/listSessions添加缓存；AgentClientService Agent状态Hash缓存完善（与SSE同步验证）；缓存一致性保障Cache-Aside写后删策略验证。",
+    "requirement_ids": ["F2.6.3", "F2.6.4", "F2.6.5", "F2.3.1", "F2.3.2", "F2.4.1", "F2.4.4"],
+    "reference_docs": [
+      {"path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "第6章 会话管理 + 第7章 分析服务 + 第8章 AI服务调用 + 第9章 缓存管理"},
+      {"path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "第7章 JM5 Day 3 分析结果缓存 + 会话状态缓存 + Agent状态缓存任务分解"},
+      {"path": "AGENTS.md", "purpose": "关键规则第6条 Cache-Aside 写后删 Redis"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.AnalysisService", "description": "分析服务业务，已实现@Cacheable(analysisResult)，但写方法未加@CacheEvict；与AgentClientService手动Redis两套体系并存"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.SessionService", "description": "会话管理业务，已实现@Cacheable(sessionState)+@CacheEvict，但createSession/listSessions未缓存"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.AgentClientService", "description": "AI服务调用编排，完全使用手动RedisTemplate操作（agent:state Hash + analysis:result String），未使用Spring Cache注解"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.config.RedisConfig", "description": "已配置analysisResult(30min)/sessionState(2h)缓存空间"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "已实现getAnalysisResult(@Cacheable analysisResult)；analyzePaper/comparePapers/generateReport写方法未加@CacheEvict；通过AnalysisTransactionService处理事务", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/SessionService.java", "description": "已实现getSessionDetail(@Cacheable sessionState)、updateStatus/markAsCompleted/markAsExpired/deleteSession(@CacheEvict sessionState)；createSession/listSessions未缓存", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "description": "完全使用手动RedisTemplate：updateAgentState(agent:state:{analysisId} Hash, TTL=5min)、cacheAnalysisResult(analysis:result:{analysisId} String, TTL=30min)、handleFallback读取缓存", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java", "description": "已配置analysisResult(TTL=30min)/sessionState(TTL=2h)缓存空间", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "AnalysisService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java",
+      "responsibility": "分析服务业务，论文分析/对比/综述编排",
+      "key_interfaces": [
+        {"name": "getAnalysisResult", "signature": "@Cacheable(value=\"analysisResult\", key=\"#analysisId\", unless=\"#result == null\") public AnalysisResponse getAnalysisResult(String userId, String analysisId)", "description": "查询分析结果，缓存TTL=30min"},
+        {"name": "analyzePaper", "signature": "public AnalysisTaskResponse analyzePaper(String userId, PaperAnalysisRequest request)", "description": "论文分析7步编排，未加@CacheEvict"},
+        {"name": "comparePapers", "signature": "public AnalysisTaskResponse comparePapers(String userId, CompareRequest request)", "description": "对比分析，未加@CacheEvict"},
+        {"name": "generateReport", "signature": "public AnalysisTaskResponse generateReport(String userId, ReportRequest request)", "description": "综述生成，未加@CacheEvict"}
+      ]
+    },
+    {
+      "name": "SessionService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/SessionService.java",
+      "responsibility": "会话管理业务，状态机驱动生命周期",
+      "key_interfaces": [
+        {"name": "createSession", "signature": "public SessionResponse createSession(String userId, SessionCreateRequest request)", "description": "创建会话，未加缓存"},
+        {"name": "listSessions", "signature": "public PageResponse<SessionResponse> listSessions(String userId, int page, int size)", "description": "会话列表，未加缓存"},
+        {"name": "getSessionDetail", "signature": "@Cacheable(value=\"sessionState\", key=\"#sessionId\") public SessionDetailResponse getSessionDetail(String userId, String sessionId)", "description": "会话详情，缓存TTL=2h"}
+      ]
+    },
+    {
+      "name": "AgentClientService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java",
+      "responsibility": "AI服务调用编排，降级处理，Agent状态Redis管理",
+      "key_interfaces": [
+        {"name": "updateAgentState", "signature": "public void updateAgentState(String analysisId, List<AgentStateResponse> agentStates)", "description": "写入Redis Hash: agent:state:{analysisId}, TTL=5min"},
+        {"name": "cacheAnalysisResult", "signature": "private void cacheAnalysisResult(String analysisId, AnalysisResultDTO result)", "description": "写入Redis String: analysis:result:{analysisId}, TTL=30min"},
+        {"name": "handleFallback", "signature": "private AnalysisResultDTO handleFallback(AgentRequest request, AIServiceException e)", "description": "降级处理，读取analysis:result:{analysisId}缓存"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "写方法补@CacheEvict(analysisResult)：analyzePaper/comparePapers/generateReport在完成分析后失效缓存；统一analysis:result与analysisResult两套Key命名（注释说明或统一）", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/service/SessionService.java", "description": "createSession添加@CacheEvict(sessionList)失效列表缓存；listSessions添加@Cacheable(sessionList, TTL=10min, key=userId+page+size)", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/service/AgentClientService.java", "description": "Agent状态Hash缓存完善：验证与SSE同步；注释说明手动Redis与Spring Cache的分工", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java", "description": "新增 sessionList 缓存空间配置（TTL=10min）", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/test/java/com/literatureassistant/service/AnalysisCacheTest.java", "description": "分析结果缓存测试：缓存命中、写后删、降级缓存读取", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/test/java/com/literatureassistant/service/SessionCacheTest.java", "description": "会话缓存测试：列表缓存命中、创建后失效、状态更新失效", "layer": "java_backend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "AnalysisService 写方法补 @CacheEvict(analysisResult)：analyzePaper/comparePapers/generateReport 在完成分析后失效 analysisResult 缓存。注意：由于写方法通过 AnalysisTransactionService.completeAnalysis 完成事务，需在 completeAnalysis 方法上添加 @CacheEvict，或在 AnalysisService 的写方法上添加", "priority": "P0", "acceptance_condition": "分析完成后，analysisResult:{analysisId} 缓存被删除"},
+      {"id": "FR-002", "description": "统一 AnalysisService 的 Spring Cache（analysisResult）与 AgentClientService 手动 Redis（analysis:result）两套Key命名：在代码注释中明确两套Key并存的合理性（Spring Cache供Java内部getAnalysisResult使用，analysis:result供AgentClientService降级时读取），或统一为同一Key。建议保留两套但注释说明", "priority": "P1", "acceptance_condition": "两套Key命名策略在代码注释中清晰说明"},
+      {"id": "FR-003", "description": "SessionService 为 listSessions 添加缓存：@Cacheable(value=\"sessionList\", key=T(RedisKeyUtil).sessionListKey(#userId,#page,#size))，TTL=10min", "priority": "P1", "acceptance_condition": "listSessions第二次调用直接返回缓存数据"},
+      {"id": "FR-004", "description": "SessionService 为 createSession 添加 @CacheEvict(value=\"sessionList\", key=T(RedisKeyUtil).sessionListKey(#userId,#page,#size)) 失效列表缓存（由于page/size不确定，建议使用 allEntries=true 清空该用户所有列表缓存）", "priority": "P1", "acceptance_condition": "创建会话后，sessionList缓存被清空"},
+      {"id": "FR-005", "description": "AgentClientService Agent状态Hash缓存完善：验证 updateAgentState 写入的 agent:state:{analysisId} Hash 与 SSE 推送的状态一致；注释说明手动RedisTemplate与Spring Cache注解的分工（Agent状态实时性要求高，使用手动Hash支持字段级更新；分析结果使用Spring Cache注解）", "priority": "P1", "acceptance_condition": "Agent状态Hash与SSE同步，注释说明分工"},
+      {"id": "FR-006", "description": "RedisConfig 新增 sessionList 缓存空间配置：cacheConfigurations.put(\"sessionList\", defaultConfig.entryTtl(Duration.ofMinutes(10)))", "priority": "P1", "acceptance_condition": "RedisConfig包含sessionList缓存空间，TTL=10min"},
+      {"id": "FR-007", "description": "缓存一致性保障：验证 Cache-Aside 写后删策略——AnalysisService写方法完成后失效analysisResult缓存；SessionService状态更新后失效sessionState缓存", "priority": "P0", "acceptance_condition": "Cache-Aside写后删策略验证通过"}
+    ],
+    "cross_system_consistency": {
+      "field_naming": {"rule": "Java camelCase ↔ Python/JSON snake_case", "mappings": [
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"},
+        {"java": "sessionId", "python": "session_id", "json": "session_id"},
+        {"java": "userId", "python": "user_id", "json": "user_id"},
+        {"java": "agentName", "python": "agent_name", "json": "agent_name"},
+        {"java": "durationMs", "python": "duration_ms", "json": "duration_ms"},
+        {"java": "intermediateResult", "python": "intermediate_result", "json": "intermediate_result"}
+      ]},
+      "api_contracts": [],
+      "data_flow": "分析结果数据流：前端 → AnalysisService（@Cacheable analysisResult）→ MySQL analysis_results 表；同时 AgentClientService.cacheAnalysisResult 写入 Redis analysis:result:{analysisId}（TTL=30min）供降级时读取。Agent状态数据流：Python SSE → AgentClientService.updateAgentState → Redis agent:state:{analysisId} Hash（TTL=5min）→ 前端SSE推送"
+    },
+    "degradation_requirements": {
+      "agent_degradation": {
+        "single_agent_failure": "单Agent超时30s跳过，继续后续流程，Agent状态Hash记录failed状态",
+        "multi_agent_failure": "多Agent失败时降级为单Agent模式（仅Retriever+Generator）",
+        "review_retry_limit": 1
+      }
+    },
+    "security_requirements": [
+      {"category": "data_isolation", "requirement": "缓存Key必须包含userId/sessionId/analysisId，确保数据隔离；SessionService缓存key包含userId，AnalysisService缓存key包含analysisId"},
+      {"category": "sensitive_info", "requirement": "缓存中不得存储敏感信息；AnalysisResponse/SessionResponse DTO 不包含敏感字段"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {"class_name": "PascalCase", "method_variable": "camelCase", "constant": "UPPER_SNAKE_CASE", "file_name": "PascalCase.java"},
+      "database": {"table_name": "snake_case, 复数形式", "column_name": "snake_case"},
+      "json": {"field_name": "snake_case"},
+      "cross_system_mapping": [
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"},
+        {"java": "sessionId", "python": "session_id", "json": "session_id"},
+        {"java": "userId", "python": "user_id", "json": "user_id"}
+      ]
+    },
+    "layering": {"java": {"rule": "Controller → Service → Repository → Client，禁止跨层", "entity_dto_separation": true, "dto_naming": "XxxRequest, XxxResponse"}},
+    "error_handling": {"java": {"approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)", "business_exception_fields": ["code", "message", "errorKey"]}},
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "analysisResult", "key_pattern": "analysisResult:{analysisId}", "ttl": "30min (27min~33min with ±10% jitter)"},
+        {"cache_name": "analysis:result", "key_pattern": "analysis:result:{analysisId}", "ttl": "30min (手动RedisTemplate)"},
+        {"cache_name": "sessionState", "key_pattern": "sessionState:{sessionId}", "ttl": "2h (108min~132min with ±10% jitter)"},
+        {"cache_name": "sessionList", "key_pattern": "session:list:{userId}:{page}:{size}", "ttl": "10min (9min~11min with ±10% jitter)"},
+        {"cache_name": "agent:state", "key_pattern": "agent:state:{analysisId}", "ttl": "5min (Hash, 手动RedisTemplate)"}
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {"java": "SLF4J + Logback", "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息"]},
+    "database": {"charset": "utf8mb4 + utf8mb4_unicode_ci", "engine": "InnoDB", "primary_key": "id BIGINT AUTO_INCREMENT", "no_select_star": true, "pagination_required": true},
+    "security": {"auth_mechanism": "JWT Token (24h有效期) + Redis黑名单", "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接", "data_isolation": "WHERE user_id = currentUserId"}
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（UserService/PaperService）", "reason": "本任务仅涉及AnalysisService/SessionService/AgentClientService/RedisConfig", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-004", "action": "破坏分层调用规范", "reason": "分层架构约束", "severity": "critical"},
+    {"id": "FA-005", "action": "Entity直接返回给前端", "reason": "数据隔离与接口稳定性", "severity": "high"},
+    {"id": "FA-006", "action": "硬编码敏感配置", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high"},
+    {"id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium"},
+    {"id": "FA-009", "action": "使用SQL拼接", "reason": "SQL注入防护", "severity": "critical"},
+    {"id": "FA-010", "action": "忽略降级场景（AgentClientService降级时需读取缓存）", "reason": "可用性约束ADR-003", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "AnalysisCacheTest.getAnalysisResult_cacheHit_returnsCached", "description": "验证analysisResult缓存命中", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "AnalysisCacheTest.analyzePaper_evictsCache", "description": "验证analyzePaper完成后失效analysisResult缓存", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "AnalysisCacheTest.handleFallback_readsCache", "description": "验证降级时读取analysis:result缓存", "framework": "junit5", "coverage": ["degradation"]},
+      {"test_name": "SessionCacheTest.listSessions_cacheHit_returnsCached", "description": "验证sessionList缓存命中", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "SessionCacheTest.createSession_evictsListCache", "description": "验证createSession后sessionList缓存被清空", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "SessionCacheTest.updateStatus_evictsStateCache", "description": "验证updateStatus后sessionState缓存被删除", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "AgentClientServiceTest.updateAgentState_syncsWithSse", "description": "验证Agent状态Hash与SSE推送一致", "framework": "junit5", "coverage": ["normal_flow"]}
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=AnalysisCacheTest", "expected_result": "所有测试通过"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=SessionCacheTest", "expected_result": "所有测试通过"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn compile", "expected_result": "编译成功"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "AnalysisService写方法补@CacheEvict(analysisResult)，分析完成后缓存被删除", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "analysisResult与analysis:result两套Key命名在注释中清晰说明", "verified_by": "code_review"},
+    {"id": "AC-003", "criterion": "SessionService为listSessions添加@Cacheable(sessionList)，TTL=10min", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "SessionService为createSession添加@CacheEvict(sessionList, allEntries=true)", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "AgentClientService Agent状态Hash与SSE同步验证通过", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "RedisConfig新增sessionList缓存空间，TTL=10min", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "Cache-Aside写后删策略验证通过", "verified_by": "automated_test"},
+    {"id": "AC-008", "criterion": "缓存Key包含userId/sessionId/analysisId，确保数据隔离", "verified_by": "code_review"},
+    {"id": "AC-009", "criterion": "mvn test 全部通过", "verified_by": "automated_test"}
+  ]
+}

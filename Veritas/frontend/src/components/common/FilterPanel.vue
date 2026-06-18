@@ -129,7 +129,7 @@ function handleReset() {
         :min="0"
         size="small"
         style="width: 100%"
-        @update:model-value="localMinCitations = $event"
+        @update:model-value="localMinCitations = $event ?? 0"
       />
     </div>
 
@@ -168,7 +168,7 @@ function handleReset() {
 .filter-panel__year-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--spacing-xs);
 }
 
 .filter-panel__separator {

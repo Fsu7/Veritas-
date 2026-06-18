@@ -93,7 +93,7 @@ public class UserService {
                 .build();
     }
 
-    @Cacheable(value = "userInfo", key = "#userId")
+    @Cacheable(value = "userInfo", key = "#userId", unless = "#result == null")
     public UserResponse getUserInfo(String userId) {
         User user = userRepository.findByUserId(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
@@ -159,8 +159,8 @@ public class UserService {
 
     @Cacheable(value = "userProfile", key = "#userId", unless = "#result == null")
     public ProfileResponse getProfile(String userId) {
-        validateDataIsolation(userId);
-
+        // 修复 B-001: 数据隔离校验已上移到 UserController.validateUserIdMatch，
+        // 此处信任入参（@Cacheable 命中时方法体不执行，内部校验会被绕过）
         UserProfile profile = userProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("UserProfile", userId));
 
@@ -238,10 +238,24 @@ public class UserService {
         return null;
     }
 
+    /**
+     * task32: 将画像 JSON 写入 Redis，供 Python AI 服务跨语言读取实现个性化生成。
+     * <p>两套 Key 并存说明：
+     * <ul>
+     *   <li>Spring Cache @Cacheable(value="userProfile", key="#userId"): Java 内部 getProfile 使用，
+     *       Key 格式为 "userProfile::{userId}"（Spring Cache 自动加缓存空间前缀），TTL=1h</li>
+     *   <li>syncProfileToRedis 手动写入: 供 Python 服务通过 Redis 读取画像，
+     *       Key 格式为 "user:profile:json:{userId}"（RedisKeyUtil.userProfileJsonKey），TTL=1h</li>
+     * </ul>
+     * 两套 Key 并存的合理性：Spring Cache 注解体系供 Java 内部高效读取（自动序列化/反序列化）；
+     * 手动 RedisTemplate 写入的 JSON 供 Python 服务跨语言读取（Python 直接读 String JSON）。
+     * createProfile/updateProfile 的 @CacheEvict(value={"userProfile","userProfileJson","userInfo"})
+     * 会同时失效三个缓存空间，保证一致性。
+     */
     private void syncProfileToRedis(String userId, ProfileResponse profile) {
         try {
             String json = objectMapper.writeValueAsString(profile);
-            String key = RedisKeyUtil.userProfileKey(userId);
+            String key = RedisKeyUtil.userProfileJsonKey(userId);
             redisTemplate.opsForValue().set(key, json, Duration.ofHours(1));
         } catch (Exception e) {
             log.warn("Failed to sync profile to Redis: userId={}, error={}", userId, e.getMessage());

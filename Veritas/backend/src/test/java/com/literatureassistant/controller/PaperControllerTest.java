@@ -154,7 +154,7 @@ class PaperControllerTest {
                 .build();
 
         when(paperService.searchPapers(
-                anyString(), any(), any(), any(), anyString(), anyInt(), anyInt()))
+                anyString(), any(), any(), any(), any(), any(), anyString(), anyString(), anyInt(), anyInt()))
                 .thenReturn(pageResponse);
 
         mockMvc.perform(get("/api/papers/search")
@@ -179,7 +179,7 @@ class PaperControllerTest {
     @DisplayName("GET /api/papers/search - q为空返回400")
     void searchPapers_emptyQ_returns400() throws Exception {
         when(paperService.searchPapers(
-                anyString(), any(), any(), any(), anyString(), anyInt(), anyInt()))
+                anyString(), any(), any(), any(), any(), any(), anyString(), anyString(), anyInt(), anyInt()))
                 .thenThrow(new IllegalArgumentException("搜索关键词不能为空"));
 
         mockMvc.perform(get("/api/papers/search").param("q", "   "))
@@ -192,7 +192,7 @@ class PaperControllerTest {
     @DisplayName("GET /api/papers/search - yearFrom>yearTo返回400")
     void searchPapers_yearRangeInvalid_returns400() throws Exception {
         when(paperService.searchPapers(
-                anyString(), any(), any(), any(), anyString(), anyInt(), anyInt()))
+                anyString(), any(), any(), any(), any(), any(), anyString(), anyString(), anyInt(), anyInt()))
                 .thenThrow(new BusinessException(400, "yearFrom不能大于yearTo", "INVALID_PARAMETER"));
 
         mockMvc.perform(get("/api/papers/search")

@@ -1,5 +1,6 @@
 package com.literatureassistant.service;
 
+import com.literatureassistant.cache.CacheEvictionHelper;
 import com.literatureassistant.dto.common.PageResponse;
 import com.literatureassistant.dto.request.SessionCreateRequest;
 import com.literatureassistant.dto.response.SessionDetailResponse;
@@ -47,8 +48,12 @@ public class SessionService {
     private final SessionRepository sessionRepository;
     private final SessionMapper sessionMapper;
     private final AnalysisResultRepository analysisResultRepository;
+    private final CacheEvictionHelper cacheEvictionHelper;
 
     @Transactional
+    // P2-1: 移除 @CacheEvict(allEntries=true)，改用 CacheEvictionHelper 按用户前缀精准失效。
+    // 原方案 allEntries=true 会清空整个 sessionList 缓存空间，影响其他用户的会话列表缓存。
+    // 新方案在事务提交后按 "sessionList::session:list:{userId}:*" 前缀精准删除当前用户的分页缓存。
     public SessionResponse createSession(String userId, SessionCreateRequest request) {
         if (userId == null || userId.isBlank()) {
             throw new AuthenticationException("未认证，请先登录");
@@ -65,11 +70,17 @@ public class SessionService {
 
         Session saved = sessionRepository.save(session);
 
+        // P2-1: 事务提交后精准失效该用户的会话列表缓存（写后删，避免脏读回填）
+        cacheEvictionHelper.evictByPatternAfterCommit(
+                "sessionList::session:list:" + userId + ":*");
+
         log.info("Session created: sessionId={}, userId={}", saved.getSessionId(), userId);
 
         return sessionMapper.toResponse(saved);
     }
 
+    @org.springframework.cache.annotation.Cacheable(value = "sessionList",
+            key = "T(com.literatureassistant.util.RedisKeyUtil).sessionListKey(#userId, #page, #size)")
     @Transactional(readOnly = true)
     public PageResponse<SessionResponse> listSessions(String userId, int page, int size) {
         if (userId == null || userId.isBlank()) {
@@ -96,10 +107,10 @@ public class SessionService {
     @Cacheable(value = "sessionState", key = "#sessionId", unless = "#result == null")
     @Transactional(readOnly = true)
     public SessionDetailResponse getSessionDetail(String sessionId) {
+        // 修复 B-004: 数据隔离校验已上移到 Controller（validateSessionAccess），此处信任入参。
+        // @Cacheable 命中时方法体不执行，内部 validateDataIsolation 会被绕过。
         Session session = sessionRepository.findBySessionId(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Session", sessionId));
-
-        validateDataIsolation(session.getUserId());
 
         SessionDetailResponse response = sessionMapper.toDetailResponse(session);
         int analysisCount = (int) analysisResultRepository.countBySessionId(sessionId);
@@ -108,6 +119,19 @@ public class SessionService {
         log.info("Session detail fetched from DB: sessionId={}, analysisCount={}", sessionId, analysisCount);
 
         return response;
+    }
+
+    /**
+     * 修复 B-004: 校验 sessionId 归属（供 Controller 在调用 @Cacheable 方法前使用）。
+     * <p>数据隔离：sessionId 对应的 Session.userId 必须等于 currentUserId。
+     * <p>@Cacheable 命中时 Service 方法体不执行，校验必须上移到 Controller 层。
+     */
+    public void validateSessionAccess(String userId, String sessionId) {
+        Session session = sessionRepository.findBySessionId(sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Session", sessionId));
+        if (!userId.equals(session.getUserId())) {
+            throw new BusinessException(403, "无权限访问他人会话", "FORBIDDEN_ACCESS");
+        }
     }
 
     @CacheEvict(value = "sessionState", key = "#sessionId")

@@ -22,6 +22,11 @@ export const usePaperStore = defineStore('paper', () => {
   const searchResults = ref<Paper[]>([])
   const selectedPapers = ref<Paper[]>([])
   const favorites = ref<string[]>([])
+  // 收藏列表（带详情），用于 FavoritesView 展示
+  const favoritesList = ref<Paper[]>([])
+  const favoritesTotal = ref(0)
+  const favoritesLoading = ref(false)
+  const favoritesError = ref<string | null>(null)
   const filters = ref<FilterParams>({})
   const sortBy = ref<SortParams>({ ...DEFAULT_SORT })
   const currentQuery = ref('')
@@ -113,12 +118,20 @@ export const usePaperStore = defineStore('paper', () => {
     return await paperApi.getDetail(paperId)
   }
 
-  async function toggleFavorite(paperId: string) {
+  async function toggleFavorite(paperId: string, paper?: Paper) {
     const wasFavorited = favorites.value.includes(paperId)
     if (wasFavorited) {
       favorites.value = favorites.value.filter(id => id !== paperId)
+      // 同步移除收藏列表中的对应项
+      favoritesList.value = favoritesList.value.filter(p => p.paperId !== paperId)
+      favoritesTotal.value = Math.max(0, favoritesTotal.value - 1)
     } else {
       favorites.value.push(paperId)
+      // 同步加入收藏列表（若已加载过列表且有 paper 详情）
+      if (paper && (favoritesList.value.length > 0 || favoritesTotal.value > 0)) {
+        favoritesList.value.unshift(paper)
+        favoritesTotal.value += 1
+      }
     }
     try {
       if (wasFavorited) {
@@ -129,22 +142,56 @@ export const usePaperStore = defineStore('paper', () => {
     } catch {
       if (wasFavorited) {
         favorites.value.push(paperId)
+        // 回滚 favoritesList
+        if (paper) {
+          favoritesList.value.unshift(paper)
+          favoritesTotal.value += 1
+        }
       } else {
         favorites.value = favorites.value.filter(id => id !== paperId)
+        favoritesList.value = favoritesList.value.filter(p => p.paperId !== paperId)
+        favoritesTotal.value = Math.max(0, favoritesTotal.value - 1)
       }
       throw new Error('收藏操作失败')
     }
   }
 
-  async function fetchFavorites() {
-    // FM5 待实现：需后端提供 GET /users/{userId}/favorites 后接入
-    favorites.value = []
+  /**
+   * 拉取收藏列表（分页）
+   * @param page 页码（从 1 开始）
+   * @param pageSize 每页条数
+   */
+  async function fetchFavorites(page: number = 1, pageSize: number = 10) {
+    favoritesLoading.value = true
+    favoritesError.value = null
+    try {
+      const res = await paperApi.getFavorites({ page, pageSize })
+      favoritesList.value = res.items
+      favoritesTotal.value = res.total
+      // 同步 favorites id 数组（用于 PaperCard 收藏状态判断）
+      favorites.value = res.items.map(p => p.paperId)
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : '收藏列表加载失败'
+      favoritesError.value = message
+      favoritesList.value = []
+      favoritesTotal.value = 0
+    } finally {
+      favoritesLoading.value = false
+    }
   }
 
   function updateFilters(newFilters: FilterParams) {
     filters.value = { ...filters.value, ...newFilters }
     if (currentQuery.value) {
       searchPapers(currentQuery.value, 1)
+    }
+  }
+
+  // P0-9: 封装 sortBy 修改为 Action，禁止外部直接修改 Store State
+  function setSortBy(sort: SortParams) {
+    sortBy.value = sort
+    if (currentQuery.value) {
+      searchPapers(currentQuery.value, 1, sort)
     }
   }
 
@@ -158,12 +205,14 @@ export const usePaperStore = defineStore('paper', () => {
   }
 
   return {
-    searchResults, selectedPapers, favorites, filters,
+    searchResults, selectedPapers, favorites,
+    favoritesList, favoritesTotal, favoritesLoading, favoritesError,
+    filters,
     sortBy,
     currentQuery, totalResults, currentPage, pageSize,
     loading, error,
     selectedPaperIds, hasResults, totalPages, canCompare,
     searchPapers, togglePaperSelection, clearSelection, fetchDetail,
-    toggleFavorite, fetchFavorites, updateFilters, resetSearch
+    toggleFavorite, fetchFavorites, updateFilters, setSortBy, resetSearch
   }
 })

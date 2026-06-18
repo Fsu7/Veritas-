@@ -97,6 +97,8 @@ ACADEMIC_TERMS = [
 
 AI_DISCLAIMER = "⚠️ 本内容由 AI 生成，仅供参考"
 
+MAX_ANALYSIS_CHARS = 8000  # Prompt 中分析结果最大字符数（约 2000 tokens）
+
 _CAMEL_TO_SNAKE_MAP = {
     "educationLevel": "education_level",
     "knowledgeLevel": "knowledge_level",
@@ -135,7 +137,7 @@ class GeneratorAgent(BaseAgent):
         analysis_results = input_data.get("analysis_results", [])
         compare_result = input_data.get("compare_result")
 
-        analysis_data = json.dumps(analysis_results, ensure_ascii=False)
+        analysis_data = self._truncate_analysis_for_prompt(analysis_results)
         comparison_data = (
             json.dumps(compare_result, ensure_ascii=False)
             if compare_result
@@ -629,3 +631,102 @@ class GeneratorAgent(BaseAgent):
     ) -> str:
         profile = self._normalize_profile(user_profile)
         return profile.get(field, default)
+
+    # ============================================================
+    # P0-7: Token 爆炸防护 — 分析结果截断
+    # ============================================================
+
+    def _truncate_analysis_for_prompt(self, analysis_results: List[dict]) -> str:
+        """截断分析结果，避免 Prompt 过长导致 Token 爆炸"""
+        full_json = json.dumps(analysis_results, ensure_ascii=False)
+        if len(full_json) <= MAX_ANALYSIS_CHARS:
+            return full_json
+        truncated = []
+        for ar in analysis_results:
+            truncated_ar = {
+                "paper_id": ar.get("paper_id"),
+                "paper_title": ar.get("paper_title", ""),
+                "research_problem": self._truncate_dimension(ar.get("research_problem")),
+                "core_method": self._truncate_dimension(ar.get("core_method")),
+                "core_conclusions": self._truncate_dimension(ar.get("core_conclusions")),
+            }
+            truncated.append(truncated_ar)
+        return json.dumps(truncated, ensure_ascii=False)
+
+    @staticmethod
+    def _truncate_dimension(dim_data) -> dict:
+        """截断单个维度数据，保留 summary 前200字符"""
+        if isinstance(dim_data, dict):
+            summary = dim_data.get("summary", "")
+            if isinstance(summary, str) and len(summary) > 200:
+                return {"summary": summary[:200] + "...", "confidence": dim_data.get("confidence", 0.0)}
+            return dim_data
+        if isinstance(dim_data, str) and len(dim_data) > 200:
+            return dim_data[:200] + "..."
+        return dim_data
+
+    # ============================================================
+    # task52: stream_generate 流式生成方法
+    # ============================================================
+
+    async def stream_generate(
+        self,
+        prompt: str,
+        input_data: dict,
+        context: dict,
+    ):
+        """流式生成报告，逐 token yield
+
+        Args:
+            prompt: 基础 prompt（实际使用 build_prompt 构建完整 prompt）
+            input_data: 输入数据（analysis_results / compare_result）
+            context: 上下文（user_profile）
+
+        Yields:
+            dict: {'token': str, 'is_final': bool, 'report': Optional[str]}
+                - token 非空、is_final=False: 流式 token
+                - token 空、is_final=True、report 非空: 流结束，完整报告
+        """
+        from typing import AsyncGenerator
+
+        analysis_results: List[dict] = input_data.get("analysis_results", [])
+        compare_result = input_data.get("compare_result")
+        user_profile = context.get("user_profile") or {}
+
+        self.state.update_progress(0.2, "Building personalized prompt")
+
+        try:
+            full_prompt = self.build_prompt(input_data, context)
+        except Exception as e:
+            logger.warning(f"build_prompt failed, using raw prompt: {e}")
+            full_prompt = prompt
+
+        self.state.update_progress(0.4, "Streaming literature review")
+
+        full_report_parts: List[str] = []
+
+        try:
+            async for token in self.llm_service.generate_stream(
+                full_prompt,
+                max_tokens=self.llm_max_tokens,
+                temperature=self.llm_temperature,
+            ):
+                full_report_parts.append(token)
+                yield {"token": token, "is_final": False, "report": None}
+
+            # 流结束，拼接完整报告
+            full_report = "".join(full_report_parts)
+            self.state.update_progress(0.9, "Stream completed")
+
+            yield {"token": "", "is_final": True, "report": full_report}
+
+        except Exception as e:
+            logger.warning(f"stream_generate failed, degrading to _run: {e}")
+            # 降级调用 _run
+            try:
+                result = await self._run(prompt, input_data, context)
+                fallback_report = result.get("report", "")
+                yield {"token": "", "is_final": True, "report": fallback_report}
+            except Exception as fallback_err:
+                logger.error(f"stream_generate fallback also failed: {fallback_err}")
+                yield {"token": "", "is_final": True, "report": ""}

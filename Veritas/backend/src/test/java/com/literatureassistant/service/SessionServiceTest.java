@@ -1,5 +1,6 @@
 package com.literatureassistant.service;
 
+import com.literatureassistant.cache.CacheEvictionHelper;
 import com.literatureassistant.dto.common.PageResponse;
 import com.literatureassistant.dto.request.SessionCreateRequest;
 import com.literatureassistant.dto.response.SessionDetailResponse;
@@ -54,6 +55,9 @@ class SessionServiceTest {
 
     @Mock
     private AnalysisResultRepository analysisResultRepository;
+
+    @Mock
+    private CacheEvictionHelper cacheEvictionHelper;
 
     private static final String CURRENT_USER_ID = "usr_001";
     private static final String OTHER_USER_ID = "usr_002";
@@ -223,17 +227,9 @@ class SessionServiceTest {
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
-    @Test
-    @DisplayName("getSessionDetail - 越权访问抛403 BusinessException")
-    void getSessionDetail_dataIsolationViolation_throws403() {
-        Session otherSession = buildSession(OTHER_USER_ID, SessionStatus.ACTIVE);
-        when(sessionRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.of(otherSession));
-
-        assertThatThrownBy(() -> sessionService.getSessionDetail(SESSION_ID))
-                .isInstanceOf(BusinessException.class)
-                .hasFieldOrPropertyWithValue("code", 403)
-                .hasMessageContaining("无权限");
-    }
+    // 修复 B-004: 数据隔离校验已上移到 Controller（validateSessionAccess），
+    // Service 层 getSessionDetail 不再内部校验。原 getSessionDetail_dataIsolationViolation_throws403
+    // 测试已删除，数据隔离测试由 SessionControllerTest 和 Jm5IntegrationTest 覆盖。
 
     @Test
     @DisplayName("updateStatus - ACTIVE→COMPLETED 正常更新save")
@@ -330,15 +326,7 @@ class SessionServiceTest {
                 .hasFieldOrPropertyWithValue("code", 403);
     }
 
-    @Test
-    @DisplayName("validateDataIsolation - 未认证抛401")
-    void getSessionDetail_unauthenticated_throws401() {
-        SecurityContextHolder.clearContext();
-        Session session = buildSession(CURRENT_USER_ID, SessionStatus.ACTIVE);
-        when(sessionRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.of(session));
-
-        assertThatThrownBy(() -> sessionService.getSessionDetail(SESSION_ID))
-                .isInstanceOf(AuthenticationException.class)
-                .hasMessageContaining("未认证");
-    }
+    // 修复 B-004: 数据隔离校验已上移到 Controller（validateSessionAccess），
+    // Service 层 getSessionDetail 不再内部校验。原 getSessionDetail_unauthenticated_throws401
+    // 测试已删除，认证校验由 Controller 层保证。
 }

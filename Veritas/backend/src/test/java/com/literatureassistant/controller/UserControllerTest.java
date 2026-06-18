@@ -23,9 +23,13 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
+
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -62,6 +66,14 @@ class UserControllerTest {
                 .setValidator(new LocalValidatorFactoryBean())
                 .setMessageConverters(converter)
                 .build();
+        // 设置默认 SecurityContext 为 usr_test1234（供 getUserInfo/getProfile 正常流程测试使用）
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("usr_test1234", null, List.of()));
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -225,10 +237,11 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/users/{userId} - 数据隔离: 用户B无法访问用户A的资料(Service抛403)")
+    @DisplayName("GET /api/users/{userId} - 数据隔离: 用户B无法访问用户A的资料（Controller 层校验返回403）")
     void getUserInfo_isolation_userBAccessUserA_returns403() throws Exception {
-        when(userService.getUserInfo("usr_userA"))
-                .thenThrow(new BusinessException(403, "无权访问该用户资源", "FORBIDDEN"));
+        // 修复 B-005: Controller 层 validateUserIdMatch 直接抛 403，不调用 Service
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("usr_userB", null, List.of()));
 
         mockMvc.perform(get("/api/users/usr_userA"))
                 .andExpect(status().isForbidden())
@@ -236,10 +249,11 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/users/{userId}/profile - 数据隔离: 用户B无法访问用户A的画像")
+    @DisplayName("GET /api/users/{userId}/profile - 数据隔离: 用户B无法访问用户A的画像（Controller 层校验返回403）")
     void getProfile_isolation_userBAccessUserA_returns403() throws Exception {
-        when(userService.getProfile("usr_userA"))
-                .thenThrow(new BusinessException(403, "无权访问该用户画像", "FORBIDDEN"));
+        // 修复 B-001: Controller 层 validateUserIdMatch 直接抛 403，不调用 Service
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("usr_userB", null, List.of()));
 
         mockMvc.perform(get("/api/users/usr_userA/profile"))
                 .andExpect(status().isForbidden())

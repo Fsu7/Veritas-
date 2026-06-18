@@ -1,0 +1,59 @@
+{
+  "description": "task50 E2E 测试数据 - 3 篇含矛盾的论文",
+  "version": "1.0",
+  "papers": [
+    {
+      "paper_id": "conflict_paper_a",
+      "title": "Method X for Sentiment Analysis: A Comprehensive Study on SST-2",
+      "abstract": "本文提出方法X用于情感分析任务，基于Transformer微调。在SST-2数据集上，方法X相比基线提升20%，准确率达到92%。实验表明方法X在短文本情感分析中显著优于现有方法。",
+      "method": "transformer_finetuning",
+      "experiment": "在SST-2数据集上测试，准确率92%，相比基线提升20%",
+      "conclusion": "方法X在情感分析任务上提升20%，优于基线方法",
+      "research_problem": "情感分析",
+      "core_method": "transformer_finetuning",
+      "main_experiments": "SST-2",
+      "core_conclusions": "方法X提升20%，优于基线"
+    },
+    {
+      "paper_id": "conflict_paper_b",
+      "title": "Method X Fails on Long Text: A Case Study on IMDB Reviews",
+      "abstract": "本文研究方法X在长文本情感分析中的表现。在IMDB数据集上，方法X相比基线下降15%，准确率仅为78%。实验表明方法X在长文本场景下不如基线方法，存在明显局限性。",
+      "method": "transformer_finetuning",
+      "experiment": "在IMDB数据集上测试，准确率78%，相比基线下降15%",
+      "conclusion": "方法X在情感分析任务上下降15%，劣于基线方法",
+      "research_problem": "情感分析",
+      "core_method": "transformer_finetuning",
+      "main_experiments": "IMDB",
+      "core_conclusions": "方法X下降15%，劣于基线"
+    },
+    {
+      "paper_id": "conflict_paper_c",
+      "title": "Method Y: A Novel Approach Beyond Transformer Fine-tuning",
+      "abstract": "本文提出方法Y，采用对比学习范式替代传统的Transformer微调。方法Y在多个数据集上验证，认为Transformer微调方法（如方法X）存在方法论缺陷，无法捕获深层语义。实验表明方法Y在相同任务上稳定优于方法X。",
+      "method": "contrastive_learning",
+      "experiment": "在SST-2和IMDB上测试，均优于方法X",
+      "conclusion": "方法Y方法论优于方法X，Transformer微调存在缺陷",
+      "research_problem": "情感分析",
+      "core_method": "contrastive_learning",
+      "main_experiments": "SST-2, IMDB",
+      "core_conclusions": "方法Y优于方法X，Transformer微调存在方法论缺陷"
+    }
+  ],
+  "expected_contradictions": [
+    {
+      "papers": ["conflict_paper_a", "conflict_paper_b"],
+      "root_cause": "dataset_bias",
+      "description": "A在SST-2提升20%，B在IMDB下降15%，数据集差异导致结论矛盾"
+    },
+    {
+      "papers": ["conflict_paper_a", "conflict_paper_c"],
+      "root_cause": "methodological_conflict",
+      "description": "A采用Transformer微调，C认为该方法论有缺陷"
+    },
+    {
+      "papers": ["conflict_paper_b", "conflict_paper_c"],
+      "root_cause": "methodological_conflict",
+      "description": "B采用Transformer微调，C认为该方法论有缺陷"
+    }
+  ]
+}

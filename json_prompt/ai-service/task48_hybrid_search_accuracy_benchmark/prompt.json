@@ -1,0 +1,87 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M5 / AM5：混合检索与功能完善",
+    "requirement": "创建混合检索准确率基准测试，对比纯语义检索 vs 关键词检索 vs 混合检索的 Top5/Top10 准确率，输出含 MRR/nDCG@10/Recall@10 指标的 Markdown 报告。验证 AM5 验收硬指标：混合检索准确率 > 纯语义检索，混合检索 Top5 准确率 > 85%。本任务对应 AM5 Week 9 Day 3，依赖 task46（关键词优化）和 task47（RRF/重排序调优）完成。",
+    "requirement_ids": ["F3.2.5"],
+    "reference_docs": [
+      {"path": "docs/ai-service/AI服务模块项目里程碑文档.md", "purpose": "确认 AM5 验收检查点：混合检索准确率>纯语义检索、检索准确率>85%"},
+      {"path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "了解 SearchService 三种检索方法架构"},
+      {"path": "AGENTS.md", "purpose": "确认 Python 测试规范"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {"layer": "python_ai_service", "module_path": "app.services.search_service", "description": "SearchService 提供 search/keyword_search/hybrid_search 三种检索方法"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/ai-service/app/services/search_service.py", "description": "三种检索方法已实现，hybrid_search 使用 RRF 融合", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "SearchService",
+      "path": "Veritas/ai-service/app/services/search_service.py",
+      "responsibility": "检索服务",
+      "key_interfaces": [
+        {"name": "search", "signature": "async def search(self, query, top_k=10, filters=None) -> List[dict]", "description": "语义检索"},
+        {"name": "keyword_search", "signature": "async def keyword_search(self, query, top_k=10, filters=None) -> List[dict]", "description": "关键词检索（task46 优化后）"},
+        {"name": "hybrid_search", "signature": "async def hybrid_search(self, query, top_k=10, filters=None) -> List[dict]", "description": "混合检索（task47 调优后）"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "create", "path": "Veritas/ai-service/tests/benchmark/search_accuracy_benchmark.py", "description": "检索准确率基准测试脚本：对 20 条查询运行三种检索方法，计算 MRR/nDCG@10/Recall@10，输出 Markdown 报告", "layer": "python_ai_service"},
+    {"operation": "create", "path": "Veritas/ai-service/tests/benchmark/test_queries.json", "description": "20 条标注测试查询（中文 10 + 英文 10），每条含 query/expected_paper_ids/relevant_scores", "layer": "python_ai_service"},
+    {"operation": "create", "path": "Veritas/ai-service/tests/benchmark/expected_results.json", "description": "期望 Top10 结果（人工标注），含 paper_id 和 relevance_score", "layer": "python_ai_service"},
+    {"operation": "create", "path": "Veritas/ai-service/tests/benchmark/__init__.py", "description": "空文件，使 benchmark 目录成为 Python 包", "layer": "python_ai_service"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "创建 tests/benchmark/test_queries.json，含 20 条测试查询（中文 10 + 英文 10）。每条查询结构：{query: str, expected_top10: [paper_id], relevance_scores: {paper_id: 0-3}}。relevance_score: 0=不相关, 1=边缘相关, 2=相关, 3=高度相关。查询主题覆盖：Multi-Agent、强化学习、NLP、CV、知识图谱、推荐系统、多模态、数据挖掘等。", "priority": "P0", "acceptance_condition": "test_queries.json 含 20 条查询，每条有 query/expected_top10/relevance_scores 字段"},
+      {"id": "FR-002", "description": "创建 tests/benchmark/search_accuracy_benchmark.py 基准测试脚本：1) 加载 test_queries.json；2) 对每条查询运行 SearchService.search()、keyword_search()、hybrid_search() 三种方法；3) 计算 Top5/Top10 准确率、MRR、nDCG@10、Recall@10 指标；4) 输出 Markdown 报告到 stdout 和 logs/search_accuracy_benchmark.md。", "priority": "P0", "acceptance_condition": "脚本可执行，输出 Markdown 报告含三种方法的 4 个指标"},
+      {"id": "FR-003", "description": "MRR 计算：对每条查询，返回结果中第一个相关论文（relevance_score >= 2）的倒数排名，取所有查询的平均值。", "priority": "P0", "acceptance_condition": "MRR 计算正确，范围 [0, 1]"},
+      {"id": "FR-004", "description": "nDCG@10 计算：DCG = Σ rel_i/log2(i+1) for i in 1..10，IDCG 为理想排序的 DCG，nDCG = DCG/IDCG。", "priority": "P0", "acceptance_condition": "nDCG@10 计算正确，范围 [0, 1]"},
+      {"id": "FR-005", "description": "Recall@10 计算：返回结果 Top10 中相关论文数 / 期望相关论文总数。", "priority": "P0", "acceptance_condition": "Recall@10 计算正确，范围 [0, 1]"},
+      {"id": "FR-006", "description": "验证 AM5 验收硬指标：1) 混合检索 Top10 准确率 > 纯语义检索 Top10 准确率；2) 混合检索 Top5 准确率 > 85%。准确率 = TopK 中相关论文数 / K。如指标未达标，在报告中标注 FAIL 并给出改进建议。", "priority": "P0", "acceptance_condition": "报告中明确标注两项硬指标 PASS/FAIL"}
+    ],
+    "degradation_requirements": {
+      "agent_degradation": {"single_agent_failure": "N/A", "multi_agent_failure": "N/A", "review_retry_limit": 0}
+    }
+  },
+  "constraints": {
+    "naming": {"python": {"class_name": "PascalCase", "function_variable": "snake_case", "file_name": "snake_case.py", "config_key": "UPPER_SNAKE_CASE"}},
+    "layering": {"python": {"rule": "基准测试在 tests/benchmark/ 目录，不污染主代码"}},
+    "error_handling": {"python": {"approach": "单条查询检索失败时记录错误继续下一条，不中断基准测试"}},
+    "logging": {"python": "Loguru", "prohibited": ["在指标计算循环中打印 INFO 日志"]}
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改 SearchService 业务代码", "reason": "本任务仅创建基准测试，不修改业务代码", "severity": "high"},
+    {"id": "FA-003", "action": "使用少于 20 条测试查询", "reason": "统计显著性要求至少 20 条", "severity": "high"},
+    {"id": "FA-004", "action": "在基准测试中 mock 检索结果", "reason": "必须真实调用 SearchService 检索 ChromaDB", "severity": "critical"},
+    {"id": "FA-005", "action": "硬编码期望结果到测试脚本", "reason": "期望结果应在 test_queries.json 中维护", "severity": "medium"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "test_benchmark_script_executable", "description": "测试基准测试脚本可执行：subprocess 运行 search_accuracy_benchmark.py，验证退出码 0 和输出含 Markdown 表格", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_mrr_calculation", "description": "测试 MRR 计算正确性：mock 检索结果，验证 MRR 公式", "framework": "pytest", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "test_ndcg_calculation", "description": "测试 nDCG@10 计算正确性", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_recall_calculation", "description": "测试 Recall@10 计算正确性", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_test_queries_json_valid", "description": "验证 test_queries.json 格式正确：20 条查询，每条含必需字段", "framework": "pytest", "coverage": ["normal_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "python", "command": "cd Veritas/ai-service && python -m pytest tests/test_search_accuracy_benchmark.py -v", "expected_result": "所有测试通过"},
+      {"layer": "python", "command": "cd Veritas/ai-service && python tests/benchmark/search_accuracy_benchmark.py", "expected_result": "输出 Markdown 报告，含三种检索方法的 MRR/nDCG@10/Recall@10 指标"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "基准测试脚本可执行，输出 Markdown 报告", "verified_by": "manual_test"},
+    {"id": "AC-002", "criterion": "混合检索 Top10 准确率 > 纯语义检索 Top10 准确率", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "混合检索 Top5 准确率 > 85%（AM5 验收硬指标）", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "test_queries.json 含 20 条查询，格式正确", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "MRR/nDCG@10/Recall@10 指标计算正确，范围 [0, 1]", "verified_by": "automated_test"}
+  ]
+}

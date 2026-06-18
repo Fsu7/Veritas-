@@ -1,0 +1,192 @@
+{
+  "meta": {
+    "project": "XH-202630 科研文献智能助手",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善",
+    "feature_id": ["F2.4.8"],
+    "task_name": "task38_word_export_service",
+    "day": "Day 8-9",
+    "created_at": "2026-06-17"
+  },
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善（Week 9 Day 8-9）",
+    "requirement": "Word导出服务：pom.xml 引入 Apache POI（5.2.3）；新建 WordExporter 工具类（Markdown→Word .docx 转换：标题/段落/列表/代码块；citations 渲染为引用列表；AI内容标注'AI生成，仅供参考'；文件命名 analysis_{analysisId}_{timestamp}.docx）；ExportService 扩展支持 format=word；AnalysisController export 端点扩展支持 format=word；format 参数校验（仅允许 pdf/word，否则抛 BusinessException）。",
+    "requirement_ids": ["F2.4.8"],
+    "reference_docs": [
+      {"path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "第5章 分析服务模块（导出子模块）+ 第12章 API规范"},
+      {"path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "第7章 JM5 Week 9 Day 8-9 Word导出任务分解"},
+      {"path": "AGENTS.md", "purpose": "关键规则第7条 JWT认证+数据隔离 + 安全底线 AI内容标注"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {"layer": "java_backend", "module_path": "com.literatureassistant.controller.AnalysisController", "description": "分析Controller，task37 已新增 export 端点（format=pdf），本任务扩展支持 format=word"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.ExportService", "description": "导出编排服务，task37 已实现 exportPdf，本任务扩展 exportWord"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.dto.response.AnalysisResultDTO", "description": "分析结果DTO：report(String Markdown) + citations(List<Map>，元素含 index/paper_id/citation) + status(AnalysisStatus)"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.util.PdfExporter", "description": "task37 已实现 PDF 导出工具类，本任务新建 WordExporter 与之并列"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/backend/pom.xml", "description": "Maven配置：task37 已引入 iText 7，本任务新增 Apache POI 依赖", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "description": "AnalysisController：task37 已新增 exportAnalysis 端点（format=pdf），本任务扩展支持 format=word", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/ExportService.java", "description": "ExportService：task37 已实现 exportPdf(userId, analysisId)，本任务新增 exportWord(userId, analysisId)", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResultDTO.java", "description": "AnalysisResultDTO：report(String Markdown) + citations(List<Map<String,Object>>，元素含 index/paper_id/citation) + status(AnalysisStatus)", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/BusinessException.java", "description": "业务异常，构造：new BusinessException(code, message, errorKey)", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "WordExporter（新建）",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/WordExporter.java",
+      "responsibility": "Word导出工具类：Markdown→Word .docx 转换，citations渲染，AI标注，文件命名",
+      "key_interfaces": [
+        {"name": "export", "signature": "public byte[] export(String analysisId, AnalysisResultDTO result) throws IOException", "description": "导出Word，返回byte[]"},
+        {"name": "renderMarkdown", "signature": "private void renderMarkdown(XWPFDocument document, String markdown)", "description": "Markdown→Word渲染：#/##/### 标题、段落、- 列表、``` 代码块"},
+        {"name": "renderCitations", "signature": "private void renderCitations(XWPFDocument document, List<Map<String, Object>> citations)", "description": "citations 渲染为引用列表"},
+        {"name": "addFooter", "signature": "private void addFooter(XWPFDocument document)", "description": "添加页脚'AI生成，仅供参考'"},
+        {"name": "generateFileName", "signature": "private String generateFileName(String analysisId)", "description": "生成文件名 analysis_{analysisId}_{yyyyMMddHHmmss}.docx"}
+      ]
+    },
+    {
+      "name": "ExportService（扩展）",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/ExportService.java",
+      "responsibility": "导出编排服务，扩展支持 format=word",
+      "key_interfaces": [
+        {"name": "exportWord", "signature": "public byte[] exportWord(String userId, String analysisId)", "description": "Word导出编排：校验 → 查结果 → 调 WordExporter"},
+        {"name": "export", "signature": "public byte[] export(String userId, String analysisId, String format)", "description": "统一导出入口：format=pdf 调 exportPdf，format=word 调 exportWord，非法 format 抛 BusinessException(400, 'INVALID_FORMAT', '不支持的导出格式')"}
+      ]
+    },
+    {
+      "name": "AnalysisController（扩展）",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "responsibility": "分析Controller，export 端点扩展支持 format=word",
+      "key_interfaces": [
+        {"name": "exportAnalysis", "signature": "@GetMapping(\"/{analysisId}/export\") public ResponseEntity<byte[]> exportAnalysis(@PathVariable String analysisId, @RequestParam(defaultValue=\"pdf\") String format, @AuthenticationPrincipal String userId)", "description": "导出端点，format=pdf|word，根据 format 设置 Content-Type 和 Content-Disposition"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/backend/pom.xml", "description": "新增 Apache POI 依赖：org.apache.poi:poi-ooxml:5.2.3（含 poi/poi-ooxml/ooxml-schemas）", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/util/WordExporter.java", "description": "新建Word导出工具类：export/renderMarkdown/renderCitations/addFooter/generateFileName 方法", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/service/ExportService.java", "description": "新增 exportWord(userId, analysisId) 方法 + 统一 export(userId, analysisId, format) 入口方法", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "description": "exportAnalysis 端点扩展：format=word 时调 exportService.exportWord，设置 Content-Type=application/vnd.openxmlformats-officedocument.wordprocessingml.document", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/test/java/com/literatureassistant/util/WordExporterTest.java", "description": "Word导出单元测试：Markdown渲染/citations渲染/AI标注/文件命名/format校验", "layer": "java_backend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "pom.xml 引入 Apache POI 依赖：org.apache.poi:poi-ooxml:5.2.3（自动引入 poi/poi-ooxml/ooxml-schemas/xmlbeans）。版本锁定 5.2.3", "priority": "P0", "acceptance_condition": "mvn compile 成功，POI 依赖正确引入"},
+      {"id": "FR-002", "description": "WordExporter.export(analysisId, result) 方法：创建 XWPFDocument → 渲染 Markdown → 渲染 citations → 添加页脚 → 写入 ByteArrayOutputStream → 返回 byte[]", "priority": "P0", "acceptance_condition": "返回非空 byte[]，可被 Word 打开为 .docx"},
+      {"id": "FR-003", "description": "WordExporter.renderMarkdown 支持 Markdown 基础语法：#/##/### 标题（XWPFParagraph.createRun，设置 Heading1/2/3 样式）、段落（普通 Paragraph）、- 无序列表（Paragraph 设置缩进 + 编号样式）、``` 代码块（Courier New 字体灰底）。按行解析", "priority": "P0", "acceptance_condition": "Markdown 语法正确渲染为Word对应元素"},
+      {"id": "FR-004", "description": "WordExporter 中文字体支持：POI 默认支持中文，设置 XWPFRun.setFontFamily('宋体') 或 'Microsoft YaHei'。确保中文不乱码", "priority": "P0", "acceptance_condition": "Word 中文显示正常，无乱码"},
+      {"id": "FR-005", "description": "WordExporter.renderCitations：遍历 citations 列表，每条渲染为 '[index] citation_text' 格式（index 从 citations 元素的 index 字段获取，citation_text 从 citation 字段获取）。空 citations 时不渲染该 section", "priority": "P0", "acceptance_condition": "citations 正确渲染为编号引用列表"},
+      {"id": "FR-006", "description": "WordExporter.addFooter：使用 document.createFooter(HeaderFooterType.DEFAULT) 创建页脚，添加 Paragraph 居中显示 'AI生成，仅供参考'（灰色小字体）", "priority": "P0", "acceptance_condition": "页脚显示'AI生成，仅供参考'"},
+      {"id": "FR-007", "description": "WordExporter.generateFileName：返回 'analysis_' + analysisId + '_' + yyyyMMddHHmmss + '.docx'（使用 DateTimeFormatter.ofPattern('yyyyMMddHHmmss')）", "priority": "P0", "acceptance_condition": "文件名符合规范"},
+      {"id": "FR-008", "description": "ExportService 新增 exportWord(userId, analysisId) 方法：1) 调 analysisService.getAnalysisResult(userId, analysisId) 获取结果（含数据隔离校验）；2) 校验 result.status == COMPLETED，否则抛 BusinessException(400, '分析未完成，无法导出', 'ANALYSIS_NOT_COMPLETED')；3) 校验 result.report 非空，否则抛 BusinessException(400, '分析报告为空', 'EMPTY_REPORT')；4) 调 wordExporter.export(analysisId, result) 返回 byte[]", "priority": "P0", "acceptance_condition": "Word导出编排正确，状态校验生效"},
+      {"id": "FR-009", "description": "ExportService 新增统一 export(userId, analysisId, format) 入口方法：format=pdf 调 exportPdf，format=word 调 exportWord，非法 format 抛 BusinessException(400, '不支持的导出格式', 'INVALID_FORMAT')", "priority": "P0", "acceptance_condition": "统一入口正确分发，非法 format 抛异常"},
+      {"id": "FR-010", "description": "AnalysisController.exportAnalysis 端点扩展：format=pdf 时 Content-Type=application/pdf，format=word 时 Content-Type=application/vnd.openxmlformats-officedocument.wordprocessingml.document。Content-Disposition: attachment; filename=对应文件名", "priority": "P0", "acceptance_condition": "两种 format 均返回正确 Content-Type 和文件名"},
+      {"id": "FR-011", "description": "数据隔离：exportService.exportWord 调用 analysisService.getAnalysisResult(userId, analysisId)，该方法内部校验 analysisId 对应 Session.userId 必须等于 currentUserId，否则抛 ResourceNotFoundException", "priority": "P0", "acceptance_condition": "用户A无法导出用户B的分析结果"},
+      {"id": "FR-012", "description": "format 参数校验：仅允许 pdf/word（不区分大小写，统一转小写），否则抛 BusinessException(400, '不支持的导出格式', 'INVALID_FORMAT')", "priority": "P1", "acceptance_condition": "非法 format 抛 BusinessException"}
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"},
+          {"java": "paperId", "python": "paper_id", "json": "paper_id"}
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/analysis/{analysisId}/export",
+          "method": "GET",
+          "request_format": {"analysisId": "path param", "format": "query param(default=pdf, enum=[pdf,word])", "Authorization": "Bearer JWT"},
+          "response_format": "binary file, Content-Type: application/pdf 或 application/vnd.openxmlformats-officedocument.wordprocessingml.document, Content-Disposition: attachment; filename=\"analysis_{analysisId}_{timestamp}.pdf|.docx\""
+        }
+      ],
+      "data_flow": "前端 GET /api/analysis/{id}/export?format=word → AnalysisController(JWT) → ExportService.export(userId, id, word) → AnalysisService.getAnalysisResult(@Cacheable) → WordExporter.export → byte[] → ResponseEntity"
+    },
+    "security_requirements": [
+      {"category": "jwt_auth", "requirement": "export 端点必须 JWT 鉴权，userId 从 @AuthenticationPrincipal 获取"},
+      {"category": "data_isolation", "requirement": "analysisId 对应 Session.userId 必须等于 currentUserId，否则抛 ResourceNotFoundException"},
+      {"category": "sensitive_info", "requirement": "AI内容标注'AI生成，仅供参考'必须在Word页脚显示"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {"class_name": "PascalCase", "method_variable": "camelCase", "constant": "UPPER_SNAKE_CASE", "file_name": "PascalCase.java", "enum_value": "UPPER_SNAKE_CASE", "config_key": "kebab-case"},
+      "json": {"field_name": "snake_case"},
+      "cross_system_mapping": [
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"},
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"}
+      ]
+    },
+    "layering": {
+      "java": {"rule": "Controller → Service → Repository → Client，禁止跨层", "entity_dto_separation": true, "dto_naming": "XxxRequestDTO, XxxResponseDTO"}
+    },
+    "error_handling": {
+      "java": {"approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)", "business_exception_fields": ["code", "message", "errorKey"]}
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "analysisResult", "key_pattern": "analysisResult::{analysisId}", "ttl": "30min"}
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息"]
+    },
+    "security": {
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "analysisId 对应 Session.userId 必须等于 currentUserId",
+      "ai_content_label": "AI生成，仅供参考"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-004", "action": "破坏分层调用规范（Controller直接操作Repository等）", "reason": "分层架构约束", "severity": "critical"},
+    {"id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high"},
+    {"id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high"},
+    {"id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium"},
+    {"id": "FA-009", "action": "使用SQL拼接（必须参数化查询）", "reason": "SQL注入防护", "severity": "critical"},
+    {"id": "FA-010", "action": "忽略降级场景（LLM/Agent失败时的处理）", "reason": "可用性约束ADR-003", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "testExportBasicMarkdown", "description": "验证基础 Markdown 渲染：#/##/### 标题、段落、- 列表、``` 代码块正确渲染为Word", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testExportChineseText", "description": "验证中文字体：Word 中文显示正常，无乱码", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testExportCitations", "description": "验证 citations 渲染：每条渲染为 '[index] citation_text'，空 citations 不渲染 section", "framework": "junit5", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "testExportFooter", "description": "验证页脚'AI生成，仅供参考'显示", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testGenerateFileName", "description": "验证文件名格式：analysis_{analysisId}_{yyyyMMddHHmmss}.docx", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testExportEmptyReport", "description": "验证空 report 抛 BusinessException(EMPTY_REPORT)", "framework": "junit5", "coverage": ["error_flow"]},
+      {"test_name": "testExportNotCompleted", "description": "验证未完成分析（status!=COMPLETED）抛 BusinessException(ANALYSIS_NOT_COMPLETED)", "framework": "junit5", "coverage": ["error_flow"]},
+      {"test_name": "testExportLargeReport", "description": "验证大文件（report > 10000 字符）导出不 OOM", "framework": "junit5", "coverage": ["boundary_condition"]},
+      {"test_name": "testExportDataIsolation", "description": "验证数据隔离：用户A无法导出用户B的分析结果", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testInvalidFormat", "description": "验证非法 format（如 'excel'）抛 BusinessException(INVALID_FORMAT)", "framework": "junit5", "coverage": ["error_flow"]},
+      {"test_name": "testExportPdfAndWord", "description": "验证 format=pdf 和 format=word 均可正常导出，返回正确 Content-Type", "framework": "junit5", "coverage": ["normal_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=WordExporterTest", "expected_result": "所有测试通过，BUILD SUCCESS"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn compile", "expected_result": "Apache POI 依赖正确引入，编译成功"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "Word 文件生成成功，.docx 格式可被 Word 打开编辑", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "Markdown 标题/段落/列表/代码块正确渲染为Word段落", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "Word 中文显示正常，无乱码", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "citations 引用列表正确编号", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "页脚显示'AI生成，仅供参考'", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "文件名符合 analysis_{analysisId}_{yyyyMMddHHmmss}.docx 规范", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "format=pdf 和 format=word 均可正常导出，Content-Type 正确", "verified_by": "automated_test"},
+    {"id": "AC-008", "criterion": "非法 format 参数抛 BusinessException(INVALID_FORMAT)", "verified_by": "automated_test"},
+    {"id": "AC-009", "criterion": "数据隔离 — 用户A无法导出用户B的分析结果", "verified_by": "automated_test"},
+    {"id": "AC-010", "criterion": "未完成分析导出抛 BusinessException", "verified_by": "automated_test"},
+    {"id": "AC-011", "criterion": "空 report 抛 BusinessException", "verified_by": "automated_test"},
+    {"id": "AC-012", "criterion": "mvn test 全量通过", "verified_by": "automated_test"}
+  ]
+}

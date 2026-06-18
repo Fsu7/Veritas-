@@ -1,0 +1,240 @@
+{
+  "meta": {
+    "project": "XH-202630 科研文献智能助手",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善",
+    "feature_id": ["F2.2.4", "F2.2.5", "F2.2.6"],
+    "task_name": "task36_paper_favorite_api",
+    "day": "Day 5",
+    "created_at": "2026-06-17"
+  },
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善（Week 9 Day 5）",
+    "requirement": "论文收藏/取消收藏 + 收藏列表API：新建 FavoriteService（收藏/取消收藏/收藏列表/收藏状态查询）；PaperController 扩展3个端点（POST /api/papers/{paperId}/favorite 收藏、DELETE /api/papers/{paperId}/favorite 取消收藏、GET /api/papers/favorites 收藏列表分页）；收藏列表缓存 @Cacheable(favoriteList, TTL=10min)；收藏操作 @CacheEvict(favoriteList)；数据隔离校验（userId 来自 JWT）；幂等性（重复收藏/取消收藏返回成功）；新建 FavoriteResponse DTO + FavoriteMapper。",
+    "requirement_ids": ["F2.2.4", "F2.2.5", "F2.2.6"],
+    "reference_docs": [
+      {"path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "第4章 论文管理模块（收藏子模块）+ 第9章 缓存管理（favoriteList 缓存策略）"},
+      {"path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "第7章 JM5 Week 9 Day 5 论文收藏/取消收藏 + 收藏列表任务分解"},
+      {"path": "AGENTS.md", "purpose": "关键规则第6条 Cache-Aside 写后删 + 第7条 JWT认证+数据隔离"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {"layer": "java_backend", "module_path": "com.literatureassistant.entity.PaperFavorite", "description": "论文收藏Entity已存在，含 id/userId/paperId/createdAt + @PrePersist"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.repository.PaperFavoriteRepository", "description": "收藏Repository已存在3方法：findByUserIdOrderByCreatedAtDesc/existsByUserIdAndPaperId/deleteByUserIdAndPaperId"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.controller.PaperController", "description": "论文Controller，当前3端点（list/search/detail），需扩展3个收藏端点"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.config.RedisConfig", "description": "已配置6个缓存空间（userProfile/userInfo/paperDetail/paperSearch/analysisResult/sessionState），需新增 favoriteList"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.mapper.PaperMapper", "description": "已存在 PaperMapper（MapStruct），可参考其模式新建 FavoriteMapper"},
+      {"layer": "data_layer", "module_path": "paper_favorites 表", "description": "MySQL 表已存在，字段：id/user_id/paper_id/created_at"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/entity/PaperFavorite.java", "description": "PaperFavorite Entity：@Data @Builder @Entity @Table(paper_favorites)，字段 id(Long)/userId(String)/paperId(String)/createdAt(LocalDateTime) + @PrePersist", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperFavoriteRepository.java", "description": "PaperFavoriteRepository：findByUserIdOrderByCreatedAtDesc(userId, pageable)/existsByUserIdAndPaperId(userId, paperId)/deleteByUserIdAndPaperId(userId, paperId)", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/PaperController.java", "description": "PaperController：@RestController @RequestMapping(/api/papers)，已有 listPapers/searchPapers/getPaperDetail 端点", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java", "description": "RedisConfig：cacheManager 配置6个缓存空间，TTL_JITTER_RATIO=0.1，applyJitter 方法实现±10%随机偏移", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/PaperMapper.java", "description": "PaperMapper：@Mapper(componentModel=spring) + @Mapping qualifiedByName=jsonToList，可参考模式", "reuse_type": "reference"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/PaperResponse.java", "description": "PaperResponse：paperId/title/authors/year/venue/keywords/citationCount + @JsonProperty snake_case", "reuse_type": "reference"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java", "description": "RedisKeyUtil：已有10个key方法，需新增 favoriteListKey(userId)", "reuse_type": "extend"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "FavoriteService（新建）",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/FavoriteService.java",
+      "responsibility": "论文收藏业务：收藏/取消收藏/收藏列表/收藏状态查询，含缓存与幂等性",
+      "key_interfaces": [
+        {"name": "addFavorite", "signature": "public FavoriteResponse addFavorite(String userId, String paperId)", "description": "收藏论文（幂等，重复收藏返回成功）"},
+        {"name": "removeFavorite", "signature": "public void removeFavorite(String userId, String paperId)", "description": "取消收藏（幂等，重复取消返回成功）"},
+        {"name": "listFavorites", "signature": "@Cacheable(value=\"favoriteList\", key=\"#userId\") public PageResponse<FavoriteResponse> listFavorites(String userId, int page, int size)", "description": "分页查询收藏列表（含 paper 详情）"},
+        {"name": "isFavorite", "signature": "public boolean isFavorite(String userId, String paperId)", "description": "查询收藏状态"}
+      ]
+    },
+    {
+      "name": "PaperController（扩展）",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/PaperController.java",
+      "responsibility": "论文Controller，扩展3个收藏端点",
+      "key_interfaces": [
+        {"name": "addFavorite", "signature": "@PostMapping(\"/{paperId}/favorite\") public ApiResponse<FavoriteResponse> addFavorite(@PathVariable String paperId, @AuthenticationPrincipal String userId)", "description": "POST 收藏端点"},
+        {"name": "removeFavorite", "signature": "@DeleteMapping(\"/{paperId}/favorite\") public ApiResponse<Void> removeFavorite(@PathVariable String paperId, @AuthenticationPrincipal String userId)", "description": "DELETE 取消收藏端点"},
+        {"name": "listFavorites", "signature": "@GetMapping(\"/favorites\") public ApiResponse<PageResponse<FavoriteResponse>> listFavorites(@AuthenticationPrincipal String userId, @RequestParam(defaultValue=\"1\") int page, @RequestParam(defaultValue=\"10\") int size)", "description": "GET 收藏列表端点"}
+      ]
+    },
+    {
+      "name": "FavoriteResponse（新建）",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/FavoriteResponse.java",
+      "responsibility": "收藏响应DTO，含收藏记录信息 + 论文详情",
+      "key_interfaces": [
+        {"name": "字段", "signature": "favoriteId(Long) / paperId(String, @JsonProperty paper_id) / title(String) / authors(List<String>) / year(Integer) / venue(String) / citationCount(Integer, @JsonProperty citation_count) / createdAt(LocalDateTime, @JsonProperty created_at)", "description": "收藏响应字段，含论文详情"}
+      ]
+    },
+    {
+      "name": "FavoriteMapper（新建）",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/FavoriteMapper.java",
+      "responsibility": "PaperFavorite + Paper → FavoriteResponse 转换",
+      "key_interfaces": [
+        {"name": "toResponse", "signature": "FavoriteResponse toResponse(PaperFavorite favorite, Paper paper)", "description": "将收藏记录+论文实体转为响应DTO"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/service/FavoriteService.java", "description": "新建收藏服务：addFavorite/removeFavorite/listFavorites/isFavorite，含 @Cacheable/@CacheEvict 注解、幂等性、数据隔离", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/PaperController.java", "description": "扩展3个收藏端点：POST /{paperId}/favorite、DELETE /{paperId}/favorite、GET /favorites", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/FavoriteResponse.java", "description": "新建收藏响应DTO，含论文详情字段，@JsonProperty snake_case", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/mapper/FavoriteMapper.java", "description": "新建 FavoriteMapper（MapStruct），PaperFavorite+Paper → FavoriteResponse", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java", "description": "新增 favoriteListKey(String userId) 方法，返回 'user:favorites:' + userId", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java", "description": "cacheConfigurations 新增 favoriteList 缓存空间，TTL=10min（applyJitter）", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/test/java/com/literatureassistant/service/FavoriteServiceTest.java", "description": "收藏服务单元测试：收藏/取消/列表/幂等/数据隔离/缓存失效", "layer": "java_backend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "POST /api/papers/{paperId}/favorite 收藏端点：JWT鉴权获取 userId，调用 FavoriteService.addFavorite，返回 ApiResponse<FavoriteResponse>。幂等性：重复收藏返回成功（不抛异常）", "priority": "P0", "acceptance_condition": "重复收藏同一论文返回200成功，不报错"},
+      {"id": "FR-002", "description": "DELETE /api/papers/{paperId}/favorite 取消收藏端点：JWT鉴权获取 userId，调用 FavoriteService.removeFavorite，返回 ApiResponse<Void>。幂等性：重复取消返回成功", "priority": "P0", "acceptance_condition": "重复取消同一论文返回200成功，不报错"},
+      {"id": "FR-003", "description": "GET /api/papers/favorites 收藏列表端点：JWT鉴权获取 userId，调用 FavoriteService.listFavorites(userId, page, size)，返回 ApiResponse<PageResponse<FavoriteResponse>>。每条记录含论文详情（title/authors/year/venue/citationCount）", "priority": "P0", "acceptance_condition": "返回分页收藏列表，每条含论文详情"},
+      {"id": "FR-004", "description": "数据隔离：userId 必须来自 JWT（@AuthenticationPrincipal），禁止前端传入 userId 参数。Controller 中校验 userId 非空非blank，否则抛 AuthenticationException", "priority": "P0", "acceptance_condition": "前端无法通过参数指定 userId，userId 仅来自 JWT"},
+      {"id": "FR-005", "description": "FavoriteService.listFavorites 添加 @Cacheable(value=\"favoriteList\", key=\"#userId\")，TTL=10min。相同 userId 第二次查询命中缓存", "priority": "P0", "acceptance_condition": "相同 userId 第二次查询命中缓存，日志无DB查询"},
+      {"id": "FR-006", "description": "FavoriteService.addFavorite/removeFavorite 添加 @CacheEvict(value=\"favoriteList\", key=\"#userId\")，写操作后缓存立即失效", "priority": "P0", "acceptance_condition": "收藏/取消操作后，下次 listFavorites 查询从DB回填"},
+      {"id": "FR-007", "description": "幂等性实现：addFavorite 先 existsByUserIdAndPaperId 判断，已存在则直接返回已有记录（不重复插入）；removeFavorite 先判断存在性，不存在则直接返回（不抛异常）", "priority": "P1", "acceptance_condition": "重复操作不产生副作用，不抛异常"},
+      {"id": "FR-008", "description": "收藏前校验 paperId 存在性：addFavorite 调用 paperRepository.findByPaperId(paperId)，不存在抛 ResourceNotFoundException('Paper', paperId)", "priority": "P1", "acceptance_condition": "收藏不存在的论文抛 ResourceNotFoundException"},
+      {"id": "FR-009", "description": "FavoriteResponse DTO 字段：favoriteId/paperId(@JsonProperty paper_id)/title/authors/year/venue/citationCount(@JsonProperty citation_count)/createdAt(@JsonProperty created_at)。使用 @Data @Builder @NoArgsConstructor @AllArgsConstructor + @JsonInclude(NON_NULL)", "priority": "P0", "acceptance_condition": "DTO 字段完整，JSON 输出 snake_case"},
+      {"id": "FR-010", "description": "FavoriteMapper 使用 MapStruct @Mapper(componentModel=\"spring\")，toResponse(PaperFavorite, Paper) 方法合并收藏记录与论文详情。authors/keywords 字段使用 JsonStringListHelper（参考 PaperMapper）", "priority": "P0", "acceptance_condition": "Mapper 正确转换，authors/keywords JSON 字符串转 List<String>"},
+      {"id": "FR-011", "description": "RedisKeyUtil 新增 favoriteListKey(String userId) 方法，返回 'user:favorites:' + userId", "priority": "P0", "acceptance_condition": "key 格式正确"},
+      {"id": "FR-012", "description": "RedisConfig.cacheConfigurations 新增 favoriteList 缓存空间，TTL=applyJitter(Duration.ofMinutes(10))", "priority": "P0", "acceptance_condition": "favoriteList 缓存空间配置正确，TTL=10min±10%"},
+      {"id": "FR-013", "description": "FavoriteService 使用 @Transactional：addFavorite 为 @Transactional（写操作），removeFavorite 为 @Transactional，listFavorites 为 @Transactional(readOnly=true)", "priority": "P0", "acceptance_condition": "事务注解正确"}
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+          {"java": "userId", "python": "user_id", "json": "user_id"},
+          {"java": "favoriteId", "python": "favorite_id", "json": "favorite_id"},
+          {"java": "citationCount", "python": "citation_count", "json": "citation_count"},
+          {"java": "createdAt", "python": "created_at", "json": "created_at"}
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/papers/{paperId}/favorite",
+          "method": "POST",
+          "request_format": {"paperId": "path param", "Authorization": "Bearer JWT"},
+          "response_format": {"code": 200, "message": "success", "data": {"favoriteId": "long", "paperId": "string", "title": "string", "authors": "array", "year": "int", "venue": "string", "citationCount": "int", "createdAt": "datetime"}, "timestamp": "string"}
+        },
+        {
+          "endpoint": "/api/papers/{paperId}/favorite",
+          "method": "DELETE",
+          "request_format": {"paperId": "path param", "Authorization": "Bearer JWT"},
+          "response_format": {"code": 200, "message": "success", "data": null, "timestamp": "string"}
+        },
+        {
+          "endpoint": "/api/papers/favorites",
+          "method": "GET",
+          "request_format": {"page": "int(default=1)", "size": "int(default=10)", "Authorization": "Bearer JWT"},
+          "response_format": {"code": 200, "message": "success", "data": {"items": [{"favoriteId": "long", "paperId": "string", "title": "string", "authors": "array", "year": "int", "venue": "string", "citationCount": "int", "createdAt": "datetime"}], "total": "long", "page": "int", "size": "int", "totalPages": "int"}, "timestamp": "string"}
+        }
+      ],
+      "data_flow": "前端 POST/DELETE/GET → PaperController(@AuthenticationPrincipal userId) → FavoriteService(@Cacheable/@CacheEvict/@Transactional) → PaperFavoriteRepository → MySQL paper_favorites 表"
+    },
+    "security_requirements": [
+      {"category": "jwt_auth", "requirement": "所有3个收藏端点必须 JWT 鉴权，userId 从 @AuthenticationPrincipal 获取，禁止前端传入 userId 参数"},
+      {"category": "data_isolation", "requirement": "查询/操作强制 WHERE user_id = currentUserId，用户A无法查询/操作用户B的收藏"},
+      {"category": "sql_injection", "requirement": "使用 Spring Data JPA 参数化查询（findByUserIdOrderByCreatedAtDesc/existsByUserIdAndPaperId/deleteByUserIdAndPaperId），禁止SQL拼接"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {"class_name": "PascalCase", "method_variable": "camelCase", "constant": "UPPER_SNAKE_CASE", "file_name": "PascalCase.java", "enum_value": "UPPER_SNAKE_CASE", "config_key": "kebab-case"},
+      "database": {"table_name": "snake_case, 复数形式", "column_name": "snake_case", "index_name": "idx_/uk_/ft_ + 字段名"},
+      "json": {"field_name": "snake_case"},
+      "cross_system_mapping": [
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+        {"java": "userId", "python": "user_id", "json": "user_id"},
+        {"java": "favoriteId", "python": "favorite_id", "json": "favorite_id"},
+        {"java": "citationCount", "python": "citation_count", "json": "citation_count"},
+        {"java": "createdAt", "python": "created_at", "json": "created_at"}
+      ]
+    },
+    "layering": {
+      "java": {"rule": "Controller → Service → Repository → Client，禁止跨层", "entity_dto_separation": true, "dto_naming": "XxxRequestDTO, XxxResponseDTO"}
+    },
+    "error_handling": {
+      "java": {"approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)", "business_exception_fields": ["code", "message", "errorKey"]}
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "favoriteList", "key_pattern": "favoriteList::{userId}", "ttl": "10min"}
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息"]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "primary_key": "id BIGINT AUTO_INCREMENT",
+      "business_id": "xxx_id VARCHAR(100) UNIQUE NOT NULL",
+      "timestamp_fields": {"created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"},
+      "comment_required": true,
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"],
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-004", "action": "破坏分层调用规范（Controller直接操作Repository等）", "reason": "分层架构约束", "severity": "critical"},
+    {"id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high"},
+    {"id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high"},
+    {"id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium"},
+    {"id": "FA-009", "action": "使用SQL拼接（必须参数化查询）", "reason": "SQL注入防护", "severity": "critical"},
+    {"id": "FA-010", "action": "忽略降级场景（LLM/Agent失败时的处理）", "reason": "可用性约束ADR-003", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "testAddFavorite", "description": "验证收藏论文：返回 FavoriteResponse，含论文详情；existsByUserIdAndPaperId 返回 true", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testAddFavoriteIdempotent", "description": "验证幂等性：重复收藏同一论文返回成功，不抛异常，不重复插入", "framework": "junit5", "coverage": ["boundary_condition"]},
+      {"test_name": "testAddFavoritePaperNotFound", "description": "验证收藏不存在的论文抛 ResourceNotFoundException", "framework": "junit5", "coverage": ["error_flow"]},
+      {"test_name": "testRemoveFavorite", "description": "验证取消收藏：existsByUserIdAndPaperId 返回 false", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testRemoveFavoriteIdempotent", "description": "验证幂等性：重复取消返回成功，不抛异常", "framework": "junit5", "coverage": ["boundary_condition"]},
+      {"test_name": "testListFavorites", "description": "验证收藏列表分页：返回 PageResponse<FavoriteResponse>，每条含论文详情，按 createdAt DESC 排序", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testListFavoritesEmpty", "description": "验证空收藏列表：返回空 PageResponse", "framework": "junit5", "coverage": ["boundary_condition"]},
+      {"test_name": "testCacheEvictOnAdd", "description": "验证收藏操作后 favoriteList 缓存立即失效，下次查询从DB回填", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testCacheEvictOnRemove", "description": "验证取消收藏操作后 favoriteList 缓存立即失效", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testDataIsolation", "description": "验证数据隔离：用户A收藏列表不含用户B的收藏", "framework": "junit5", "coverage": ["normal_flow", "boundary_condition"]}
+    ],
+    "verification_commands": [
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=FavoriteServiceTest", "expected_result": "所有测试通过，BUILD SUCCESS"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn test", "expected_result": "全量测试通过"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "POST /api/papers/{paperId}/favorite 收藏端点返回 ApiResponse<FavoriteResponse>", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "重复收藏不报错（幂等性）", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "DELETE /api/papers/{paperId}/favorite 取消收藏后 existsByUserIdAndPaperId 返回 false", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "GET /api/papers/favorites 收藏列表分页正确，每条含论文详情", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "收藏/取消操作后 favoriteList 缓存立即失效", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "数据隔离 — 用户A无法查询用户B的收藏", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "userId 来自 JWT，禁止前端传入", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "收藏不存在的论文抛 ResourceNotFoundException", "verified_by": "automated_test"},
+    {"id": "AC-009", "criterion": "FavoriteResponse JSON 输出 snake_case 字段名", "verified_by": "code_review"},
+    {"id": "AC-010", "criterion": "mvn test 全量通过", "verified_by": "automated_test"}
+  ]
+}

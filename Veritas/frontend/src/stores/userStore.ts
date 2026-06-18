@@ -13,6 +13,10 @@ export const useUserStore = defineStore('user', () => {
   const username = ref<string>(localStorage.getItem(USERNAME_KEY) || '')
   const profile = ref<UserProfile | null>(null)
   const userInfo = ref<UserInfo | null>(null)
+  // 画像版本号：每次保存画像后自增，用于触发依赖画像的视图刷新
+  const profileVersion = ref(0)
+  // 主动退出标志：用于区分 401 是主动退出还是 Token 过期
+  const isManualLogout = ref(false)
 
   const isLoggedIn = computed(() => !!token.value)
   const hasProfile = computed(() => !!profile.value)
@@ -34,15 +38,29 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  function logout() {
-    token.value = ''
-    userId.value = ''
-    username.value = ''
-    profile.value = null
-    userInfo.value = null
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(USER_ID_KEY)
-    localStorage.removeItem(USERNAME_KEY)
+  /**
+   * 退出登录（异步）
+   * - 标记 isManualLogout 用于 401 拦截器区分主动退出与 Token 过期
+   * - 调用后端 logout API 将 Token 加入黑名单
+   * - 即使 API 失败也清理本地状态，确保用户能退出
+   */
+  async function logout() {
+    isManualLogout.value = true
+    try {
+      await userApi.logout()
+    } catch (e: unknown) {
+      // 后端 logout 失败不阻塞本地清理，仅记录警告
+      console.warn('logout API failed:', e)
+    } finally {
+      token.value = ''
+      userId.value = ''
+      username.value = ''
+      profile.value = null
+      userInfo.value = null
+      localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(USER_ID_KEY)
+      localStorage.removeItem(USERNAME_KEY)
+    }
   }
 
   async function fetchProfile() {
@@ -73,6 +91,8 @@ export const useUserStore = defineStore('user', () => {
         preferredStyle: res.preferredStyle
       }
     }
+    // 画像保存成功后自增版本号，触发依赖画像的视图刷新
+    profileVersion.value++
   }
 
   async function getUserInfo() {
@@ -86,6 +106,7 @@ export const useUserStore = defineStore('user', () => {
 
   return {
     token, userId, username, profile, userInfo,
+    profileVersion, isManualLogout,
     isLoggedIn, hasProfile,
     login, logout, fetchProfile, saveProfile, getUserInfo, register
   }

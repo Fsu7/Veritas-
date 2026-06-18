@@ -1,0 +1,137 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M6：交付就绪 / FM5：功能完善与UI打磨",
+    "requirement": "实现综述内容编辑功能。当前ReportView仅展示AI生成的综述内容（segments分段渲染+Markdown备份渲染），无编辑能力。本次任务需新增ReportEditor组件（Markdown编辑器+实时预览+工具栏），ReportView增加'编辑'按钮切换编辑/预览模式，编辑后可保存（调用后端API）和导出（ExportPanel支持customContent），编辑后引用标注仍可点击溯源。",
+    "requirement_ids": ["F1.4.3"],
+    "reference_docs": [
+      {"path": "AGENTS.md", "purpose": "项目全景上下文与前端约束"},
+      {"path": "docs/frontend/前端模块系统架构文档.md", "purpose": "前端架构规范、F1.4 综述生成模块设计、ReportPreview组件"},
+      {"path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM5里程碑任务分解（Week 11 Day 3）"},
+      {"path": "docs/开发规范文档.md", "purpose": "前端编码规范"},
+      {"path": "docs/架构决策记录(ADR).md", "purpose": "架构决策"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      {"layer": "frontend", "module_path": "src/views/ReportView.vue", "description": "综述报告页：元数据卡+综述内容（segments分段+Markdown备份）+导出面板+引用溯源+Agent可视化入口（375行）"},
+      {"layer": "frontend", "module_path": "src/components/report/ExportPanel.vue", "description": "导出面板：PDF/Word导出（Blob下载+loading+失败提示，106行）"},
+      {"layer": "frontend", "module_path": "src/components/report/CitationLink.vue", "description": "引用溯源弹窗：原文片段+元数据+查看详情跳转（116行）"},
+      {"layer": "frontend", "module_path": "src/utils/markdown.ts", "description": "Markdown渲染工具：markdown-it实例（html:false防XSS）+renderMarkdown函数（24行）"},
+      {"layer": "frontend", "module_path": "src/utils/citation.ts", "description": "引用处理工具：parseCitations/linkifyCitations/splitReportSegments/extractCitationData（163行）"},
+      {"layer": "frontend", "module_path": "src/api/analysis.ts", "description": "分析API：analyzePaper/comparePapers/generateReport/getResult/getStatus"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/frontend/src/views/ReportView.vue", "description": "已实现：综述内容展示（splitReportSegments分段+Markdown备份渲染）、元数据卡、ExportPanel、CitationLink、Agent可视化入口、复制Markdown按钮。缺失：无编辑模式、无ReportEditor组件", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/components/report/ExportPanel.vue", "description": "已实现：PDF/Word导出（Blob下载）。缺失：不支持接收customContent prop，导出时直接用后端原始内容", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/utils/markdown.ts", "description": "已实现：renderMarkdown(content)函数。缺失：无renderMarkdownWithCitations（编辑后引用重新解析）", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/utils/citation.ts", "description": "已实现：splitReportSegments/extractCitationData/parseCitations。可复用于编辑后引用解析", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "ReportEditor",
+      "path": "Veritas/frontend/src/components/report/ReportEditor.vue",
+      "responsibility": "Markdown编辑器组件：textarea编辑+实时预览+工具栏",
+      "key_interfaces": [
+        {"name": "modelValue", "signature": "Props: { modelValue: string; editable: boolean }", "description": "v-model双向绑定Markdown内容"},
+        {"name": "update:modelValue", "signature": "emit('update:modelValue', content: string)", "description": "内容变更事件"},
+        {"name": "toolbarActions", "signature": "Methods: bold/italic/heading/list/quote", "description": "工具栏操作：插入对应Markdown语法"}
+      ]
+    },
+    {
+      "name": "ReportView",
+      "path": "Veritas/frontend/src/views/ReportView.vue",
+      "responsibility": "综述报告页：展示+编辑切换",
+      "key_interfaces": [
+        {"name": "toggleEditMode", "signature": "() => void", "description": "切换编辑/预览模式"},
+        {"name": "handleSaveContent", "signature": "async () => Promise<void>", "description": "保存编辑内容到后端"},
+        {"name": "handleCancelEdit", "signature": "() => void", "description": "取消编辑，恢复原内容"}
+      ]
+    },
+    {
+      "name": "analysisApi",
+      "path": "Veritas/frontend/src/api/analysis.ts",
+      "responsibility": "分析API",
+      "key_interfaces": [
+        {"name": "saveReportContent", "signature": "(analysisId: string, content: string) => Promise<void>", "description": "保存编辑后的综述内容"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/frontend/src/views/ReportView.vue", "description": "增加'编辑'按钮切换编辑/预览模式；编辑模式使用ReportEditor；保存/取消按钮；编辑后内容状态管理", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/components/report/ReportEditor.vue", "description": "新建Markdown编辑器组件：textarea+实时预览+工具栏（加粗/斜体/标题/列表/引用）", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/components/report/ExportPanel.vue", "description": "新增customContent prop（可选），导出时优先使用customContent", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/api/analysis.ts", "description": "新增saveReportContent(analysisId, content)方法，调用PUT /analysis/{analysisId}/content", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/utils/markdown.ts", "description": "新增renderMarkdownWithCitations(content, citations)函数，编辑后引用重新解析为可点击链接", "layer": "frontend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "ReportView顶部增加'编辑'按钮（el-button type=primary），点击切换为编辑模式，按钮文案变为'预览'；编辑模式下显示ReportEditor，预览模式下显示原有segments渲染", "priority": "P0", "acceptance_condition": "点击'编辑'进入编辑模式，点击'预览'回到预览模式"},
+      {"id": "FR-002", "description": "ReportEditor组件：左侧textarea编辑区（v-model绑定content）+右侧实时预览区（renderMarkdown渲染）+顶部工具栏（加粗**、斜体*、标题##、列表-、引用>）", "priority": "P0", "acceptance_condition": "编辑内容后预览区实时更新，工具栏按钮插入对应Markdown语法"},
+      {"id": "FR-003", "description": "ReportEditor工具栏按钮点击时在textarea光标位置插入对应Markdown语法（如**加粗**、*斜体*、## 标题、- 列表项、> 引用），并更新modelValue", "priority": "P1", "acceptance_condition": "工具栏操作正确插入Markdown语法到光标位置"},
+      {"id": "FR-004", "description": "编辑模式下显示'保存'和'取消'按钮：保存调用analysisApi.saveReportContent(analysisId, content)，成功后ElMessage提示并切换回预览模式（用新内容渲染）；取消则恢复原内容并切换回预览模式", "priority": "P0", "acceptance_condition": "保存成功后内容持久化，取消后恢复原内容"},
+      {"id": "FR-005", "description": "ExportPanel新增customContent prop（string类型，可选），导出时若customContent存在则使用customContent，否则使用后端原始内容", "priority": "P0", "acceptance_condition": "编辑后导出包含编辑内容，未编辑时导出原始内容"},
+      {"id": "FR-006", "description": "编辑后预览模式使用renderMarkdownWithCitations渲染，引用标注[Author, Year]仍可点击溯源（复用CitationLink组件）", "priority": "P1", "acceptance_condition": "编辑后引用标注可点击弹出原文片段"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue",
+        "enum_value": "PascalCase",
+        "config_key": "camelCase"
+      }
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → Store → API，异步操作在Actions中，组件内不直接调用Axios"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "保存失败时ElMessage.error提示并保留编辑内容（不切换模式）；导出失败时ExportPanel已有失败提示"
+      }
+    },
+    "caching": {
+      "pattern": "编辑内容保存在ReportView本地ref（editingContent），保存成功后更新originalContent；不前端缓存"
+    },
+    "logging": {
+      "frontend": "console.warn仅用于开发调试，生产环境不输出"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（如修改SearchView、AgentFlowView等）", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-011", "action": "破坏View→Store→API分层规范（ReportView内直接调用analysisApi）", "reason": "前端分层约束，保存需通过sessionStore或直接API调用（本任务允许ReportView直接调用analysisApi.saveReportContent，因不涉及全局状态）", "severity": "medium"},
+    {"id": "FA-013", "action": "使用硬编码尺寸值（必须使用CSS变量如var(--spacing-md)）", "reason": "UI设计系统统一", "severity": "medium"},
+    {"id": "FA-016", "action": "在ReportEditor中使用v-html渲染未净化的HTML（必须用markdown-it html:false）", "reason": "XSS防护", "severity": "critical"},
+    {"id": "FA-017", "action": "编辑内容自动保存（必须用户手动点击'保存'）", "reason": "避免误操作和频繁API调用", "severity": "medium"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "ReportEditor.spec.ts", "description": "测试编辑内容v-model、工具栏按钮插入语法、实时预览更新", "framework": "vitest", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "ReportView.spec.ts", "description": "测试编辑/预览模式切换、保存调用API、取消恢复原内容、编辑后导出", "framework": "vitest", "coverage": ["normal_flow", "error_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run test -- --run ReportEditor ReportView", "expected_result": "所有测试通过"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run lint", "expected_result": "无lint错误"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run build", "expected_result": "构建成功无TypeScript错误"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "点击'编辑'按钮进入编辑模式，显示ReportEditor", "verified_by": "manual_test"},
+    {"id": "AC-002", "criterion": "编辑内容后预览区实时更新（Markdown正确渲染）", "verified_by": "manual_test"},
+    {"id": "AC-003", "criterion": "保存编辑内容后调用后端API成功，ElMessage提示", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "编辑后导出PDF/Word包含编辑内容（非原始内容）", "verified_by": "manual_test"},
+    {"id": "AC-005", "criterion": "编辑后引用标注[Author, Year]仍可点击溯源", "verified_by": "manual_test"},
+    {"id": "AC-006", "criterion": "取消编辑后恢复原内容，无数据丢失", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "所有新增/修改的代码通过lint和build验证", "verified_by": "code_review"}
+  ]
+}

@@ -38,6 +38,31 @@ class Settings(BaseSettings):
     AGENT_FULL_TIMEOUT: int = 120
     AGENT_MAX_REGENERATE: int = 1
 
+    # task47: RRF 融合 k 值（可从环境变量覆盖）
+    RRF_K: int = 60
+    # task47: Reranker 权重（可从环境变量覆盖）
+    RERANKER_WEIGHT_RRF: float = 0.5
+    RERANKER_WEIGHT_FIELD: float = 0.3
+    RERANKER_WEIGHT_POPULARITY: float = 0.2
+
+    # task51: LLM 流式超时（秒），用于首字节延迟监控
+    LLM_STREAM_TIMEOUT: int = 30
+
+    # task53: 外接 Embedding API 多 Provider 配置
+    EMBEDDING_PROVIDER: str = "dashscope"  # dashscope / jina / openai
+    JINA_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    EMBEDDING_DIMENSION: int = 1024  # 维度校验
+
+    # task54: 检索参数优化（可环境变量覆盖）
+    SEARCH_TOP_K: int = 10                  # 范围 [5, 20]
+    SEARCH_SIMILARITY_THRESHOLD: float = 0.0  # 范围 [0.0, 0.9]，0.0 不过滤
+    CHUNK_SIZE: int = 512                    # 预留（当前论文摘要+标题不分块）
+
+    # task55: 推荐策略权重（可环境变量覆盖）
+    RERANK_WEIGHT: float = 0.7        # rerank_score 权重
+    RECOMMENDATION_WEIGHT: float = 0.3  # recommendation_score 权重
+
     LOG_LEVEL: str = "INFO"
 
     model_config = SettingsConfigDict(

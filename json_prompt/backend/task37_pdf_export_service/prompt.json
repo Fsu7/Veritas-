@@ -1,0 +1,190 @@
+{
+  "meta": {
+    "project": "XH-202630 科研文献智能助手",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善",
+    "feature_id": ["F2.4.8"],
+    "task_name": "task37_pdf_export_service",
+    "day": "Day 6-7",
+    "created_at": "2026-06-17"
+  },
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善（Week 9 Day 6-7）",
+    "requirement": "PDF导出服务：pom.xml 引入 iText 7（7.2.5）；新建 PdfExporter 工具类（Markdown→PDF转换：标题/段落/列表/代码块；citations 渲染为引用列表；中文字体嵌入思源宋体或Noto Sans CJK SC；AI内容标注'AI生成，仅供参考'页脚；文件命名 analysis_{analysisId}_{timestamp}.pdf）；新建 ExportService（导出编排：查 AnalysisResult → 调 PdfExporter → 返回 byte[]）；AnalysisController 新增 export 端点 GET /api/analysis/{analysisId}/export?format=pdf（返回 ResponseEntity<byte[]> + Content-Disposition: attachment；JWT鉴权 + 数据隔离校验）；异常处理：分析结果不存在/未完成时抛 BusinessException。",
+    "requirement_ids": ["F2.4.8"],
+    "reference_docs": [
+      {"path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "第5章 分析服务模块（导出子模块）+ 第12章 API规范"},
+      {"path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "第7章 JM5 Week 9 Day 6-7 PDF导出任务分解"},
+      {"path": "AGENTS.md", "purpose": "关键规则第7条 JWT认证+数据隔离 + 安全底线 AI内容标注"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend"],
+    "related_modules": [
+      {"layer": "java_backend", "module_path": "com.literatureassistant.controller.AnalysisController", "description": "分析Controller，当前5端点（paper/compare/report/{id}/{id}/status），需新增 export 端点"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.AnalysisService", "description": "分析服务，getAnalysisResult(userId, analysisId) 返回 AnalysisResponse（含 AnalysisResultDTO）"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.dto.response.AnalysisResultDTO", "description": "分析结果DTO：report(String Markdown) + citations(List<Map>，元素含 index/paper_id/citation) + status(AnalysisStatus)"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.dto.response.AnalysisResponse", "description": "分析响应DTO：analysisId/sessionId/status/type/result(AnalysisResultDTO)/createdAt"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/backend/pom.xml", "description": "Maven配置：Spring Boot 3.2.5 / Java 17，已有 web/webflux/data-jpa/data-redis/security/validation + mysql-connector-j + jjwt + lombok + mapstruct，无 iText/POI 依赖", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "description": "AnalysisController：@RestController @RequestMapping(/api/analysis)，已有 analyzePaper/comparePapers/generateReport/getAnalysisResult/getAnalysisStatus 端点，extractCurrentUserId() 方法", "reuse_type": "extend"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "AnalysisService：getAnalysisResult(String userId, String analysisId) 返回 AnalysisResponse，已有 @Cacheable(analysisResult)", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResultDTO.java", "description": "AnalysisResultDTO：report(String Markdown) + citations(List<Map<String,Object>>，元素含 index/paper_id/citation) + status(AnalysisStatus) + degraded/degradedReason", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/dto/response/AnalysisResponse.java", "description": "AnalysisResponse：analysisId/sessionId/status/type/result(AnalysisResultDTO)/createdAt，@JsonProperty snake_case", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/ResourceNotFoundException.java", "description": "资源不存在异常，构造：new ResourceNotFoundException('Analysis', analysisId)", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/exception/BusinessException.java", "description": "业务异常，构造：new BusinessException(code, message, errorKey)", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PdfExporter（新建）",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/PdfExporter.java",
+      "responsibility": "PDF导出工具类：Markdown→PDF转换，citations渲染，中文字体，AI标注，文件命名",
+      "key_interfaces": [
+        {"name": "export", "signature": "public byte[] export(String analysisId, AnalysisResultDTO result) throws IOException", "description": "导出PDF，返回byte[]"},
+        {"name": "renderMarkdown", "signature": "private void renderMarkdown(Document document, String markdown) throws DocumentException", "description": "Markdown→PDF渲染：#/##/### 标题、段落、- 列表、``` 代码块"},
+        {"name": "renderCitations", "signature": "private void renderCitations(Document document, List<Map<String, Object>> citations) throws DocumentException", "description": "citations 渲染为引用列表（[1] citation_text）"},
+        {"name": "addFooter", "signature": "private void addFooter(Document document) throws DocumentException", "description": "添加页脚'AI生成，仅供参考'"},
+        {"name": "generateFileName", "signature": "private String generateFileName(String analysisId)", "description": "生成文件名 analysis_{analysisId}_{yyyyMMddHHmmss}.pdf"}
+      ]
+    },
+    {
+      "name": "ExportService（新建）",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/ExportService.java",
+      "responsibility": "导出编排服务：查 AnalysisResult → 调 PdfExporter → 返回 byte[]",
+      "key_interfaces": [
+        {"name": "exportPdf", "signature": "public byte[] exportPdf(String userId, String analysisId)", "description": "PDF导出编排：校验 → 查结果 → 调 PdfExporter"}
+      ]
+    },
+    {
+      "name": "AnalysisController（扩展）",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java",
+      "responsibility": "分析Controller，新增 export 端点",
+      "key_interfaces": [
+        {"name": "exportAnalysis", "signature": "@GetMapping(\"/{analysisId}/export\") public ResponseEntity<byte[]> exportAnalysis(@PathVariable String analysisId, @RequestParam(defaultValue=\"pdf\") String format, @AuthenticationPrincipal String userId)", "description": "导出端点，format=pdf"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/backend/pom.xml", "description": "新增 iText 7 依赖：com.itextpdf:itext7-core:7.2.5（pom 类型）+ com.itextpdf:font-asian:7.2.5（中文字体）", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/util/PdfExporter.java", "description": "新建PDF导出工具类：export/renderMarkdown/renderCitations/addFooter/generateFileName 方法", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/main/java/com/literatureassistant/service/ExportService.java", "description": "新建导出编排服务：exportPdf(userId, analysisId)，含数据隔离校验和状态校验", "layer": "java_backend"},
+    {"operation": "modify", "path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "description": "新增 exportAnalysis 端点：GET /{analysisId}/export?format=pdf，返回 ResponseEntity<byte[]>", "layer": "java_backend"},
+    {"operation": "create", "path": "Veritas/backend/src/test/java/com/literatureassistant/util/PdfExporterTest.java", "description": "PDF导出单元测试：Markdown渲染/citations渲染/中文字体/AI标注/文件命名", "layer": "java_backend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "pom.xml 引入 iText 7 依赖：com.itextpdf:itext7-core:7.2.5（pom 类型，包含 kernel/layout/io）+ com.itextpdf:font-asian:7.2.5（中文字体支持）。版本锁定 7.2.5", "priority": "P0", "acceptance_condition": "mvn compile 成功，iText 7 依赖正确引入"},
+      {"id": "FR-002", "description": "PdfExporter.export(analysisId, result) 方法：创建 Document → 设置中文字体 → 渲染 Markdown → 渲染 citations → 添加页脚 → 关闭 Document → 返回 byte[]", "priority": "P0", "acceptance_condition": "返回非空 byte[]，可被 PDF 阅读器打开"},
+      {"id": "FR-003", "description": "PdfExporter.renderMarkdown 支持 Markdown 基础语法：#/##/### 标题（对应 H1/H2/H3）、段落（Paragraph）、- 无序列表（ListItem）、``` 代码块（Courier 字体灰底）。按行解析", "priority": "P0", "acceptance_condition": "Markdown 语法正确渲染为PDF对应元素"},
+      {"id": "FR-004", "description": "PdfExporter 中文字体嵌入：使用 com.itextpdf.io.font.PdfFontFactory.createFont 加载思源宋体或 Noto Sans CJK SC（从 classpath resources/fonts/ 加载），或使用 font-asian 包的 STSong-Light（UniGB-UCS2-H 编码）。确保中文不乱码", "priority": "P0", "acceptance_condition": "PDF 中文显示正常，无乱码"},
+      {"id": "FR-005", "description": "PdfExporter.renderCitations：遍历 citations 列表，每条渲染为 '[index] citation_text' 格式（index 从 citations 元素的 index 字段获取，citation_text 从 citation 字段获取）。空 citations 时不渲染该 section", "priority": "P0", "acceptance_condition": "citations 正确渲染为编号引用列表"},
+      {"id": "FR-006", "description": "PdfExporter.addFooter：使用 PdfPageEventHelper 或 Document.addFooter 在每页页脚居中显示 'AI生成，仅供参考'（灰色小字体）", "priority": "P0", "acceptance_condition": "每页页脚显示'AI生成，仅供参考'"},
+      {"id": "FR-007", "description": "PdfExporter.generateFileName：返回 'analysis_' + analysisId + '_' + yyyyMMddHHmmss + '.pdf'（使用 DateTimeFormatter.ofPattern('yyyyMMddHHmmss')）", "priority": "P0", "acceptance_condition": "文件名符合规范"},
+      {"id": "FR-008", "description": "ExportService.exportPdf(userId, analysisId)：1) 调 analysisService.getAnalysisResult(userId, analysisId) 获取结果（含数据隔离校验）；2) 校验 result.status == COMPLETED，否则抛 BusinessException(400, '分析未完成，无法导出', 'ANALYSIS_NOT_COMPLETED')；3) 校验 result.report 非空，否则抛 BusinessException(400, '分析报告为空', 'EMPTY_REPORT')；4) 调 pdfExporter.export(analysisId, result) 返回 byte[]", "priority": "P0", "acceptance_condition": "导出编排正确，状态校验生效"},
+      {"id": "FR-009", "description": "AnalysisController.exportAnalysis 端点：@GetMapping(\"/{analysisId}/export\")，参数 @PathVariable analysisId + @RequestParam(defaultValue=\"pdf\") format + @AuthenticationPrincipal userId。JWT鉴权（userId 非空非blank，否则抛 AuthenticationException）。format=pdf 时调 exportService.exportPdf，返回 ResponseEntity.ok().header(Content-Disposition, attachment; filename=...).header(Content-Type, application/pdf).body(byte[])", "priority": "P0", "acceptance_condition": "端点返回 PDF 文件，Content-Disposition 正确"},
+      {"id": "FR-010", "description": "数据隔离：exportService.exportPdf 调用 analysisService.getAnalysisResult(userId, analysisId)，该方法内部校验 analysisId 对应 Session.userId 必须等于 currentUserId，否则抛 ResourceNotFoundException", "priority": "P0", "acceptance_condition": "用户A无法导出用户B的分析结果"},
+      {"id": "FR-011", "description": "异常处理：分析结果不存在抛 ResourceNotFoundException（由 getAnalysisResult 抛出）；未完成抛 BusinessException(400, 'ANALYSIS_NOT_COMPLETED')；report 为空抛 BusinessException(400, 'EMPTY_REPORT')", "priority": "P1", "acceptance_condition": "异常场景正确抛出"},
+      {"id": "FR-012", "description": "大文件处理：report > 10000 字符时，PdfExporter 自动分页（iText Document 默认支持自动分页，无需特殊处理，但需确保内存足够）。建议设置 JVM -Xmx512m", "priority": "P1", "acceptance_condition": "大文件导出不OOM"}
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"},
+          {"java": "paperId", "python": "paper_id", "json": "paper_id"}
+        ]
+      },
+      "api_contracts": [
+        {
+          "endpoint": "/api/analysis/{analysisId}/export",
+          "method": "GET",
+          "request_format": {"analysisId": "path param", "format": "query param(default=pdf)", "Authorization": "Bearer JWT"},
+          "response_format": "binary PDF file, Content-Type: application/pdf, Content-Disposition: attachment; filename=\"analysis_{analysisId}_{timestamp}.pdf\""
+        }
+      ],
+      "data_flow": "前端 GET /api/analysis/{id}/export?format=pdf → AnalysisController(JWT) → ExportService.exportPdf → AnalysisService.getAnalysisResult(@Cacheable) → PdfExporter.export → byte[] → ResponseEntity"
+    },
+    "security_requirements": [
+      {"category": "jwt_auth", "requirement": "export 端点必须 JWT 鉴权，userId 从 @AuthenticationPrincipal 获取"},
+      {"category": "data_isolation", "requirement": "analysisId 对应 Session.userId 必须等于 currentUserId，否则抛 ResourceNotFoundException"},
+      {"category": "sensitive_info", "requirement": "AI内容标注'AI生成，仅供参考'必须在PDF页脚显示"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {"class_name": "PascalCase", "method_variable": "camelCase", "constant": "UPPER_SNAKE_CASE", "file_name": "PascalCase.java", "enum_value": "UPPER_SNAKE_CASE", "config_key": "kebab-case"},
+      "json": {"field_name": "snake_case"},
+      "cross_system_mapping": [
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"},
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"}
+      ]
+    },
+    "layering": {
+      "java": {"rule": "Controller → Service → Repository → Client，禁止跨层", "entity_dto_separation": true, "dto_naming": "XxxRequestDTO, XxxResponseDTO"}
+    },
+    "error_handling": {
+      "java": {"approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)", "business_exception_fields": ["code", "message", "errorKey"]}
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "analysisResult", "key_pattern": "analysisResult::{analysisId}", "ttl": "30min"}
+      ]
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息"]
+    },
+    "security": {
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "data_isolation": "analysisId 对应 Session.userId 必须等于 currentUserId",
+      "ai_content_label": "AI生成，仅供参考"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-004", "action": "破坏分层调用规范（Controller直接操作Repository等）", "reason": "分层架构约束", "severity": "critical"},
+    {"id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high"},
+    {"id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high"},
+    {"id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium"},
+    {"id": "FA-009", "action": "使用SQL拼接（必须参数化查询）", "reason": "SQL注入防护", "severity": "critical"},
+    {"id": "FA-010", "action": "忽略降级场景（LLM/Agent失败时的处理）", "reason": "可用性约束ADR-003", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "testExportBasicMarkdown", "description": "验证基础 Markdown 渲染：#/##/### 标题、段落、- 列表、``` 代码块正确渲染为PDF", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testExportChineseText", "description": "验证中文字体：PDF 中文显示正常，无乱码", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testExportCitations", "description": "验证 citations 渲染：每条渲染为 '[index] citation_text'，空 citations 不渲染 section", "framework": "junit5", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "testExportFooter", "description": "验证页脚'AI生成，仅供参考'显示", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testGenerateFileName", "description": "验证文件名格式：analysis_{analysisId}_{yyyyMMddHHmmss}.pdf", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testExportEmptyReport", "description": "验证空 report 抛 BusinessException(EMPTY_REPORT)", "framework": "junit5", "coverage": ["error_flow"]},
+      {"test_name": "testExportNotCompleted", "description": "验证未完成分析（status!=COMPLETED）抛 BusinessException(ANALYSIS_NOT_COMPLETED)", "framework": "junit5", "coverage": ["error_flow"]},
+      {"test_name": "testExportLargeReport", "description": "验证大文件（report > 10000 字符）导出不 OOM", "framework": "junit5", "coverage": ["boundary_condition"]},
+      {"test_name": "testExportDataIsolation", "description": "验证数据隔离：用户A无法导出用户B的分析结果", "framework": "junit5", "coverage": ["normal_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=PdfExporterTest", "expected_result": "所有测试通过，BUILD SUCCESS"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn compile", "expected_result": "iText 7 依赖正确引入，编译成功"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "PDF 文件生成成功，可被 PDF 阅读器打开", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "Markdown 标题/段落/列表/代码块正确渲染", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "PDF 中文显示正常，无乱码", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "citations 引用列表正确编号", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "页脚显示'AI生成，仅供参考'", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "文件名符合 analysis_{analysisId}_{yyyyMMddHHmmss}.pdf 规范", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "Content-Disposition: attachment; filename 正确", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "数据隔离 — 用户A无法导出用户B的分析结果", "verified_by": "automated_test"},
+    {"id": "AC-009", "criterion": "未完成分析导出抛 BusinessException", "verified_by": "automated_test"},
+    {"id": "AC-010", "criterion": "空 report 抛 BusinessException", "verified_by": "automated_test"},
+    {"id": "AC-011", "criterion": "mvn test 全量通过", "verified_by": "automated_test"}
+  ]
+}

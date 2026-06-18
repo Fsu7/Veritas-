@@ -1,7 +1,8 @@
+import asyncio
 import json
 import re
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -17,6 +18,9 @@ DEFAULT_DIMENSIONS = {
 
 FALLBACK_NOTE = "论文未明确提及"
 
+# P1-6: 并行化 LLM 调用的默认并发度，避免单 Agent 内打满 LLM 配额
+DEFAULT_CONCURRENCY = 3
+
 
 class AnalyzerAgent(BaseAgent):
 
@@ -29,6 +33,7 @@ class AnalyzerAgent(BaseAgent):
         timeout: int = 30,
         llm_temperature: float = 0.3,
         llm_max_tokens: int = 2048,
+        concurrency: int = DEFAULT_CONCURRENCY,
     ) -> None:
         super().__init__(
             name="analyzer",
@@ -40,6 +45,8 @@ class AnalyzerAgent(BaseAgent):
         self.max_papers = max_papers
         self.llm_temperature = llm_temperature
         self.llm_max_tokens = llm_max_tokens
+        # 并发度至少为 1，避免非法配置导致 Semaphore(0) 报错
+        self.concurrency = max(1, int(concurrency))
 
     def build_prompt(self, input_data: dict, context: dict) -> str:
         extra_instruction = self._get_personalized_instruction(context)
@@ -68,35 +75,27 @@ class AnalyzerAgent(BaseAgent):
         papers = papers[: self.max_papers]
         total = len(papers)
 
+        # P1-6: 使用 asyncio.gather + Semaphore 并行化 LLM 调用
+        # 保持结果顺序与 papers 一致，异常降级行为与原串行实现相同
+        semaphore = asyncio.Semaphore(self.concurrency)
+        tasks = [
+            self._analyze_paper_with_semaphore(paper, context, semaphore, idx, total)
+            for idx, paper in enumerate(papers)
+        ]
+        gathered: List[Tuple[int, Optional[dict], Optional[str]]] = await asyncio.gather(*tasks)
+
+        # 按原 idx 顺序整理结果，保证输出稳定
+        results_by_idx: Dict[int, Tuple[Optional[dict], Optional[str]]] = {
+            idx: (result, degraded_id) for idx, result, degraded_id in gathered
+        }
         analysis_results: List[dict] = []
-        degraded_papers: List[dict] = []
-
-        for idx, paper in enumerate(papers):
-            paper_id = paper.get("paper_id", f"paper_{idx}")
-            progress = (idx + 1) / (total + 1)
-            self.state.update_progress(
-                progress, f"Analyzing paper {idx + 1}/{total}: {paper.get('title', '')[:50]}"
-            )
-
-            try:
-                result = await self._analyze_single_paper(paper, context)
-                result["paper_id"] = paper_id
-                result["degraded"] = False
+        degraded_papers: List[str] = []
+        for idx in range(total):
+            result, degraded_id = results_by_idx.get(idx, (None, None))
+            if result is not None:
                 analysis_results.append(result)
-            except Exception as e:
-                logger.warning(f"LLM analysis failed for paper {paper_id}: {e}")
-                try:
-                    fallback = self._rule_based_extraction(paper)
-                    fallback["paper_id"] = paper_id
-                    fallback["degraded"] = True
-                    fallback["degraded_reason"] = str(e)
-                    analysis_results.append(fallback)
-                    degraded_papers.append(paper_id)
-                except Exception as fallback_err:
-                    logger.error(
-                        f"Rule-based extraction also failed for {paper_id}: {fallback_err}"
-                    )
-                    degraded_papers.append(paper_id)
+            if degraded_id is not None:
+                degraded_papers.append(degraded_id)
 
         self.state.update_progress(
             1.0,
@@ -120,6 +119,46 @@ class AnalyzerAgent(BaseAgent):
             "total_analyzed": len(analysis_results),
             "extraction_quality": round(extraction_quality, 4),
         }
+
+    async def _analyze_paper_with_semaphore(
+        self,
+        paper: dict,
+        context: dict,
+        semaphore: asyncio.Semaphore,
+        idx: int,
+        total: int,
+    ) -> Tuple[int, Optional[dict], Optional[str]]:
+        """P1-6: 并行分析单篇论文的包装方法。
+
+        返回三元组 (idx, result_or_none, degraded_paper_id_or_none)：
+        - LLM 成功：返回 (idx, result, None)
+        - LLM 失败但规则降级成功：返回 (idx, fallback_result, paper_id)
+        - LLM 与规则降级均失败：返回 (idx, None, paper_id)
+        """
+        paper_id = paper.get("paper_id", f"paper_{idx}")
+        async with semaphore:
+            self.state.update_progress(
+                (idx + 1) / (total + 1),
+                f"Analyzing paper {idx + 1}/{total}: {paper.get('title', '')[:50]}",
+            )
+            try:
+                result = await self._analyze_single_paper(paper, context)
+                result["paper_id"] = paper_id
+                result["degraded"] = False
+                return idx, result, None
+            except Exception as e:
+                logger.warning(f"LLM analysis failed for paper {paper_id}: {e}")
+                try:
+                    fallback = self._rule_based_extraction(paper)
+                    fallback["paper_id"] = paper_id
+                    fallback["degraded"] = True
+                    fallback["degraded_reason"] = str(e)
+                    return idx, fallback, paper_id
+                except Exception as fallback_err:
+                    logger.error(
+                        f"Rule-based extraction also failed for {paper_id}: {fallback_err}"
+                    )
+                    return idx, None, paper_id
 
     async def _analyze_single_paper(self, paper: dict, context: dict) -> dict:
         paper_input = {

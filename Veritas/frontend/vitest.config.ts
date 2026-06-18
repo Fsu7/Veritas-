@@ -34,6 +34,39 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     css: false,
+    testTimeout: 10000,
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/e2e/**',
+      '**/playwright.config.ts'
+    ],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html', 'lcov'],
+      reportsDirectory: './coverage',
+      thresholds: {
+        lines: 70,
+        functions: 50,
+        branches: 60,
+        statements: 70
+      },
+      exclude: [
+        'node_modules/',
+        'src/**/*.d.ts',
+        'src/auto-imports.d.ts',
+        'src/components.d.ts',
+        'src/main.ts',
+        'src/env.d.ts',
+        'src/types/**',
+        'src/router/**',
+        'vite.config.ts',
+        'vitest.config.ts',
+        'src/__tests__/**',
+        'e2e/**',
+        'playwright.config.ts'
+      ]
+    },
     server: {
       deps: {
         inline: ['element-plus']

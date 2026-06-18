@@ -1,0 +1,148 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M6：交付就绪 / FM5：功能完善与UI打磨（验收里程碑）",
+    "requirement": "FM5功能完善与UI打磨里程碑的集成验收测试。FM5共10份任务（task43-task52），覆盖13项验收检查点：画像编辑实时生效、历史记录分页搜索、论文收藏/取消收藏、收藏列表展示、综述内容编辑、编辑后导出、Agent流程回放、退出登录Token黑名单、UI统一、空状态设计、错误状态设计、响应式布局、P0功能100%通过。本次任务需新建fm5-acceptance.spec.ts集成测试文件，参考fm4-acceptance.spec.ts模式（vi.mock所有Store/API/Composable + mount + describe/it），13项检查点每项对应一个describe块，确保FM5全部交付物通过验收。",
+    "requirement_ids": ["F1.1", "F1.2", "F1.3", "F1.4", "F1.5"],
+    "reference_docs": [
+      {"path": "AGENTS.md", "purpose": "项目全景上下文与前端测试规范"},
+      {"path": "docs/frontend/前端模块系统架构文档.md", "purpose": "前端架构规范、组件设计、FM5交付物清单"},
+      {"path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM5里程碑验收检查点（13项）"},
+      {"path": "docs/开发规范文档.md", "purpose": "前端测试规范、集成测试规范"},
+      {"path": "docs/架构决策记录(ADR).md", "purpose": "架构决策"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      {"layer": "frontend", "module_path": "src/__tests__/integration/fm4-acceptance.spec.ts", "description": "FM4验收集成测试（模式参考）：使用vi.mock mock所有Store/API/Composable，mount+global.stubs桩掉Element Plus组件，每个describe对应一项AC，包含若干it。共15项AC。本任务参考此模式实现FM5的13项AC"},
+      {"layer": "frontend", "module_path": "src/views/UserCenterView.vue", "description": "用户中心页（task43增强）：画像编辑实时生效+历史记录分页搜索。对应AC-001/002"},
+      {"layer": "frontend", "module_path": "src/views/FavoritesView.vue", "description": "收藏列表页（task44新建）：收藏列表展示。对应AC-003/004"},
+      {"layer": "frontend", "module_path": "src/views/ReportView.vue", "description": "综述报告页（task45增强）：内容编辑+编辑后导出。对应AC-005/006"},
+      {"layer": "frontend", "module_path": "src/views/AgentFlowView.vue", "description": "Agent可视化页（task46增强）：流程回放。对应AC-007"},
+      {"layer": "frontend", "module_path": "src/components/layout/AppHeader.vue", "description": "顶部导航（task47增强）：退出登录Token黑名单。对应AC-008"},
+      {"layer": "frontend", "module_path": "src/styles/variables.scss", "description": "CSS变量（task49统一）：UI统一。对应AC-009"},
+      {"layer": "frontend", "module_path": "src/components/common/EmptyState.vue", "description": "空状态组件（task48新建）：空状态设计。对应AC-010"},
+      {"layer": "frontend", "module_path": "src/components/common/ErrorState.vue", "description": "错误状态组件（task48新建）：错误状态设计。对应AC-011"},
+      {"layer": "frontend", "module_path": "src/styles/mixins.scss", "description": "响应式mixin（task49/task50）：响应式布局。对应AC-012"},
+      {"layer": "frontend", "module_path": "src/__tests__/integration/fm5-acceptance.spec.ts", "description": "本任务新建：FM5验收集成测试，13项检查点"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/frontend/src/__tests__/integration/fm4-acceptance.spec.ts", "description": "FM4验收集成测试，提供完整模式参考：vi.mock基础设施（useSSE/agentStore/sessionStore/paperStore/userStore/analysisApi/paperApi/vue-router/element-plus）+ 辅助函数（setSSEConnected/setSSEError/triggerSSEEvent）+ describe/it结构", "reuse_type": "reference"},
+      {"file_path": "Veritas/frontend/src/__tests__/integration/fullChain.spec.ts", "description": "全链路集成测试，提供跨Store协作测试模式参考", "reuse_type": "reference"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "fm4-acceptance.spec.ts",
+      "path": "Veritas/frontend/src/__tests__/integration/fm4-acceptance.spec.ts",
+      "responsibility": "FM4验收集成测试（模式参考）",
+      "key_interfaces": [
+        {"name": "vi.mock", "signature": "vi.mock('@/stores/agentStore', () => ({ useAgentStore: vi.fn(() => ({...})) }))", "description": "mock Store"},
+        {"name": "vi.mock", "signature": "vi.mock('@/api/analysis', () => ({ analysisApi: {...} }))", "description": "mock API"},
+        {"name": "vi.mock", "signature": "vi.mock('@/composables/useSSE', () => ({ useSSE: vi.fn((opts) => ({...})) }))", "description": "mock Composable"},
+        {"name": "mount", "signature": "mount(Component, { props, global: { stubs: {'el-empty': true, 'el-progress': true, ...} } })", "description": "挂载组件+桩掉Element Plus"},
+        {"name": "describe/it", "signature": "describe('AC-XXX 检查点描述', () => { it('should...', () => {}) })", "description": "每个AC一个describe块"}
+      ]
+    },
+    {
+      "name": "FM5验收检查点",
+      "path": "docs/frontend/前端模块项目里程碑文档.md",
+      "responsibility": "FM5里程碑13项验收检查点定义",
+      "key_interfaces": [
+        {"name": "AC-001", "signature": "画像编辑后实时生效", "description": "UserCenterView画像保存后profile标签即时刷新"},
+        {"name": "AC-002", "signature": "历史记录分页+搜索", "description": "UserCenterView历史记录支持分页+关键词搜索"},
+        {"name": "AC-003", "signature": "论文收藏/取消收藏", "description": "PaperCard收藏切换调用toggleFavorite"},
+        {"name": "AC-004", "signature": "收藏列表展示", "description": "FavoritesView展示收藏论文列表+分页"},
+        {"name": "AC-005", "signature": "综述内容编辑", "description": "ReportView编辑模式切换+ReportEditor编辑"},
+        {"name": "AC-006", "signature": "编辑后导出", "description": "ExportPanel接收customContent导出编辑内容"},
+        {"name": "AC-007", "signature": "Agent流程回放", "description": "AgentFlowView回放模式+useReplay控制"},
+        {"name": "AC-008", "signature": "退出登录Token黑名单", "description": "AppHeader退出调用userApi.logout+清除状态"},
+        {"name": "AC-009", "signature": "UI统一", "description": "variables.scss/mixins.scss/global.scss统一"},
+        {"name": "AC-010", "signature": "空状态设计", "description": "EmptyState组件渲染+Props+Event"},
+        {"name": "AC-011", "signature": "错误状态设计", "description": "ErrorState组件渲染+Props+retry Event"},
+        {"name": "AC-012", "signature": "响应式布局", "description": "respond-to mixin+断点变量+移动端布局"},
+        {"name": "AC-013", "signature": "P0功能100%通过", "description": "所有P0功能测试通过"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/integration/fm5-acceptance.spec.ts", "description": "FM5验收集成测试（13项检查点）：参考fm4-acceptance.spec.ts模式，vi.mock所有Store/API/Composable，13个describe块对应13项AC", "layer": "frontend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "fm5-acceptance.spec.ts包含13项验收检查点（AC-001~AC-013），每项对应一个describe块", "priority": "P0", "acceptance_condition": "13个describe块全部存在"},
+      {"id": "FR-002", "description": "AC-001画像编辑实时生效：mount UserCenterView，mock userStore.saveProfile成功，验证fetchProfile被调用+profile标签更新", "priority": "P0", "acceptance_condition": "画像保存后profile刷新验证通过"},
+      {"id": "FR-003", "description": "AC-002历史记录分页+搜索：mount UserCenterView，mock sessionApi.list返回分页数据，验证分页切换+关键词搜索触发API调用", "priority": "P0", "acceptance_condition": "分页+搜索功能验证通过"},
+      {"id": "FR-004", "description": "AC-003论文收藏/取消收藏：mount PaperCard，mock paperStore.toggleFavorite，验证收藏按钮点击触发toggleFavorite+状态切换", "priority": "P0", "acceptance_condition": "收藏切换功能验证通过"},
+      {"id": "FR-005", "description": "AC-004收藏列表展示：mount FavoritesView，mock paperStore.fetchFavorites返回列表，验证列表渲染+分页", "priority": "P0", "acceptance_condition": "收藏列表渲染验证通过"},
+      {"id": "FR-006", "description": "AC-005综述内容编辑：mount ReportView，验证编辑按钮点击切换编辑模式+ReportEditor渲染+保存调用saveReportContent", "priority": "P0", "acceptance_condition": "编辑模式+保存功能验证通过"},
+      {"id": "FR-007", "description": "AC-006编辑后导出：mount ExportPanel，传入customContent prop，验证导出按钮调用exportPdf/exportWord使用customContent", "priority": "P1", "acceptance_condition": "编辑后导出功能验证通过"},
+      {"id": "FR-008", "description": "AC-007 Agent流程回放：mount AgentFlowView，验证回放模式切换+useReplay控制（如task46未实现则标注'待task46实现后补充'并跳过该AC）", "priority": "P1", "acceptance_condition": "回放功能验证通过（或标注待补充）"},
+      {"id": "FR-009", "description": "AC-008退出登录Token黑名单：mount AppHeader，mock userApi.logout，验证退出按钮点击调用userApi.logout+清除token/userId+跳转Login", "priority": "P0", "acceptance_condition": "退出登录+Token黑名单验证通过"},
+      {"id": "FR-010", "description": "AC-009 UI统一：验证variables.scss包含--spacing-*/--font-size-*/--radius-*/--shadow-*/--chart-height-*变量；mixins.scss包含respond-to/text-truncate/flex-center mixin；global.scss包含.card-shadow/.text-primary等工具类（通过import样式文件无错误验证）", "priority": "P1", "acceptance_condition": "UI统一验证通过"},
+      {"id": "FR-011", "description": "AC-010空状态设计：mount EmptyState，传入icon/title/description/actionText props，验证渲染+action按钮点击emit('action')", "priority": "P0", "acceptance_condition": "EmptyState渲染+事件验证通过"},
+      {"id": "FR-012", "description": "AC-011错误状态设计：mount ErrorState，传入icon/title/description/retryText props，验证渲染+retry按钮点击emit('retry')+showRetry=false隐藏按钮", "priority": "P0", "acceptance_condition": "ErrorState渲染+事件验证通过"},
+      {"id": "FR-013", "description": "AC-012响应式布局：验证variables.scss包含--breakpoint-sm/md/lg/xl变量；验证mixins.scss respond-to mixin存在（通过import样式文件无错误验证）", "priority": "P1", "acceptance_condition": "响应式基础设施验证通过"},
+      {"id": "FR-014", "description": "AC-013 P0功能100%通过：汇总AC-001/002/003/004/005/008/010/011的P0检查点，验证全部通过", "priority": "P0", "acceptance_condition": "所有P0检查点验证通过"},
+      {"id": "FR-015", "description": "使用vi.mock mock所有外部依赖（@/stores/*、@/api/*、@/composables/*、vue-router、element-plus），参考fm4-acceptance.spec.ts的mock基础设施", "priority": "P1", "acceptance_condition": "所有外部依赖被mock，无真实网络请求"},
+      {"id": "FR-016", "description": "每个describe块包含至少一个it，测试名称使用中文描述（如'画像保存后应刷新profile标签'）", "priority": "P1", "acceptance_condition": "13个describe块均有it，名称规范"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "fm5-acceptance.spec.ts",
+        "test_name": "describe/it使用中文描述"
+      }
+    },
+    "layering": {
+      "frontend": {
+        "rule": "仅新增集成测试文件，不修改源代码"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "测试中通过vi.mock模拟API响应，验证功能正确性"
+      }
+    },
+    "caching": {
+      "pattern": "无缓存需求"
+    },
+    "logging": {
+      "frontend": "无日志需求"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行测试代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外模块（修改源代码）", "reason": "本任务仅新增集成测试", "severity": "critical"},
+    {"id": "FA-003", "action": "破坏三层分离架构", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-029", "action": "测试中发起真实网络请求（必须vi.mock API模块）", "reason": "测试隔离性", "severity": "critical"},
+    {"id": "FA-030", "action": "使用it.skip/it.only（必须全部启用）", "reason": "测试完整性", "severity": "critical"},
+    {"id": "FA-032", "action": "遗漏13项检查点中的任何一项", "reason": "FM5验收完整性", "severity": "critical"},
+    {"id": "FA-035", "action": "测试依赖执行顺序（必须独立可重复运行）", "reason": "测试隔离性", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "fm5-acceptance.spec.ts", "description": "FM5验收集成测试，13项检查点（AC-001~AC-013），覆盖画像编辑/历史记录/收藏/内容编辑/导出/流程回放/退出登录/UI统一/空状态/错误状态/响应式/P0功能", "framework": "vitest", "coverage": ["normal_flow", "error_flow", "boundary_condition"]}
+    ],
+    "verification_commands": [
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run test:run", "expected_result": "所有测试通过（含fm5-acceptance.spec.ts的13项检查点）"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run lint", "expected_result": "无lint错误"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "fm5-acceptance.spec.ts包含13项验收检查点（AC-001~AC-013）", "verified_by": "code_review"},
+    {"id": "AC-002", "criterion": "所有13项检查点测试通过（npm run test:run）", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "测试覆盖FM5检查清单全部13项（画像编辑/历史记录/收藏/内容编辑/导出/流程回放/退出登录/UI统一/空状态/错误状态/响应式/P0功能）", "verified_by": "code_review"},
+    {"id": "AC-004", "criterion": "npm run test:run全部通过", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "无it.skip/it.only的测试", "verified_by": "code_review"},
+    {"id": "AC-006", "criterion": "所有外部依赖使用vi.mock隔离（无真实网络请求）", "verified_by": "code_review"},
+    {"id": "AC-007", "criterion": "每个describe块包含至少一个it，测试名称使用中文描述", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "npm run lint无错误", "verified_by": "code_review"}
+  ]
+}

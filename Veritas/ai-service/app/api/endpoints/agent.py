@@ -148,13 +148,15 @@ async def analyze_stream(
     request: AnalyzeRequest,
     last_event_id: Optional[str] = Header(None, alias="Last-Event-ID"),
 ):
-    """POST /api/agent/analyze/stream — task25 SSE 流式推送，task30 增强
+    """POST /api/agent/analyze/stream — task25 SSE 流式推送，task30/52 增强
 
     使用 sse-starlette EventSourceResponse 返回 SSE 流。
-    事件类型：agent_started / agent_state_update / agent_completed /
-              agent_failed / analysis_completed / error / ping
+    事件类型（10种）：agent_started / agent_state_update / agent_completed /
+              agent_failed / workflow_degraded / review_rejected /
+              analysis_completed / error / ping / token_stream
 
     task30: 支持 Last-Event-ID Header 实现断线重连。
+    task52: 新增 token_stream 事件，Generator 流式 token 实时推送。
     """
     try:
         agent_instances = _build_agent_instances()

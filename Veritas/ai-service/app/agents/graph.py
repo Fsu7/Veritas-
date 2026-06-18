@@ -329,9 +329,10 @@ async def generate_node(state: WorkflowState, agent_instances: Dict[str, Any]) -
             "agent_states": {**state.get("agent_states", {}), "generator": _serialize_agent_state(generator)},
         }
 
-        # 重新生成时递增 regenerate_count
-        if regenerate_count > 0 or (state.get("review_result") and not state.get("review_result", {}).get("approved", True)):
-            update["regenerate_count"] = regenerate_count + 1
+        # 重新生成时递增 regenerate_count（简化逻辑：仅当 review_result 存在且未通过时递增）
+        review_result = state.get("review_result") or {}
+        if review_result and not review_result.get("approved", True):
+            update["regenerate_count"] = state.get("regenerate_count", 0) + 1
 
         return update
     except Exception as e:
@@ -408,15 +409,16 @@ async def review_node(state: WorkflowState, agent_instances: Dict[str, Any]) -> 
             update["degraded_agents"] = state.get("degraded_agents", []) + ["reviewer"]
             update["degradation_level"] = "agent"
             update["errors"] = state.get("errors", []) + [{"agent": "reviewer", "error": "审核降级，跳过审核"}]
-            # 降级时标记审核通过，不阻塞流程
+            # 降级时标记审核通过但标注 review_skipped，前端提示用户人工核查
             review_result["approved"] = True
+            review_result["review_skipped"] = True
             update["review_result"] = review_result
 
         return update
     except Exception as e:
         logger.error(f"review_node failed: {e}")
         return {
-            "review_result": {"approved": True, "issues": [], "suggestions": [], "citation_accuracy": 0.0, "fact_accuracy": 0.0},
+            "review_result": {"approved": True, "review_skipped": True, "issues": [], "suggestions": [], "citation_accuracy": 0.0, "fact_accuracy": 0.0},
             "errors": state.get("errors", []) + [{"agent": "reviewer", "error": str(e)}],
             "degraded": True,
             "degraded_agents": state.get("degraded_agents", []) + ["reviewer"],

@@ -352,9 +352,9 @@ class TestRerankerCompositeScore:
         field_score = (title_match_boost + keyword_density + citation_boost) * 1.0
         popularity_score = min(80 / 100, 1.0)
         expected = (
-            score_rrf * reranker.WEIGHT_RRF
-            + field_score * reranker.WEIGHT_FIELD
-            + popularity_score * reranker.WEIGHT_POPULARITY
+            score_rrf * reranker.weight_rrf
+            + field_score * reranker.weight_field
+            + popularity_score * reranker.weight_popularity
         )
         assert abs(results[0]["rerank_score"] - expected) < 1e-9
 

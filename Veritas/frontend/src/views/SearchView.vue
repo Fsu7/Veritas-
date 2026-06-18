@@ -8,6 +8,8 @@ import PaperCard from '@/components/paper/PaperCard.vue'
 import SearchInput from '@/components/common/SearchInput.vue'
 import FilterPanel from '@/components/common/FilterPanel.vue'
 import SortDropdown from '@/components/common/SortDropdown.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import ErrorState from '@/components/common/ErrorState.vue'
 import type { FilterParams, SortParams } from '@/types/paper'
 
 const route = useRoute()
@@ -17,6 +19,7 @@ const paperStore = usePaperStore()
 const searchQuery = ref('')
 const hasSearched = ref(false)
 const searchLoading = ref(false)
+const filterDrawerVisible = ref(false)
 
 const { currentPage, handleCurrentChange, resetPage } = usePagination(
   computed(() => paperStore.totalResults)
@@ -31,19 +34,18 @@ const showPagination = computed(() =>
 /** 论文筛选 */
 function handleUpdateFilters(filters: FilterParams) {
   paperStore.updateFilters(filters)
+  filterDrawerVisible.value = false
 }
 
 /** 重置筛选 */
 function handleResetFilters() {
   paperStore.updateFilters({})
+  filterDrawerVisible.value = false
 }
 
 /** 排序变更 */
 function handleSortChange(sort: SortParams) {
-  paperStore.sortBy = sort
-  if (paperStore.currentQuery) {
-    paperStore.searchPapers(paperStore.currentQuery, 1, sort)
-  }
+  paperStore.setSortBy(sort)
 }
 
 /** 搜索 */
@@ -149,17 +151,17 @@ watch(() => route.query.q, (newQ) => {
 
     <!-- 错误状态 -->
     <div v-if="hasError" class="search-view__error">
-      <el-result icon="error" title="检索失败" :sub-title="paperStore.error || ''">
-        <template #extra>
-          <el-button type="primary" @click="handleRetry">重试</el-button>
-        </template>
-      </el-result>
+      <ErrorState
+        title="检索失败"
+        :description="paperStore.error || ''"
+        @retry="handleRetry"
+      />
     </div>
 
     <template v-else>
       <el-container class="search-view__layout">
-        <!-- 左侧筛选面板 -->
-        <el-aside width="240px" class="search-view__aside">
+        <!-- 左侧筛选面板（桌面端） -->
+        <el-aside width="240px" class="search-view__aside search-view__aside--desktop">
           <el-card shadow="hover">
             <FilterPanel
               :filters="paperStore.filters"
@@ -171,12 +173,25 @@ watch(() => route.query.q, (newQ) => {
 
         <!-- 右侧主内容 -->
         <el-main class="search-view__main">
+          <!-- 移动端筛选按钮 -->
+          <div class="search-view__mobile-filter">
+            <el-button type="primary" plain @click="filterDrawerVisible = true">
+              筛选
+            </el-button>
+          </div>
+
           <!-- 空状态 -->
           <div
             v-if="hasSearched && !searchLoading && !paperStore.searchResults.length"
             class="search-view__empty"
           >
-            <el-empty description="未找到相关论文，试试调整搜索词？" />
+            <EmptyState
+              icon="search"
+              title="未找到相关论文"
+              description="试试调整搜索词或清空筛选条件"
+              action-text="清空筛选"
+              @action="handleResetFilters"
+            />
           </div>
 
           <template v-else>
@@ -186,7 +201,7 @@ watch(() => route.query.q, (newQ) => {
                 找到 {{ paperStore.totalResults }} 篇相关论文
               </el-text>
               <SortDropdown
-                v-model="paperStore.sortBy"
+                :model-value="paperStore.sortBy"
                 @update:model-value="handleSortChange"
               />
             </div>
@@ -220,11 +235,27 @@ watch(() => route.query.q, (newQ) => {
           </template>
         </el-main>
       </el-container>
+
+      <!-- 移动端筛选抽屉 -->
+      <el-drawer
+        v-model="filterDrawerVisible"
+        direction="ltr"
+        size="280px"
+        title="筛选条件"
+      >
+        <FilterPanel
+          :filters="paperStore.filters"
+          @update:filters="handleUpdateFilters"
+          @reset="handleResetFilters"
+        />
+      </el-drawer>
     </template>
   </div>
 </template>
 
 <style scoped lang="scss">
+@use '@/styles/mixins' as *;
+
 .search-view {
   max-width: var(--content-max-width, 1200px);
   margin: 0 auto;
@@ -241,6 +272,11 @@ watch(() => route.query.q, (newQ) => {
 
 .search-view__aside {
   flex-shrink: 0;
+}
+
+.search-view__mobile-filter {
+  display: none;
+  margin-bottom: var(--spacing-md);
 }
 
 .search-view__main {
@@ -260,7 +296,7 @@ watch(() => route.query.q, (newQ) => {
 }
 
 .search-view__empty {
-  padding: 48px 0;
+  padding: var(--spacing-xl) 0;
 }
 
 .search-view__error {
@@ -271,5 +307,14 @@ watch(() => route.query.q, (newQ) => {
   display: flex;
   justify-content: center;
   padding: var(--spacing-lg, 24px) 0;
+}
+
+@include respond-to(md) {
+  .search-view__aside--desktop {
+    display: none;
+  }
+  .search-view__mobile-filter {
+    display: block;
+  }
 }
 </style>

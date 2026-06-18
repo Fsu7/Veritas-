@@ -1,0 +1,143 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M6：交付就绪 / FM5：功能完善与UI打磨",
+    "requirement": "完善退出登录功能，实现Token黑名单。当前AppHeader退出按钮仅清除前端localStorage（Token/userId/username），未调用后端logout API将Token jti加入Redis黑名单。本次任务需新增userApi.logout调用POST /users/logout（后端将Token jti写入Redis黑名单，TTL=Token剩余有效期），userStore.logout改为async先调用后端API（失败不阻塞）再清除本地状态，AppHeader退出按钮增加loading状态防止重复点击，401拦截器优化区分'Token过期'和'主动退出'。",
+    "requirement_ids": ["F1.1.1"],
+    "reference_docs": [
+      {"path": "AGENTS.md", "purpose": "项目全景上下文与前端约束、安全规范（JWT+Redis黑名单）"},
+      {"path": "docs/frontend/前端模块系统架构文档.md", "purpose": "前端架构规范、API通信层、userStore设计"},
+      {"path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM5里程碑任务分解（Week 11 Day 5）"},
+      {"path": "docs/开发规范文档.md", "purpose": "前端编码规范、安全规范"},
+      {"path": "docs/架构决策记录(ADR).md", "purpose": "架构决策（JWT认证、Redis黑名单）"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      {"layer": "frontend", "module_path": "src/api/user.ts", "description": "用户API：register/login/getUserInfo/getProfile/createProfile/updateProfile（22行，缺少logout）"},
+      {"layer": "frontend", "src/stores/userStore.ts", "description": "用户状态：login/logout（同步清除localStorage）/fetchProfile/saveProfile（92行）"},
+      {"layer": "frontend", "module_path": "src/components/layout/AppHeader.vue", "description": "顶部导航：Logo+菜单+用户名+退出按钮（80行，退出按钮无loading状态）"},
+      {"layer": "frontend", "module_path": "src/api/index.ts", "description": "Axios实例+请求拦截器（JWT注入）+响应拦截器（401/403/404/超时统一处理）"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/frontend/src/stores/userStore.ts", "description": "已实现logout同步方法：清除token/userId/username/profile + localStorage.removeItem。缺失：未调用后端logout API", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/components/layout/AppHeader.vue", "description": "已实现退出按钮@click='handleLogout'调用userStore.logout+router.push('/login')。缺失：无loading状态、未等待async完成", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/api/index.ts", "description": "已实现401响应拦截器：userStore.logout()+router.push('/login')+ElMessage.error('登录已过期')。缺失：主动退出时也会触发此提示", "reuse_type": "extend"},
+      {"file_path": "Veritas/frontend/src/api/user.ts", "description": "已实现register/login等API。缺失：无logout方法", "reuse_type": "extend"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "userApi",
+      "path": "Veritas/frontend/src/api/user.ts",
+      "responsibility": "用户API封装",
+      "key_interfaces": [
+        {"name": "logout", "signature": "() => Promise<void>", "description": "调用POST /users/logout，后端将Token jti加入Redis黑名单"}
+      ]
+    },
+    {
+      "name": "userStore",
+      "path": "Veritas/frontend/src/stores/userStore.ts",
+      "responsibility": "用户状态管理",
+      "key_interfaces": [
+        {"name": "logout", "signature": "async () => Promise<void>", "description": "先调用userApi.logout（失败不阻塞），再清除本地状态（token/userId/username/profile+localStorage）"}
+      ]
+    },
+    {
+      "name": "AppHeader",
+      "path": "Veritas/frontend/src/components/layout/AppHeader.vue",
+      "responsibility": "顶部导航栏",
+      "key_interfaces": [
+        {"name": "handleLogout", "signature": "async () => Promise<void>", "description": "退出按钮点击处理：loading状态+调用userStore.logout+跳转登录页"}
+      ]
+    },
+    {
+      "name": "Axios响应拦截器",
+      "path": "Veritas/frontend/src/api/index.ts",
+      "responsibility": "统一错误处理",
+      "key_interfaces": [
+        {"name": "isManualLogout", "signature": "flag: boolean", "description": "标记是否主动退出，401时判断是否显示'登录已过期'提示"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/frontend/src/api/user.ts", "description": "新增logout()方法，调用POST /users/logout", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/stores/userStore.ts", "description": "logout方法改为async：先调用userApi.logout（try-catch失败不阻塞），再清除本地状态；新增isManualLogout标志", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/components/layout/AppHeader.vue", "description": "退出按钮增加loading状态（ref<boolean>）防止重复点击；handleLogout改为async等待userStore.logout完成再跳转", "layer": "frontend"},
+    {"operation": "modify", "path": "Veritas/frontend/src/api/index.ts", "description": "401拦截器优化：检查userStore.isManualLogout标志，主动退出时不显示'登录已过期'提示", "layer": "frontend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "userApi.logout()调用POST /users/logout接口（携带JWT Token），后端将Token jti写入Redis黑名单（TTL=Token剩余有效期），返回成功/失败", "priority": "P0", "acceptance_condition": "API调用成功，后端Redis黑名单写入Token jti"},
+      {"id": "FR-002", "description": "userStore.logout改为async方法：先设置isManualLogout=true，然后try { await userApi.logout() } catch { /* 失败不阻塞，仍清除本地状态 */ } finally { 清除token/userId/username/profile+localStorage；isManualLogout=false }", "priority": "P0", "acceptance_condition": "退出时先调用后端API（失败也清除本地状态）"},
+      {"id": "FR-003", "description": "AppHeader退出按钮增加loading状态（ref<boolean>初始false），handleLogout开始时loading=true，完成后loading=false；按钮:loading='loading'防止重复点击", "priority": "P1", "acceptance_condition": "退出过程中按钮loading，防止重复点击"},
+      {"id": "FR-004", "description": "退出成功后跳转登录页（router.push({ name: 'Login', query: { redirect: '/' } })），携带redirect参数", "priority": "P0", "acceptance_condition": "退出后跳转登录页"},
+      {"id": "FR-005", "description": "401响应拦截器优化：检查userStore.isManualLogout标志，若为true则不显示'登录已过期'ElMessage提示（因为这是主动退出）；若为false则显示提示", "priority": "P1", "acceptance_condition": "主动退出时无'登录已过期'提示，Token过期时有提示"}
+    ],
+    "security_requirements": [
+      {"category": "jwt_auth", "requirement": "退出登录时必须调用后端logout API将Token jti加入Redis黑名单，确保退出后旧Token无法访问受保护接口"},
+      {"category": "sensitive_info", "requirement": "退出后必须清除localStorage中的token/userId/username，防止敏感信息残留"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "PascalCase.vue",
+        "enum_value": "PascalCase",
+        "config_key": "camelCase"
+      }
+    },
+    "layering": {
+      "frontend": {
+        "rule": "View → Store → API，AppHeader调用userStore.logout，userStore调用userApi.logout"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "userApi.logout失败时try-catch捕获，不阻塞本地状态清除（确保用户能退出）；网络错误时ElMessage.warning('退出请求失败，已本地退出')"
+      }
+    },
+    "caching": {
+      "pattern": "退出后清除localStorage所有用户相关数据（token/userId/username）"
+    },
+    "logging": {
+      "frontend": "console.warn仅用于开发调试，生产环境不输出；禁止在日志中输出Token"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（如修改SearchView、PaperCard等）", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-011", "action": "破坏View→Store→API分层规范（AppHeader内直接调用userApi.logout）", "reason": "前端分层约束，必须通过userStore.logout", "severity": "high"},
+    {"id": "FA-013", "action": "使用硬编码尺寸值", "reason": "UI设计系统统一", "severity": "medium"},
+    {"id": "FA-020", "action": "退出时仅清除前端状态不调用后端logout API", "reason": "安全约束：Token黑名单必须由后端写入Redis", "severity": "critical"},
+    {"id": "FA-021", "action": "在日志或控制台输出JWT Token", "reason": "敏感信息泄露防护", "severity": "critical"},
+    {"id": "FA-022", "action": "退出失败时阻塞用户（必须确保即使后端API失败用户也能本地退出）", "reason": "用户体验保障", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "userStore.spec.ts", "description": "测试logout async流程：调用userApi.logout成功/失败两种场景，验证本地状态清除、isManualLogout标志设置/重置", "framework": "vitest", "coverage": ["normal_flow", "error_flow"]},
+      {"test_name": "AppHeader.spec.ts", "description": "测试退出按钮loading状态、点击调用userStore.logout、跳转登录页", "framework": "vitest", "coverage": ["normal_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run test -- --run userStore AppHeader", "expected_result": "所有测试通过"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run lint", "expected_result": "无lint错误"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run build", "expected_result": "构建成功无TypeScript错误"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "退出时调用后端logout API（POST /users/logout）", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "退出后前端Token/userId/username清除（localStorage+Store状态）", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "退出后跳转登录页（携带redirect参数）", "verified_by": "manual_test"},
+    {"id": "AC-004", "criterion": "退出后旧Token无法访问受保护接口（后端Redis黑名单生效）", "verified_by": "manual_test"},
+    {"id": "AC-005", "criterion": "退出按钮loading状态防止重复点击", "verified_by": "manual_test"},
+    {"id": "AC-006", "criterion": "主动退出时不显示'登录已过期'提示（Token过期时才显示）", "verified_by": "manual_test"},
+    {"id": "AC-007", "criterion": "后端logout API失败时用户仍能本地退出（不阻塞）", "verified_by": "automated_test"},
+    {"id": "AC-008", "criterion": "所有新增/修改的代码通过lint和build验证", "verified_by": "code_review"}
+  ]
+}

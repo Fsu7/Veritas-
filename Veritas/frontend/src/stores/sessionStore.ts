@@ -174,11 +174,47 @@ export const useSessionStore = defineStore('session', () => {
     reconnectAttempts.value = 0
   }
 
+  // ============================================================
+  // P0-8: View 层 API 调用迁移到 Store Action
+  // ============================================================
+
+  async function comparePapers(paperIds: string[]): Promise<any> {
+    analysisError.value = null
+    try {
+      const result = await analysisApi.comparePapers({ paperIds })
+      return result
+    } catch (e: any) {
+      analysisError.value = e.message || '对比失败'
+      throw e
+    }
+  }
+
+  async function generateReport(params: { topic: string; paperIds: string[]; profile: any }): Promise<any> {
+    analysisError.value = null
+    try {
+      const result = await analysisApi.generateReport(params)
+      return result
+    } catch (e: any) {
+      analysisError.value = e.message || '生成报告失败'
+      throw e
+    }
+  }
+
+  async function saveReportContent(analysisId: string, content: string): Promise<void> {
+    try {
+      await analysisApi.saveReportContent(analysisId, content)
+    } catch (e: any) {
+      analysisError.value = e.message || '保存失败'
+      throw e
+    }
+  }
+
   return {
     currentSessionId, currentAnalysisId, analysisResults,
     analysisStatus, analysisError, pollTimer, eventSource, reconnectAttempts,
     isAnalyzing, isAnalysisCompleted, isAnalysisFailed,
     createSession, fetchAnalysisResult, fetchSessions,
-    startAnalysis, pollAnalysisStatus, connectAgentStream, disconnectSSE, cleanup
+    startAnalysis, pollAnalysisStatus, connectAgentStream, disconnectSSE, cleanup,
+    comparePapers, generateReport, saveReportContent
   }
 })

@@ -23,13 +23,15 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * task35: 同步更新所有 searchPapers 调用为新签名（9 个参数：q/yearFrom/yearTo/venue/author/keywords/sort/sortDirection/page/size）。
+ */
 @ExtendWith(MockitoExtension.class)
 class PaperServiceSearchTest {
 
@@ -50,12 +52,13 @@ class PaperServiceSearchTest {
         Page<Paper> mockPage = new PageImpl<>(List.of(paper), PageRequest.of(0, 10), 1);
 
         when(paperRepository.searchByKeyword(
-                anyString(), any(), any(), any(), anyString(), any(Pageable.class)))
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), any(Pageable.class)))
                 .thenReturn(mockPage);
         when(paperMapper.toResponse(paper)).thenReturn(paperResponse);
 
         PageResponse<PaperResponse> result = paperService.searchPapers(
-                "agent", null, null, null, "relevance", 1, 10);
+                "agent", null, null, null, null, null, "relevance", "desc", 1, 10);
 
         assertThat(result).isNotNull();
         assertThat(result.getItems()).hasSize(1);
@@ -64,39 +67,42 @@ class PaperServiceSearchTest {
     }
 
     @Test
-    @DisplayName("searchPapers - q为null抛IllegalArgumentException")
-    void searchPapers_nullQ_throwsIllegalArgument() {
+    @DisplayName("searchPapers - q为null抛BusinessException（U-002 修复：统一异常体系）")
+    void searchPapers_nullQ_throwsBusinessException() {
         assertThatThrownBy(() -> paperService.searchPapers(
-                null, null, null, null, "relevance", 1, 10))
-                .isInstanceOf(IllegalArgumentException.class)
+                null, null, null, null, null, null, "relevance", "desc", 1, 10))
+                .isInstanceOf(com.literatureassistant.exception.BusinessException.class)
                 .hasMessageContaining("搜索关键词不能为空");
 
         verify(paperRepository, never()).searchByKeyword(
-                anyString(), any(), any(), any(), anyString(), any(Pageable.class));
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), any(Pageable.class));
     }
 
     @Test
-    @DisplayName("searchPapers - q为空白字符串抛IllegalArgumentException")
-    void searchPapers_blankQ_throwsIllegalArgument() {
+    @DisplayName("searchPapers - q为空白字符串抛BusinessException（U-002 修复：统一异常体系）")
+    void searchPapers_blankQ_throwsBusinessException() {
         assertThatThrownBy(() -> paperService.searchPapers(
-                "   ", null, null, null, "relevance", 1, 10))
-                .isInstanceOf(IllegalArgumentException.class)
+                "   ", null, null, null, null, null, "relevance", "desc", 1, 10))
+                .isInstanceOf(com.literatureassistant.exception.BusinessException.class)
                 .hasMessageContaining("搜索关键词不能为空");
 
         verify(paperRepository, never()).searchByKeyword(
-                anyString(), any(), any(), any(), anyString(), any(Pageable.class));
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), any(Pageable.class));
     }
 
     @Test
     @DisplayName("searchPapers - yearFrom>yearTo抛BusinessException")
     void searchPapers_yearFromGreaterThanYearTo_throwsBusinessException() {
         assertThatThrownBy(() -> paperService.searchPapers(
-                "agent", 2024, 2020, null, "relevance", 1, 10))
+                "agent", 2024, 2020, null, null, null, "relevance", "desc", 1, 10))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("yearFrom不能大于yearTo");
 
         verify(paperRepository, never()).searchByKeyword(
-                anyString(), any(), any(), any(), anyString(), any(Pageable.class));
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), any(Pageable.class));
     }
 
     @Test
@@ -104,14 +110,16 @@ class PaperServiceSearchTest {
     void searchPapers_invalidSort_fallsBackToRelevance() {
         Page<Paper> mockPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
         when(paperRepository.searchByKeyword(
-                anyString(), any(), any(), any(), anyString(), any(Pageable.class)))
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), any(Pageable.class)))
                 .thenReturn(mockPage);
 
-        paperService.searchPapers("agent", null, null, null, "invalid_sort", 1, 10);
+        paperService.searchPapers("agent", null, null, null, null, null, "invalid_sort", "desc", 1, 10);
 
         ArgumentCaptor<String> sortCaptor = ArgumentCaptor.forClass(String.class);
         verify(paperRepository).searchByKeyword(
-                anyString(), any(), any(), any(), sortCaptor.capture(), any(Pageable.class));
+                anyString(), any(), any(), any(), any(), any(),
+                sortCaptor.capture(), anyString(), any(Pageable.class));
         assertThat(sortCaptor.getValue()).isEqualTo("relevance");
     }
 
@@ -120,14 +128,16 @@ class PaperServiceSearchTest {
     void searchPapers_pageLessThanOne_clampsToOne() {
         Page<Paper> mockPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
         when(paperRepository.searchByKeyword(
-                anyString(), any(), any(), any(), anyString(), any(Pageable.class)))
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), any(Pageable.class)))
                 .thenReturn(mockPage);
 
-        paperService.searchPapers("agent", null, null, null, "relevance", 0, 10);
+        paperService.searchPapers("agent", null, null, null, null, null, "relevance", "desc", 0, 10);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         verify(paperRepository).searchByKeyword(
-                anyString(), any(), any(), any(), anyString(), pageableCaptor.capture());
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageNumber()).isEqualTo(0);
     }
 
@@ -136,14 +146,16 @@ class PaperServiceSearchTest {
     void searchPapers_sizeGreaterThanHundred_clampsToHundred() {
         Page<Paper> mockPage = new PageImpl<>(List.of(), PageRequest.of(0, 100), 0);
         when(paperRepository.searchByKeyword(
-                anyString(), any(), any(), any(), anyString(), any(Pageable.class)))
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), any(Pageable.class)))
                 .thenReturn(mockPage);
 
-        paperService.searchPapers("agent", null, null, null, "relevance", 1, 200);
+        paperService.searchPapers("agent", null, null, null, null, null, "relevance", "desc", 1, 200);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         verify(paperRepository).searchByKeyword(
-                anyString(), any(), any(), any(), anyString(), pageableCaptor.capture());
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(100);
     }
 
@@ -152,11 +164,12 @@ class PaperServiceSearchTest {
     void searchPapers_noResults_returnsEmptyPage() {
         Page<Paper> emptyPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
         when(paperRepository.searchByKeyword(
-                anyString(), any(), any(), any(), anyString(), any(Pageable.class)))
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), any(Pageable.class)))
                 .thenReturn(emptyPage);
 
         PageResponse<PaperResponse> result = paperService.searchPapers(
-                "nonexistent_keyword_xyz", null, null, null, "relevance", 1, 10);
+                "nonexistent_keyword_xyz", null, null, null, null, null, "relevance", "desc", 1, 10);
 
         assertThat(result).isNotNull();
         assertThat(result.getItems()).isEmpty();
@@ -171,13 +184,50 @@ class PaperServiceSearchTest {
         Paper p2 = Paper.builder().paperId("p2").build();
         Page<Paper> mockPage = new PageImpl<>(List.of(p1, p2), PageRequest.of(0, 10), 2);
         when(paperRepository.searchByKeyword(
-                anyString(), any(), any(), any(), anyString(), any(Pageable.class)))
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), any(Pageable.class)))
                 .thenReturn(mockPage);
         when(paperMapper.toResponse(any(Paper.class)))
                 .thenReturn(PaperResponse.builder().build());
 
-        paperService.searchPapers("agent", null, null, null, "relevance", 1, 10);
+        paperService.searchPapers("agent", null, null, null, null, null, "relevance", "desc", 1, 10);
 
         verify(paperMapper, times(2)).toResponse(any(Paper.class));
+    }
+
+    @Test
+    @DisplayName("searchPapers - sortDirection非法值降级为desc")
+    void searchPapers_invalidSortDirection_fallsBackToDesc() {
+        Page<Paper> mockPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
+        when(paperRepository.searchByKeyword(
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), any(Pageable.class)))
+                .thenReturn(mockPage);
+
+        paperService.searchPapers("agent", null, null, null, null, null, "year", "invalid_dir", 1, 10);
+
+        ArgumentCaptor<String> dirCaptor = ArgumentCaptor.forClass(String.class);
+        verify(paperRepository).searchByKeyword(
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), dirCaptor.capture(), any(Pageable.class));
+        assertThat(dirCaptor.getValue()).isEqualTo("desc");
+    }
+
+    @Test
+    @DisplayName("searchPapers - sortDirection=asc 正确传递")
+    void searchPapers_sortDirectionAsc_passedThrough() {
+        Page<Paper> mockPage = new PageImpl<>(List.of(), PageRequest.of(0, 10), 0);
+        when(paperRepository.searchByKeyword(
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), anyString(), any(Pageable.class)))
+                .thenReturn(mockPage);
+
+        paperService.searchPapers("agent", null, null, null, null, null, "year", "ASC", 1, 10);
+
+        ArgumentCaptor<String> dirCaptor = ArgumentCaptor.forClass(String.class);
+        verify(paperRepository).searchByKeyword(
+                anyString(), any(), any(), any(), any(), any(),
+                anyString(), dirCaptor.capture(), any(Pageable.class));
+        assertThat(dirCaptor.getValue()).isEqualTo("asc");
     }
 }

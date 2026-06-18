@@ -1,4 +1,5 @@
 @use './variables' as *;
+@use './mixins' as *;
 
 *,
 *::before,
@@ -203,4 +204,34 @@ a:hover {
     height: auto;
     border-radius: var(--radius-sm);
   }
+}
+
+/* Task 49: 通用工具类 */
+.card-shadow {
+  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-md);
+}
+
+.text-primary {
+  color: var(--el-color-primary);
+}
+
+.text-secondary {
+  color: var(--el-text-color-secondary);
+}
+
+.text-success {
+  color: var(--el-color-success);
+}
+
+.text-warning {
+  color: var(--el-color-warning);
+}
+
+.text-danger {
+  color: var(--el-color-danger);
+}
+
+.bg-primary {
+  background-color: var(--el-color-primary);
 }

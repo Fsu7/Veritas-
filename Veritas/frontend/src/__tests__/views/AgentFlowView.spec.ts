@@ -50,7 +50,13 @@ vi.mock('@/stores/agentStore', () => ({
   useAgentStore: vi.fn(() => ({
     agentStates: mockAgentStates,
     updateAgentState: mockUpdateAgentState,
-    resetStates: mockResetStates
+    resetStates: mockResetStates,
+    exitReplayMode: vi.fn(),
+    isReplayMode: false,
+    applyReplayFrame: vi.fn(),
+    loadReplayData: vi.fn(),
+    replayFrames: [],
+    currentReplayIndex: 0
   }))
 }))
 

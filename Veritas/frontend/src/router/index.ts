@@ -60,6 +60,18 @@ const routes = [
     name: 'UserCenter',
     component: () => import('@/views/UserCenterView.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/favorites',
+    name: 'Favorites',
+    component: () => import('@/views/FavoritesView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: () => import('@/views/NotFoundView.vue'),
+    meta: { requiresAuth: false }
   }
 ]
 

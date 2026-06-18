@@ -5,14 +5,16 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePaperStore } from '@/stores/paperStore'
 import { useUserStore } from '@/stores/userStore'
 import { useAgentStore } from '@/stores/agentStore'
-import { analysisApi } from '@/api/analysis'
+import { useSessionStore } from '@/stores/sessionStore'
 import PaperCard from '@/components/paper/PaperCard.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import type { AnalysisResult, CompareResult } from '@/types/analysis'
 
 const router = useRouter()
 const paperStore = usePaperStore()
 const userStore = useUserStore()
 const agentStore = useAgentStore()
+const sessionStore = useSessionStore()
 
 const compareLoading = ref(false)
 const compareResult = ref<CompareResult | null>(null)
@@ -68,9 +70,9 @@ async function doCompare() {
   resultDegraded.value = false
   resultDegradedReason.value = undefined
   try {
-    const result = await analysisApi.comparePapers({
-      paperIds: paperStore.selectedPaperIds
-    })
+    const result = await sessionStore.comparePapers(
+      paperStore.selectedPaperIds
+    )
     processResult(result)
     ElMessage.success('对比分析完成')
   } catch (e: unknown) {
@@ -100,7 +102,7 @@ async function handleGenerateReport() {
   const topic = paperStore.selectedPapers.map(p => p.title).join(' / ')
   compareLoading.value = true
   try {
-    const result = await analysisApi.generateReport({
+    const result = await sessionStore.generateReport({
       topic,
       paperIds: paperStore.selectedPaperIds,
       profile: userStore.profile
@@ -210,9 +212,13 @@ onMounted(() => {
     </el-card>
 
     <el-card v-if="paperStore.selectedPapers.length === 0" class="compare-view__empty">
-      <el-empty description="尚未选择论文，请前往检索页面勾选 2-5 篇论文">
-        <el-button type="primary" @click="goSearch">去检索</el-button>
-      </el-empty>
+      <EmptyState
+        icon="document"
+        title="请选择论文进行对比"
+        description="前往检索页面勾选 2-5 篇论文进行对比分析"
+        action-text="去检索"
+        @action="goSearch"
+      />
     </el-card>
 
     <el-card v-else class="compare-view__selected">
@@ -293,21 +299,23 @@ onMounted(() => {
         </el-alert>
       </div>
 
-      <el-table
-        :data="compareTableData"
-        border
-        stripe
-        style="width: 100%"
-      >
-        <el-table-column
-          v-for="col in compareTableColumns"
-          :key="col.prop"
-          :prop="col.prop"
-          :label="col.label"
-          :min-width="col.minWidth"
-          :fixed="col.fixed"
-        />
-      </el-table>
+      <div class="compare-view__table-wrapper">
+        <el-table
+          :data="compareTableData"
+          border
+          stripe
+          style="width: 100%"
+        >
+          <el-table-column
+            v-for="col in compareTableColumns"
+            :key="col.prop"
+            :prop="col.prop"
+            :label="col.label"
+            :min-width="col.minWidth"
+            :fixed="col.fixed"
+          />
+        </el-table>
+      </div>
 
       <div v-if="compareResult.summary" class="compare-view__summary">
         <h3>对比总结</h3>
@@ -318,6 +326,8 @@ onMounted(() => {
 </template>
 
 <style scoped lang="scss">
+@use '@/styles/mixins' as *;
+
 .compare-view {
   max-width: var(--content-max-width, 1200px);
   margin: 0 auto;
@@ -417,6 +427,24 @@ onMounted(() => {
     margin: 0;
     color: var(--el-text-color-regular);
     line-height: 1.8;
+  }
+}
+
+.compare-view__table-wrapper {
+  overflow-x: auto;
+
+  :deep(.el-table) {
+    min-width: 600px;
+  }
+}
+
+@include respond-to(md) {
+  .compare-view {
+    padding: var(--spacing-md);
+  }
+  .compare-view__control-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

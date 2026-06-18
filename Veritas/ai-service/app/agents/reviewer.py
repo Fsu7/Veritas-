@@ -41,7 +41,7 @@ class ReviewerAgent(BaseAgent):
         original_papers = input_data.get("original_papers", [])
         retry_context = input_data.get("retry_context", "")
 
-        papers_json = json.dumps(original_papers, ensure_ascii=False) if original_papers else "无"
+        papers_json = self._truncate_papers_for_prompt(original_papers)
 
         base_prompt = self.prompt_manager.get_prompt(
             "reviewer",
@@ -285,6 +285,49 @@ class ReviewerAgent(BaseAgent):
     def _extract_suggestions(self, parsed: dict) -> List[dict]:
         """提取修改建议列表"""
         return parsed.get("suggestions", [])
+
+    # ============================================================
+    # P1-5: 独立规则核查 — 不依赖 LLM 自评
+    # ============================================================
+
+    def _rule_based_citation_check(self, report: str, original_papers: List[dict]) -> dict:
+        """基于规则的引用核查，不依赖 LLM 自评"""
+        numeric_citations = re.findall(r'\[(\d+)\]', report)
+        total_citations = len(set(numeric_citations))
+        paper_count = len(original_papers)
+        accurate_citations = sum(1 for n in numeric_citations
+                                if 1 <= int(n) <= paper_count)
+        accuracy_rate = accurate_citations / total_citations if total_citations > 0 else 0.0
+        return {
+            "total_citations": total_citations,
+            "accurate_citations": accurate_citations,
+            "accuracy_rate": round(accuracy_rate, 4),
+            "method": "rule_based",
+        }
+
+    # ============================================================
+    # P0-7: Token 爆炸防护 — 论文数据截断
+    # ============================================================
+
+    MAX_PAPERS_CHARS = 6000  # 限制约 1500 tokens
+
+    def _truncate_papers_for_prompt(self, original_papers: List[dict]) -> str:
+        """截断原始论文数据，避免 Prompt 过长"""
+        if not original_papers:
+            return "无"
+        full_json = json.dumps(original_papers, ensure_ascii=False)
+        if len(full_json) <= self.MAX_PAPERS_CHARS:
+            return full_json
+        truncated = []
+        for p in original_papers:
+            truncated_p = {
+                "paper_id": p.get("paper_id"),
+                "title": p.get("title", ""),
+                "abstract": (p.get("abstract", "") or "")[:300],
+                "year": p.get("year"),
+            }
+            truncated.append(truncated_p)
+        return json.dumps(truncated, ensure_ascii=False)
 
     def _fallback_result(self, input_data: dict) -> dict:
         """降级时返回 approved=False（默认不通过），标注 degraded=True"""

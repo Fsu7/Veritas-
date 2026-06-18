@@ -1,0 +1,160 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M6：交付就绪 / FM5：功能完善与UI打磨",
+    "requirement": "补全前端缺失的单元测试。当前__tests__/目录已有部分测试（AgentFlowChart/AgentStatusPanel/IntermediateResult/TimeStats/FilterPanel/LoadingOverlay/SearchInput/SortDropdown/PaperCard/CitationLink/ExportPanel组件测试；usePagination/useSSE composable测试；paperStore/sessionStore store测试；AgentFlowView/HomeView/SearchView视图测试；citation/format/markdown/storage utils测试；fm4-acceptance/fullChain集成测试）。但task43-task50新增/修改的代码缺少测试覆盖：7个视图（UserCenterView/LoginView/RegisterView/PaperDetailView/CompareView/ReportView/FavoritesView）、2个store（userStore/agentStore）、2个composable（useAuth/useReplay）、3个组件（EmptyState/ErrorState/ReportEditor）共14份spec缺失。本次任务需新增14份测试文件，覆盖正常流程+错误流程+边界条件，所有测试使用vi.mock隔离外部依赖。",
+    "requirement_ids": ["F1.1", "F1.2", "F1.3", "F1.4", "F1.5"],
+    "reference_docs": [
+      {"path": "AGENTS.md", "purpose": "项目全景上下文与前端测试规范"},
+      {"path": "docs/frontend/前端模块系统架构文档.md", "purpose": "前端架构规范、组件设计、Store/Composable设计"},
+      {"path": "docs/frontend/前端模块项目里程碑文档.md", "purpose": "FM5里程碑任务分解（Week 12 Day 10上午）"},
+      {"path": "docs/开发规范文档.md", "purpose": "前端测试规范、vitest使用规范"},
+      {"path": "docs/架构决策记录(ADR).md", "purpose": "架构决策"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["frontend"],
+    "related_modules": [
+      {"layer": "frontend", "module_path": "src/__tests__/", "description": "测试目录：components/agent、components/common、components/paper、components/report、composables、integration、stores、utils、views子目录。已有测试见requirement描述"},
+      {"layer": "frontend", "module_path": "src/__tests__/integration/fm4-acceptance.spec.ts", "description": "FM4验收集成测试，使用vi.mock mock所有Store/API/Composable，mount+global.stubs桩掉Element Plus组件，每个describe对应一项AC。本任务task52参考此模式"},
+      {"layer": "frontend", "module_path": "src/views/UserCenterView.vue", "description": "用户中心页：画像表单+历史记录。task43增强：画像保存后刷新、历史记录分页搜索。需测试"},
+      {"layer": "frontend", "module_path": "src/views/LoginView.vue", "description": "登录页：表单验证+登录跳转。需测试"},
+      {"layer": "frontend", "module_path": "src/views/RegisterView.vue", "description": "注册页：表单验证+密码确认。需测试"},
+      {"layer": "frontend", "module_path": "src/views/PaperDetailView.vue", "description": "论文详情页：详情加载+收藏切换。需测试"},
+      {"layer": "frontend", "module_path": "src/views/CompareView.vue", "description": "对比页：对比选择+结果展示+降级提示。task26已实现降级。需测试"},
+      {"layer": "frontend", "module_path": "src/views/ReportView.vue", "description": "综述报告页：报告加载+引用弹窗。task45增强：编辑模式。需测试"},
+      {"layer": "frontend", "module_path": "src/views/FavoritesView.vue", "description": "收藏列表页（task44新建）：列表加载+分页+空状态。需测试"},
+      {"layer": "frontend", "module_path": "src/stores/userStore.ts", "description": "用户store：login/logout/fetchProfile/saveProfile + isLoggedIn/hasProfile计算属性。task47增强：logout改为async。需测试"},
+      {"layer": "frontend", "module_path": "src/stores/agentStore.ts", "description": "Agent store：updateAgentState/resetStates + progress计算属性 + agentStatesList。需测试"},
+      {"layer": "frontend", "module_path": "src/composables/useAuth.ts", "description": "认证composable：登录状态判断+自动跳转+Token过期处理。需测试"},
+      {"layer": "frontend", "module_path": "src/composables/useReplay.ts", "description": "回放composable（task46新建）：播放/暂停/进度/倍速。需测试（如task46未实现则标注待补充）"},
+      {"layer": "frontend", "module_path": "src/components/common/EmptyState.vue", "description": "空状态组件（task48新建）：Props icon/title/description/actionText + Slot + Event。需测试"},
+      {"layer": "frontend", "module_path": "src/components/common/ErrorState.vue", "description": "错误状态组件（task48新建）：Props icon/title/description/retryText + Slot + retry Event。需测试"},
+      {"layer": "frontend", "module_path": "src/components/report/ReportEditor.vue", "description": "报告编辑器（task45新建）：编辑+预览+保存+取消+工具栏。需测试"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/frontend/src/__tests__/integration/fm4-acceptance.spec.ts", "description": "FM4验收集成测试，提供vi.mock+mount+describe/it模式参考", "reuse_type": "reference"},
+      {"file_path": "Veritas/frontend/src/__tests__/stores/paperStore.spec.ts", "description": "paperStore测试，提供store测试模式参考（mock api模块+setActivePinia+测试action+测试getter）", "reuse_type": "reference"},
+      {"file_path": "Veritas/frontend/src/__tests__/composables/usePagination.spec.ts", "description": "usePagination测试，提供composable测试模式参考", "reuse_type": "reference"},
+      {"file_path": "Veritas/frontend/src/__tests__/components/common/FilterPanel.spec.ts", "description": "FilterPanel组件测试，提供组件测试模式参考（mount+props+emit+slot）", "reuse_type": "reference"},
+      {"file_path": "Veritas/frontend/package.json", "description": "测试框架：vitest@2.1.9 + @vue/test-utils@2.4.10 + jsdom@25.0.1。命令：npm run test:run", "reuse_type": "reference"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "测试框架",
+      "path": "Veritas/frontend/package.json",
+      "responsibility": "测试基础设施",
+      "key_interfaces": [
+        {"name": "vitest", "signature": "^2.1.9", "description": "测试框架"},
+        {"name": "@vue/test-utils", "signature": "^2.4.10", "description": "Vue组件测试工具（mount/shallowMount）"},
+        {"name": "jsdom", "signature": "^25.0.1", "description": "DOM环境"},
+        {"name": "test:run", "signature": "npm script", "description": "单次运行所有测试"}
+      ]
+    },
+    {
+      "name": "fm4-acceptance.spec.ts",
+      "path": "Veritas/frontend/src/__tests__/integration/fm4-acceptance.spec.ts",
+      "responsibility": "FM4验收集成测试（模式参考）",
+      "key_interfaces": [
+        {"name": "vi.mock", "signature": "vi.mock('@/stores/agentStore', () => ({...}))", "description": "mock Store/API/Composable"},
+        {"name": "mount", "signature": "mount(Component, { props, global: { stubs } })", "description": "挂载组件+桩掉Element Plus"},
+        {"name": "describe/it", "signature": "describe('AC-XXX', () => { it('should...', () => {}) })", "description": "每个AC一个describe块"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/views/UserCenterView.spec.ts", "description": "UserCenterView测试：画像保存后刷新、历史记录点击跳转、setupProfile模式", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/views/LoginView.spec.ts", "description": "LoginView测试：表单验证、登录成功跳转、登录失败提示", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/views/RegisterView.spec.ts", "description": "RegisterView测试：表单验证、注册成功跳转、密码确认", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/views/PaperDetailView.spec.ts", "description": "PaperDetailView测试：详情加载、收藏切换、错误状态", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/views/CompareView.spec.ts", "description": "CompareView测试：对比选择、对比结果展示、降级提示", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/views/ReportView.spec.ts", "description": "ReportView测试：报告加载、编辑模式切换、导出、引用弹窗", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/views/FavoritesView.spec.ts", "description": "FavoritesView测试：收藏列表加载、分页、空状态", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/stores/userStore.spec.ts", "description": "userStore测试：login/logout/fetchProfile/saveProfile + isLoggedIn/hasProfile计算属性", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/stores/agentStore.spec.ts", "description": "agentStore测试：updateAgentState/resetStates + progress计算属性 + agentStatesList", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/composables/useAuth.spec.ts", "description": "useAuth测试：登录状态判断、自动跳转、Token过期处理", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/composables/useReplay.spec.ts", "description": "useReplay测试：播放/暂停、进度跳转、倍速切换（task46依赖，如未实现标注待补充）", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/components/common/EmptyState.spec.ts", "description": "EmptyState测试：Props（icon/title/description/actionText）+ Slot + Event", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/components/common/ErrorState.spec.ts", "description": "ErrorState测试：Props（icon/title/description/retryText）+ Slot + retry Event", "layer": "frontend"},
+    {"operation": "create", "path": "Veritas/frontend/src/__tests__/components/report/ReportEditor.spec.ts", "description": "ReportEditor测试：编辑、预览、保存、取消、工具栏", "layer": "frontend"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "UserCenterView.spec.ts：测试画像保存后fetchProfile刷新+ElMessage成功提示；测试历史记录点击跳转/search?sessionId=xxx；测试setupProfile=true模式保存后跳转Home；测试空历史记录状态", "priority": "P0", "acceptance_condition": "覆盖正常流程+边界条件，测试通过"},
+      {"id": "FR-002", "description": "LoginView.spec.ts：测试空用户名/密码表单验证失败；测试登录成功调用userStore.login+router.push；测试登录失败ElMessage.error提示；测试已登录状态跳转Home", "priority": "P0", "acceptance_condition": "覆盖正常+错误流程，测试通过"},
+      {"id": "FR-003", "description": "RegisterView.spec.ts：测试空字段/密码长度不足/密码确认不一致表单验证失败；测试注册成功调用userApi.register+跳转Login；测试注册失败（用户名已存在）ElMessage.error", "priority": "P0", "acceptance_condition": "覆盖正常+错误+边界条件，测试通过"},
+      {"id": "FR-004", "description": "PaperDetailView.spec.ts：测试详情加载loading状态；测试详情加载成功渲染标题/作者/摘要；测试收藏切换调用paperStore.toggleFavorite；测试加载失败ErrorState展示+重试", "priority": "P0", "acceptance_condition": "覆盖正常+错误流程，测试通过"},
+      {"id": "FR-005", "description": "CompareView.spec.ts：测试未登录点击对比弹出登录确认框；测试未设置画像弹出画像确认框；测试对比结果展示；测试降级提示（resultDegraded=true）", "priority": "P0", "acceptance_condition": "覆盖正常+降级流程，测试通过"},
+      {"id": "FR-006", "description": "ReportView.spec.ts：测试报告加载loading；测试报告渲染markdown；测试编辑模式切换（task45）；测试导出按钮调用ExportPanel；测试引用点击弹窗", "priority": "P0", "acceptance_condition": "覆盖正常+编辑+导出流程，测试通过"},
+      {"id": "FR-007", "description": "FavoritesView.spec.ts：测试收藏列表加载（paperStore.fetchFavorites）；测试分页切换；测试空收藏EmptyState展示；测试收藏切换后列表更新", "priority": "P0", "acceptance_condition": "覆盖正常+空状态流程，测试通过"},
+      {"id": "FR-008", "description": "userStore.spec.ts：测试login成功后token/userId/username持久化到localStorage+fetchProfile调用；测试logout清除状态+localStorage；测试fetchProfile成功更新profile；测试saveProfile成功后profile更新；测试isLoggedIn/hasProfile计算属性", "priority": "P0", "acceptance_condition": "覆盖所有action+getter，测试通过"},
+      {"id": "FR-009", "description": "agentStore.spec.ts：测试updateAgentState更新指定agent状态；测试resetStates清空所有状态；测试progress计算属性（completed/total）；测试agentStatesList返回数组", "priority": "P0", "acceptance_condition": "覆盖所有action+getter，测试通过"},
+      {"id": "FR-010", "description": "useAuth.spec.ts：测试isLoggedIn返回值；测试未登录访问受保护路由跳转Login+redirect参数；测试Token过期处理（401响应触发logout+跳转）", "priority": "P1", "acceptance_condition": "覆盖状态判断+跳转+过期处理，测试通过"},
+      {"id": "FR-011", "description": "useReplay.spec.ts：测试play/pause切换isPlaying状态；测试seek跳转指定帧；测试setSpeed切换1x/2x/4x；测试播放结束自动暂停（如task46未实现则在文件顶部注释标注'待task46实现后补充'并跳过）", "priority": "P1", "acceptance_condition": "覆盖播放控制全流程（或标注待补充），测试通过"},
+      {"id": "FR-012", "description": "EmptyState.spec.ts：测试Props icon/title/description/actionText渲染；测试action按钮点击emit('action')事件；测试默认slot渲染自定义内容", "priority": "P0", "acceptance_condition": "覆盖Props+Slot+Event，测试通过"},
+      {"id": "FR-013", "description": "ErrorState.spec.ts：测试Props icon/title/description/retryText渲染；测试retry按钮点击emit('retry')事件；测试showRetry=false隐藏重试按钮；测试默认slot渲染自定义操作", "priority": "P0", "acceptance_condition": "覆盖Props+Slot+Event，测试通过"},
+      {"id": "FR-014", "description": "ReportEditor.spec.ts：测试编辑textarea输入更新modelValue；测试预览tab切换渲染markdown；测试保存按钮emit('save', content)；测试取消按钮emit('cancel')；测试工具栏按钮（加粗/斜体/标题/列表/引用）插入对应markdown语法", "priority": "P0", "acceptance_condition": "覆盖编辑+预览+保存+取消+工具栏，测试通过"},
+      {"id": "FR-015", "description": "所有测试使用vi.mock mock外部依赖（@/stores/*、@/api/*、@/composables/*、vue-router、element-plus），不发起真实网络请求；每个测试文件独立可运行", "priority": "P1", "acceptance_condition": "无真实网络请求，测试独立可重复运行"},
+      {"id": "FR-016", "description": "测试覆盖率不低于70%（通过vitest --coverage验证，重点关注views/stores/composables/components覆盖率）", "priority": "P1", "acceptance_condition": "覆盖率≥70%"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "typescript": {
+        "class_name": "PascalCase",
+        "method_variable": "camelCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "file_name": "{Name}.spec.ts",
+        "test_name": "describe/it使用中文描述"
+      }
+    },
+    "layering": {
+      "frontend": {
+        "rule": "仅新增测试文件，不修改被测代码（src/views、src/stores、src/composables、src/components）"
+      }
+    },
+    "error_handling": {
+      "frontend": {
+        "approach": "测试中通过vi.mock模拟API错误响应，验证被测代码的错误处理"
+      }
+    },
+    "caching": {
+      "pattern": "无缓存需求"
+    },
+    "logging": {
+      "frontend": "无日志需求"
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行测试代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外模块（修改被测源代码）", "reason": "本任务仅新增测试，不修改源代码", "severity": "critical"},
+    {"id": "FA-003", "action": "破坏三层分离架构", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-029", "action": "测试中发起真实网络请求（必须vi.mock API模块）", "reason": "测试隔离性", "severity": "critical"},
+    {"id": "FA-030", "action": "使用it.skip/it.only（必须全部启用）", "reason": "测试完整性", "severity": "critical"},
+    {"id": "FA-031", "action": "测试依赖执行顺序（必须独立可重复运行）", "reason": "测试隔离性", "severity": "high"},
+    {"id": "FA-033", "action": "测试中使用真实localStorage（必须beforeEach清理）", "reason": "测试隔离性", "severity": "high"},
+    {"id": "FA-034", "action": "测试中使用真实timer（必须vi.useFakeTimers或vi.clearAllTimers）", "reason": "测试稳定性", "severity": "medium"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "14份新增spec", "description": "UserCenterView/LoginView/RegisterView/PaperDetailView/CompareView/ReportView/FavoritesView视图测试；userStore/agentStore store测试；useAuth/useReplay composable测试；EmptyState/ErrorState/ReportEditor组件测试", "framework": "vitest", "coverage": ["normal_flow", "error_flow", "boundary_condition"]}
+    ],
+    "verification_commands": [
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run test:run", "expected_result": "所有测试通过（含14份新增）"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run lint", "expected_result": "无lint错误"},
+      {"layer": "frontend", "command": "cd Veritas/frontend && npm run test:run -- --coverage", "expected_result": "覆盖率≥70%"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "14份新增测试文件全部创建", "verified_by": "code_review"},
+    {"id": "AC-002", "criterion": "所有14份新增测试通过（npm run test:run）", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "无it.skip/it.only的测试", "verified_by": "code_review"},
+    {"id": "AC-004", "criterion": "所有测试使用vi.mock隔离外部依赖（无真实网络请求）", "verified_by": "code_review"},
+    {"id": "AC-005", "criterion": "测试覆盖率≥70%", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "npm run lint无错误", "verified_by": "code_review"},
+    {"id": "AC-007", "criterion": "每个测试文件独立可重复运行（无执行顺序依赖）", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "测试覆盖正常流程+错误流程+边界条件", "verified_by": "code_review"}
+  ]
+}

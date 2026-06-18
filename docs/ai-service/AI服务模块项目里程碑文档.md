@@ -3,9 +3,9 @@
 > **课题编号**：XH-202630
 > **课题名称**：领域知识个性化生成与多智能体协同决策系统研究
 > **发榜单位**：上海云之脑智能科技有限公司（科大讯飞全资子公司）
-> **文档版本**：v1.5
+> **文档版本**：v1.6
 > **创建日期**：2026年5月24日
-> **文档状态**：AM4完成（6-Agent协同与个性化引擎代码就绪，2项需运行时验证）
+> **文档状态**：AM5完成（检索参数优化 + F3.4.6 推荐策略 + Embedding 维度修复，82 测试通过）
 
 ---
 
@@ -1131,7 +1131,7 @@ graph TD
 | AM2 | search_service.py + base.py + retriever.py + analyzer.py + generator.py + graph.py + tools.py + agent.py + search.py + model.py + personalization_service.py + import_papers.py + citation_parser.py + text_processing.py | ~36 |
 | AM3 | Python端：orchestrator.py + enums.py + response.py + 19个集成测试。**Java端（JM3前置）**：AgentSseEvent.java + PythonAIClient.analyzeStream() + sseWebClient Bean + generateReportStream() + agentStream 端点 + validateAnalysisAccess() + ModelStatusDTO扩展6字段 + 错误码 502 + 降级缓存Key修复 | ~44 |
 | AM4 | coordinator.py + comparer.py + reviewer.py + graph.py重构 + 降级逻辑 + 个性化完善 + SSE完善 | ~52 |
-| AM5 | 混合检索 + 矛盾发现 + 流式输出 + 外接Embedding + 重排序完善 | ~58 |
+| AM5 | task53 Embedding 维度修复 + task54 检索参数配置化（`SEARCH_TOP_K`/`SEARCH_SIMILARITY_THRESHOLD`/`CHUNK_SIZE`）+ 调参脚本 + task55 F3.4.6 推荐策略（`RecommendationService` + 4 维度加权）+ task56 AM5 集成验收（3 个 e2e 测试文件） | ~66 |
 | AM6 | 模型量化 + 检索优化 + 测试代码 + 部署文档 | ~66+ |
 
 ---

@@ -1,0 +1,96 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M5 / AM5：混合检索与功能完善",
+    "requirement": "调优检索参数（chunk_size/top_k/threshold），使检索准确率 > 85%（AM5 验收硬指标）。将 SEARCH_TOP_K/SEARCH_SIMILARITY_THRESHOLD/CHUNK_SIZE 改为可配置，支持环境变量覆盖。vector_store_service 支持 similarity_threshold 过滤。提供调优脚本网格搜索 top_k × threshold 组合，复用 task48 基准测试数据，输出 Top5 准确率对比表。本任务对应 AM5 Week 10 Day 4。",
+    "requirement_ids": ["F3.2.3", "F3.2.4"],
+    "reference_docs": [
+      {"path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "了解 SearchService 和 VectorStoreService 检索参数现状"},
+      {"path": "docs/ai-service/AI服务模块项目里程碑文档.md", "purpose": "确认 AM5 Week 10 Day 4 检索参数优化交付物和准确率>85%硬指标"},
+      {"path": "AGENTS.md", "purpose": "确认配置管理规范"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {"layer": "python_ai_service", "module_path": "app.services.search_service", "description": "SearchService hybrid_search() 使用硬编码 top_k=10，无 similarity_threshold 过滤"},
+      {"layer": "python_ai_service", "module_path": "app.services.vector_store_service", "description": "VectorStoreService search_by_similarity() 返回所有结果，无 threshold 过滤"},
+      {"layer": "python_ai_service", "module_path": "app.core.config", "description": "Settings 配置类，需新增 SEARCH_TOP_K/SEARCH_SIMILARITY_THRESHOLD/CHUNK_SIZE"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/ai-service/app/services/search_service.py", "description": "hybrid_search() 硬编码 top_k=10，需改为从 settings 读取", "reuse_type": "extend"},
+      {"file_path": "Veritas/ai-service/app/services/vector_store_service.py", "description": "search_by_similarity() 无 threshold 过滤，需新增可选参数", "reuse_type": "extend"},
+      {"file_path": "Veritas/ai-service/app/core/config.py", "description": "Settings 已存在，需新增检索参数配置项", "reuse_type": "extend"},
+      {"file_path": "Veritas/ai-service/tests/benchmark/search_accuracy_benchmark.py", "description": "task48 已创建基准测试脚本，本任务调优脚本复用其测试数据", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "SearchService",
+      "path": "Veritas/ai-service/app/services/search_service.py",
+      "responsibility": "混合检索服务",
+      "key_interfaces": [
+        {"name": "hybrid_search", "signature": "async def hybrid_search(self, query: str, top_k: int = 10) -> List[Dict]", "description": "混合检索，top_k 需从 settings 读取"}
+      ]
+    },
+    {
+      "name": "VectorStoreService",
+      "path": "Veritas/ai-service/app/services/vector_store_service.py",
+      "responsibility": "ChromaDB 向量存储与检索",
+      "key_interfaces": [
+        {"name": "search_by_similarity", "signature": "async def search_by_similarity(self, query_embedding: List[float], top_k: int = 10) -> List[Dict]", "description": "相似度检索，需新增 similarity_threshold 参数"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "modify", "path": "Veritas/ai-service/app/core/config.py", "description": "Settings 类新增配置项：1) SEARCH_TOP_K: int = 10（范围 [5, 20]，环境变量覆盖）；2) SEARCH_SIMILARITY_THRESHOLD: float = 0.0（范围 [0.0, 0.9]，0.0 表示不过滤）；3) CHUNK_SIZE: int = 512（论文摘要+标题不分块，环境变量覆盖）。", "layer": "python_ai_service"},
+    {"operation": "modify", "path": "Veritas/ai-service/app/services/search_service.py", "description": "1) hybrid_search() 的 top_k 默认值改为 settings.SEARCH_TOP_K（保留参数覆盖能力）；2) 调用 vector_store_service.search_by_similarity() 时传入 similarity_threshold=settings.SEARCH_SIMILARITY_THRESHOLD；3) keyword_search() 同步使用 settings.SEARCH_TOP_K。", "layer": "python_ai_service"},
+    {"operation": "modify", "path": "Veritas/ai-service/app/services/vector_store_service.py", "description": "search_by_similarity() 新增 similarity_threshold: float = 0.0 参数：1) ChromaDB query 返回结果后，过滤 distance < (1 - similarity_threshold) 的结果（ChromaDB distance 越小越相似）；2) similarity_threshold=0.0 时不过滤；3) 过滤后若结果数 < top_k，不补充（保持过滤严格性）。", "layer": "python_ai_service"},
+    {"operation": "create", "path": "Veritas/ai-service/scripts/tune_retrieval_params.py", "description": "调优脚本：1) 网格搜索 top_k ∈ {5, 10, 15, 20} × threshold ∈ {0.0, 0.3, 0.5, 0.7}（共16组合）；2) 复用 task48 的 tests/benchmark/test_queries.json 和 expected_results.json；3) 每组合运行 20 条查询，计算 Top5 准确率；4) 输出 Markdown 报告到 scripts/reports/retrieval_params_tuning_report.md，含组合对比表和最优组合标注；5) 验证最优组合 Top5 准确率 > 85%。", "layer": "python_ai_service"},
+    {"operation": "create", "path": "Veritas/ai-service/tests/test_retrieval_params.py", "description": "测试：1) test_top_k_from_settings 验证 SEARCH_TOP_K 环境变量覆盖；2) test_similarity_threshold_filter 验证低于阈值的结果不返回；3) test_threshold_zero_no_filter 验证 threshold=0.0 不过滤；4) test_chunk_size_config 验证 CHUNK_SIZE 配置项；5) test_tune_script_output 验证调优脚本输出 Markdown 报告。", "layer": "python_ai_service"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "SEARCH_TOP_K 默认 10，支持环境变量覆盖，范围 [5, 20]：1) Settings.SEARCH_TOP_K: int = 10；2) 环境变量 SEARCH_TOP_K=15 覆盖；3) SearchService.hybrid_search() 默认 top_k=settings.SEARCH_TOP_K；4) 保留方法参数 top_k 覆盖能力（优先级：方法参数 > settings > 默认值）。", "priority": "P0", "acceptance_condition": "SEARCH_TOP_K 可通过环境变量覆盖"},
+      {"id": "FR-002", "description": "SEARCH_SIMILARITY_THRESHOLD 默认 0.0（不过滤），支持环境变量覆盖，范围 [0.0, 0.9]：1) Settings.SEARCH_SIMILARITY_THRESHOLD: float = 0.0；2) 环境变量 SEARCH_SIMILARITY_THRESHOLD=0.3 覆盖；3) VectorStoreService.search_by_similarity() 新增 similarity_threshold 参数，默认 settings.SEARCH_SIMILARITY_THRESHOLD；4) 过滤逻辑：ChromaDB distance < (1 - similarity_threshold) 的结果保留（distance 越小越相似）。", "priority": "P0", "acceptance_condition": "SEARCH_SIMILARITY_THRESHOLD 可通过环境变量覆盖"},
+      {"id": "FR-003", "description": "CHUNK_SIZE 默认 512（论文摘要+标题不分块），支持环境变量覆盖：1) Settings.CHUNK_SIZE: int = 512；2) 环境变量 CHUNK_SIZE=256 覆盖；3) 当前论文入库策略为摘要+标题整体向量化（不分块），CHUNK_SIZE 预留给未来长论文分块场景；4) 本任务仅新增配置项，不修改入库逻辑。", "priority": "P1", "acceptance_condition": "CHUNK_SIZE 配置项可从环境变量读取"},
+      {"id": "FR-004", "description": "调优脚本 scripts/tune_retrieval_params.py 网格搜索：1) top_k ∈ {5, 10, 15, 20} × threshold ∈ {0.0, 0.3, 0.5, 0.7}（16组合）；2) 复用 tests/benchmark/test_queries.json（20条查询）和 expected_results.json（期望Top10）；3) 每组合：设置环境变量 → 运行20条查询 → 计算 Top5 准确率（命中数/5）；4) 输出 Markdown 报告含组合对比表（top_k, threshold, top5_accuracy, 备注）；5) 标注最优组合（Top5准确率最高）；6) 验证最优组合 Top5 准确率 > 85%。", "priority": "P1", "acceptance_condition": "调优脚本输出最优参数组合及 Top5 准确率"},
+      {"id": "FR-005", "description": "调优脚本复用 task48 基准测试数据：1) 读取 tests/benchmark/test_queries.json；2) 读取 tests/benchmark/expected_results.json；3) 若文件不存在，输出错误提示并退出；4) 不重复创建测试数据。", "priority": "P1", "acceptance_condition": "调优脚本复用 task48 测试数据"},
+      {"id": "FR-006", "description": "验证检索准确率 > 85%（AM5 验收硬指标）：1) 调优脚本输出最优组合 Top5 准确率；2) 若 > 85% 输出 PASS；3) 若 ≤ 85% 输出 FAIL 并建议优化方向（调整 RRF k 值、重排序权重、Embedding 模型）；4) 在 Markdown 报告末尾输出验证结论。", "priority": "P0", "acceptance_condition": "最优参数下检索准确率 > 85%"}
+    ]
+  },
+  "constraints": {
+    "naming": {"python": {"class_name": "PascalCase", "function_variable": "snake_case", "constant": "UPPER_SNAKE_CASE", "file_name": "snake_case.py"}},
+    "layering": {"python": {"rule": "配置在 core/，检索服务在 services/，调优脚本在 scripts/，测试在 tests/"}},
+    "error_handling": {"python": {"approach": "调优脚本依赖 task48 测试数据，不存在时友好提示退出"}},
+    "logging": {"python": "Loguru", "prohibited": ["在检索循环中打印 INFO 日志"]}
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或 TODO 注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改 task48 的基准测试数据文件", "reason": "调优脚本仅读取，不修改", "severity": "high"},
+    {"id": "FA-003", "action": "在调优脚本中硬编码测试查询", "reason": "必须从 test_queries.json 读取", "severity": "high"},
+    {"id": "FA-004", "action": "删除 SearchService.hybrid_search() 的 top_k 方法参数", "reason": "保留参数覆盖能力，仅改默认值", "severity": "high"},
+    {"id": "FA-005", "action": "修改论文入库分块逻辑", "reason": "本任务仅新增 CHUNK_SIZE 配置，不改入库", "severity": "medium"},
+    {"id": "FA-006", "action": "similarity_threshold 过滤后自动补充结果", "reason": "保持过滤严格性，不补充", "severity": "medium"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "test_top_k_from_settings", "description": "SEARCH_TOP_K=15 环境变量覆盖默认值10", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_similarity_threshold_filter", "description": "threshold=0.3 时低于阈值结果不返回", "framework": "pytest", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "test_threshold_zero_no_filter", "description": "threshold=0.0 时不过滤，返回全部 top_k 结果", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_chunk_size_config", "description": "CHUNK_SIZE=256 环境变量覆盖默认值512", "framework": "pytest", "coverage": ["normal_flow"]},
+      {"test_name": "test_tune_script_output", "description": "调优脚本输出 Markdown 报告含16组合对比表", "framework": "pytest", "coverage": ["normal_flow"]}
+    ],
+    "verification_commands": [
+      {"layer": "python", "command": "cd Veritas/ai-service && python -m pytest tests/test_retrieval_params.py -v", "expected_result": "5 个测试用例全部通过"},
+      {"layer": "python", "command": "cd Veritas/ai-service && python scripts/tune_retrieval_params.py", "expected_result": "输出 Markdown 报告，最优组合 Top5 准确率 > 85%"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "SEARCH_TOP_K / SEARCH_SIMILARITY_THRESHOLD 可通过环境变量覆盖", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "similarity_threshold 过滤生效，低于阈值的结果不返回", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "调优脚本输出最优参数组合及 Top5 准确率", "verified_by": "manual_test"},
+    {"id": "AC-004", "criterion": "最优参数下检索准确率 > 85%", "verified_by": "automated_test"}
+  ]
+}

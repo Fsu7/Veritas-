@@ -1,0 +1,218 @@
+{
+  "meta": {
+    "project": "XH-202630 科研文献智能助手",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善",
+    "feature_id": ["F2.6", "F2.2", "F2.4"],
+    "task_name": "task40_jm5_bugfix_optimization",
+    "day": "Week10 D5-7",
+    "created_at": "2026-06-17"
+  },
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善（Week 10 Day 5-7，JM5 收尾任务）",
+    "requirement": "JM5 Bug修复 + 代码优化：JM5 全量集成测试（task32-task39 功能联调）；缓存Key冲突回归测试（paperSearch null参数问题）；导出功能边界测试（大文件 report > 50000 字符 / 特殊字符 / 空 citations）；收藏功能并发测试（重复收藏竞态，@Transactional 保证一致性）；性能优化（缓存命中率达标 > 50%）；JM5 验收检查点12项逐项核对（里程碑文档§7.4）；更新里程碑文档状态（JM5 → ✅）；修复 JM4 遗留 Strong Suggestion（S-001 SSE端点路由 / S-002 字段命名不一致）— 如时间允许。",
+    "requirement_ids": ["F2.6", "F2.2", "F2.4"],
+    "reference_docs": [
+      {"path": "docs/backend/Java后端模块系统架构文档.md", "purpose": "全模块架构（F2.1-F2.6）+ 第9章 缓存管理 + 第12章 API规范"},
+      {"path": "docs/backend/Java后端模块项目里程碑文档.md", "purpose": "第7章 JM5 验收检查点12项（§7.4）+ JM4 遗留 Strong Suggestion"},
+      {"path": "AGENTS.md", "purpose": "关键规则全部7条 + 渐进式加载指南"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.UserService", "description": "用户服务，task32 已完善缓存（userProfile/userInfo/userProfileJson 三重失效）"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.PaperService", "description": "论文服务，task33/35 已完善缓存和筛选排序（author/keywords/sortDirection）"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.FavoriteService", "description": "收藏服务，task36 已实现（@Cacheable favoriteList + @CacheEvict + 幂等性）"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.SessionService", "description": "会话服务，task34 已完善缓存（sessionState/sessionList）"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.AnalysisService", "description": "分析服务，task34 已完善缓存（analysisResult + 写方法 @CacheEvict）"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.service.ExportService", "description": "导出服务，task37/38 已实现 PDF/Word 导出"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.util.PdfExporter", "description": "PDF导出工具，task37 已实现（iText 7 + 中文字体 + AI标注）"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.util.WordExporter", "description": "Word导出工具，task38 已实现（Apache POI + AI标注）"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.config.RedisConfig", "description": "Redis配置，task32-36 已配置7个缓存空间 + favoriteList"},
+      {"layer": "java_backend", "module_path": "com.literatureassistant.controller.AnalysisController", "description": "分析Controller，task37/38 已新增 export 端点（format=pdf|word）"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/UserService.java", "description": "task32 完善：@Cacheable(userInfo/userProfile) + @CacheEvict(userProfile+userProfileJson+userInfo) + syncProfileToRedis", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java", "description": "task33/35 完善：@Cacheable(paperDetail/paperSearch) + listPapers缓存 + author/keywords/sortDirection 参数", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/FavoriteService.java", "description": "task36 新建：addFavorite/removeFavorite/listFavorites + @Cacheable(favoriteList) + @CacheEvict + 幂等性", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/SessionService.java", "description": "task34 完善：@Cacheable(sessionState/sessionList) + @CacheEvict + createSession/listSessions 缓存", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/AnalysisService.java", "description": "task34 完善：@Cacheable(analysisResult) + 写方法 @CacheEvict(analysisResult)", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/ExportService.java", "description": "task37/38 新建：exportPdf/exportWord + 统一 export(userId, id, format) 入口", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/PdfExporter.java", "description": "task37 新建：iText 7 + Markdown→PDF + citations + 中文字体 + AI标注", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/WordExporter.java", "description": "task38 新建：Apache POI + Markdown→Word + citations + AI标注", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java", "description": "task32-36 配置7个缓存空间：userProfile/userInfo/paperDetail/paperSearch/analysisResult/sessionState/favoriteList", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/backend/src/main/java/com/literatureassistant/controller/AnalysisController.java", "description": "task37/38 新增 exportAnalysis 端点（format=pdf|word）", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "Jm5IntegrationTest（新建）",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/integration/Jm5IntegrationTest.java",
+      "responsibility": "JM5 全量集成测试：task32-task39 功能联调 + 边界测试 + 并发测试 + 验收检查点核对",
+      "key_interfaces": [
+        {"name": "testJm5FullFlow", "signature": "@Test void testJm5FullFlow()", "description": "JM5 全流程联调：用户画像缓存 → 论文检索（含筛选排序）→ 收藏 → 分析 → 导出（PDF/Word）"},
+        {"name": "testCacheKeyConflictRegression", "signature": "@Test void testCacheKeyConflictRegression()", "description": "缓存Key冲突回归测试：paperSearch null参数问题（task33已修复，此处回归验证）"},
+        {"name": "testExportLargeReport", "signature": "@Test void testExportLargeReport()", "description": "导出大文件边界测试：report > 50000 字符，PDF/Word 均不 OOM"},
+        {"name": "testExportSpecialCharacters", "signature": "@Test void testExportSpecialCharacters()", "description": "导出特殊字符测试：report 含 HTML 标签/emoji/Unicode 特殊字符，PDF/Word 正确渲染"},
+        {"name": "testExportEmptyCitations", "signature": "@Test void testExportEmptyCitations()", "description": "导出空 citations 测试：citations 为 null 或空列表，PDF/Word 不报错"},
+        {"name": "testFavoriteConcurrentAdd", "signature": "@Test void testFavoriteConcurrentAdd()", "description": "收藏并发测试：多线程重复收藏同一论文，@Transactional 保证一致性，最终仅1条记录"},
+        {"name": "testCacheHitRateAcceptance", "signature": "@Test void testCacheHitRateAcceptance()", "description": "缓存命中率达标验证：4个Service命中率 > 50%"},
+        {"name": "testJm5AcceptanceChecklist", "signature": "@Test void testJm5AcceptanceChecklist()", "description": "JM5 验收检查点12项逐项核对（里程碑文档§7.4）"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "create", "path": "Veritas/backend/src/test/java/com/literatureassistant/integration/Jm5IntegrationTest.java", "description": "新建JM5全量集成测试：全流程联调 + 回归测试 + 边界测试 + 并发测试 + 验收检查点核对", "layer": "java_backend"},
+    {"operation": "modify", "path": "docs/backend/Java后端模块项目里程碑文档.md", "description": "更新 JM5 状态为 ✅（§2 里程碑总览表 + §7 JM5章节 + 修订历史追加 v1.1.4）", "layer": "infra"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "Jm5IntegrationTest.testJm5FullFlow：全流程联调测试。步骤：1) 用户登录获取JWT；2) 更新用户画像（触发缓存三重失效）；3) 检索论文（含 author/keywords/sortDirection 参数，验证缓存命中）；4) 收藏论文（验证幂等性 + 缓存失效）；5) 发起分析任务（验证 analysisResult 缓存）；6) 导出 PDF 和 Word（验证文件生成 + AI标注）；7) 全流程无异常", "priority": "P0", "acceptance_condition": "全流程联调通过，无异常"},
+      {"id": "FR-002", "description": "Jm5IntegrationTest.testCacheKeyConflictRegression：缓存Key冲突回归测试。1) 调用 searchPapers(q='AI', yearFrom=null, yearTo=null, venue=null, author=null, keywords=null, sort='relevance', sortDirection='desc')；2) 调用 searchPapers(q='AI', yearFrom=2020, yearTo=2024, venue='ICML', author='Zhang', keywords='deep learning', sort='year', sortDirection='asc')；3) 验证两次调用生成不同缓存key，无冲突；4) 验证 null 参数不拼成 'null' 字符串", "priority": "P0", "acceptance_condition": "缓存Key无冲突，null参数处理正确"},
+      {"id": "FR-003", "description": "Jm5IntegrationTest.testExportLargeReport：导出大文件边界测试。1) 构造 report > 50000 字符的 AnalysisResultDTO；2) 调用 exportService.exportPdf 和 exportWord；3) 验证不 OOM，返回非空 byte[]；4) 验证 PDF/Word 文件可正常打开", "priority": "P0", "acceptance_condition": "大文件导出不崩溃，文件可打开"},
+      {"id": "FR-004", "description": "Jm5IntegrationTest.testExportSpecialCharacters：导出特殊字符测试。1) 构造 report 含 <script>alert('xss')</script> / emoji 😀 / Unicode 特殊字符 «»‹›；2) 调用 exportPdf 和 exportWord；3) 验证 PDF/Word 正确渲染，无 XSS（PDF/Word 不执行脚本），emoji 正常显示", "priority": "P0", "acceptance_condition": "特殊字符正确渲染，无XSS"},
+      {"id": "FR-005", "description": "Jm5IntegrationTest.testExportEmptyCitations：导出空 citations 测试。1) 构造 citations=null 和 citations=空列表 的 AnalysisResultDTO；2) 调用 exportPdf 和 exportWord；3) 验证不报错，PDF/Word 不渲染引用列表 section", "priority": "P0", "acceptance_condition": "空 citations 不报错"},
+      {"id": "FR-006", "description": "Jm5IntegrationTest.testFavoriteConcurrentAdd：收藏并发测试。1) 使用 CountDownLatch + ExecutorService(10线程) 并发调用 addFavorite(userId, paperId) 10次；2) 验证不抛异常；3) 验证 paper_favorites 表最终仅1条记录（@Transactional + existsByUserIdAndPaperId 保证幂等）；4) 验证 favoriteList 缓存最终一致", "priority": "P0", "acceptance_condition": "并发收藏无数据不一致，最终仅1条记录"},
+      {"id": "FR-007", "description": "Jm5IntegrationTest.testCacheHitRateAcceptance：缓存命中率达标验证。1) 对 UserService/PaperService/SessionService/AnalysisService 各执行10次相同查询；2) 验证每个Service命中率 > 50%；3) 综合命中率 > 50%", "priority": "P0", "acceptance_condition": "缓存命中率 > 50%"},
+      {"id": "FR-008", "description": "Jm5IntegrationTest.testJm5AcceptanceChecklist：JM5 验收检查点12项逐项核对（里程碑文档§7.4）：1) 画像缓存更新后立即失效；2) 检索缓存相同查询第二次命中；3) 分析缓存已完成结果可命中；4) 缓存命中率>50%；5) 筛选年份/会议/引用数/作者/关键词正确；6) 排序相关度/时间/引用/标题+方向正确；7) 收藏/取消收藏操作正确；8) 收藏列表分页查询正确；9) PDF导出格式正确引用保留；10) Word导出格式正确可编辑；11) Cache-Aside写后删读回填；12) 双重失效画像更新同步失效", "priority": "P0", "acceptance_condition": "12项验收检查点全部通过"},
+      {"id": "FR-009", "description": "更新里程碑文档：1) §2 里程碑总览表 JM5 状态 ⬜ → ✅；2) §7 JM5章节 交付物清单11项状态 ⬜ → ✅；3) §7.4 验收检查点12项 □ → ☑；4) 修订历史追加 v1.1.4 行（2026-06-17，JM5验收通过）", "priority": "P1", "acceptance_condition": "里程碑文档 JM5 状态更新为 ✅"},
+      {"id": "FR-010", "description": "修复 JM4 遗留 Strong Suggestion（如时间允许）：S-001 SSE端点路由（/api/analysis/{id}/agent-stream → /api/analysis/{id}/stream）；S-002 AnalysisTaskResponse字段命名不一致（analysis_id vs analysisId）。若时间不足，记录为 JM5 遗留项", "priority": "P2", "acceptance_condition": "JM4 遗留项修复或记录"}
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          {"java": "userId", "python": "user_id", "json": "user_id"},
+          {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+          {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"},
+          {"java": "sessionId", "python": "session_id", "json": "session_id"},
+          {"java": "sortDirection", "python": "sort_direction", "json": "sort_direction"},
+          {"java": "citationCount", "python": "citation_count", "json": "citation_count"},
+          {"java": "createdAt", "python": "created_at", "json": "created_at"}
+        ]
+      },
+      "api_contracts": [
+        {"endpoint": "/api/papers/search", "method": "GET", "request_format": "q+yearFrom+yearTo+venue+author+keywords+sort+sortDirection+page+size", "response_format": "PageResponse<PaperResponse>"},
+        {"endpoint": "/api/papers/{paperId}/favorite", "method": "POST/DELETE", "request_format": "paperId+JWT", "response_format": "ApiResponse<FavoriteResponse>/ApiResponse<Void>"},
+        {"endpoint": "/api/papers/favorites", "method": "GET", "request_format": "page+size+JWT", "response_format": "PageResponse<FavoriteResponse>"},
+        {"endpoint": "/api/analysis/{analysisId}/export", "method": "GET", "request_format": "format=pdf|word+JWT", "response_format": "binary file"}
+      ],
+      "data_flow": "全流程：用户登录 → 画像缓存 → 论文检索（筛选排序）→ 收藏 → 分析 → 导出（PDF/Word）"
+    },
+    "security_requirements": [
+      {"category": "jwt_auth", "requirement": "全流程所有端点必须 JWT 鉴权"},
+      {"category": "data_isolation", "requirement": "全流程数据隔离：userId 来自 JWT，用户A无法访问用户B的数据"},
+      {"category": "sensitive_info", "requirement": "导出文件含 AI内容标注'AI生成，仅供参考'"},
+      {"category": "xss", "requirement": "导出特殊字符测试：PDF/Word 不执行 HTML 脚本，无 XSS 风险"}
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {"class_name": "PascalCase", "method_variable": "camelCase", "constant": "UPPER_SNAKE_CASE", "file_name": "PascalCase.java", "enum_value": "UPPER_SNAKE_CASE", "config_key": "kebab-case"},
+      "database": {"table_name": "snake_case, 复数形式", "column_name": "snake_case", "index_name": "idx_/uk_/ft_ + 字段名"},
+      "json": {"field_name": "snake_case"},
+      "cross_system_mapping": [
+        {"java": "userId", "python": "user_id", "json": "user_id"},
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+        {"java": "analysisId", "python": "analysis_id", "json": "analysis_id"},
+        {"java": "sessionId", "python": "session_id", "json": "session_id"},
+        {"java": "sortDirection", "python": "sort_direction", "json": "sort_direction"},
+        {"java": "citationCount", "python": "citation_count", "json": "citation_count"},
+        {"java": "createdAt", "python": "created_at", "json": "created_at"}
+      ]
+    },
+    "layering": {
+      "java": {"rule": "Controller → Service → Repository → Client，禁止跨层", "entity_dto_separation": true, "dto_naming": "XxxRequestDTO, XxxResponseDTO"}
+    },
+    "error_handling": {
+      "java": {"approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)", "business_exception_fields": ["code", "message", "errorKey"]}
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "userProfile", "key_pattern": "user:profile:{userId}", "ttl": "1h"},
+        {"cache_name": "userInfo", "key_pattern": "user:info:{userId}", "ttl": "1h"},
+        {"cache_name": "paperDetail", "key_pattern": "paper:detail:{paperId}", "ttl": "30min"},
+        {"cache_name": "paperSearch", "key_pattern": "paperSearch::{params}", "ttl": "10min"},
+        {"cache_name": "analysisResult", "key_pattern": "analysisResult::{analysisId}", "ttl": "30min"},
+        {"cache_name": "sessionState", "key_pattern": "session:state:{sessionId}", "ttl": "2h"},
+        {"cache_name": "agentState", "key_pattern": "agent:state:{analysisId}", "ttl": "5min"},
+        {"cache_name": "favoriteList", "key_pattern": "favoriteList::{userId}", "ttl": "10min"}
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {
+      "java": "SLF4J + Logback",
+      "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息"]
+    },
+    "database": {
+      "charset": "utf8mb4 + utf8mb4_unicode_ci",
+      "engine": "InnoDB",
+      "primary_key": "id BIGINT AUTO_INCREMENT",
+      "business_id": "xxx_id VARCHAR(100) UNIQUE NOT NULL",
+      "timestamp_fields": {"created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP", "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"},
+      "comment_required": true,
+      "no_select_star": true,
+      "pagination_required": true
+    },
+    "security": {
+      "password_storage": "BCrypt哈希，盐值随机，强度10",
+      "auth_mechanism": "JWT Token (24h有效期) + Redis黑名单",
+      "jwt_payload": ["sub(userId)", "username", "iat/exp", "jti(Token唯一ID)"],
+      "sql_injection_prevention": "JPA参数化查询，禁止SQL拼接",
+      "data_isolation": "WHERE user_id = currentUserId",
+      "ai_content_label": "AI生成，仅供参考",
+      "public_endpoints": ["/api/users/register", "/api/users/login"]
+    }
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块", "reason": "避免引入无关变更", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构（前端直接调Python等）", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-004", "action": "破坏分层调用规范（Controller直接操作Repository等）", "reason": "分层架构约束", "severity": "critical"},
+    {"id": "FA-005", "action": "Entity直接返回给前端（必须通过DTO转换）", "reason": "数据隔离与接口稳定性", "severity": "high"},
+    {"id": "FA-006", "action": "硬编码敏感配置（密码、API Key、JWT Secret等）", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high"},
+    {"id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium"},
+    {"id": "FA-009", "action": "使用SQL拼接（必须参数化查询）", "reason": "SQL注入防护", "severity": "critical"},
+    {"id": "FA-010", "action": "忽略降级场景（LLM/Agent失败时的处理）", "reason": "可用性约束ADR-003", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "testJm5FullFlow", "description": "JM5 全流程联调：画像缓存 → 检索 → 收藏 → 分析 → 导出", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testCacheKeyConflictRegression", "description": "缓存Key冲突回归测试：null参数处理", "framework": "junit5", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "testExportLargeReport", "description": "导出大文件边界测试：report > 50000 字符", "framework": "junit5", "coverage": ["boundary_condition"]},
+      {"test_name": "testExportSpecialCharacters", "description": "导出特殊字符测试：HTML标签/emoji/Unicode", "framework": "junit5", "coverage": ["boundary_condition"]},
+      {"test_name": "testExportEmptyCitations", "description": "导出空 citations 测试", "framework": "junit5", "coverage": ["boundary_condition"]},
+      {"test_name": "testFavoriteConcurrentAdd", "description": "收藏并发测试：10线程重复收藏，最终仅1条记录", "framework": "junit5", "coverage": ["normal_flow", "boundary_condition"]},
+      {"test_name": "testCacheHitRateAcceptance", "description": "缓存命中率达标验证：4个Service > 50%", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "testJm5AcceptanceChecklist", "description": "JM5 验收检查点12项逐项核对", "framework": "junit5", "coverage": ["normal_flow"]}
+    ],
+    "integration_tests": [
+      {"test_name": "testJm5FullFlow", "description": "全流程联调：用户登录 → 画像 → 检索 → 收藏 → 分析 → 导出", "layers_involved": ["java_backend", "data_layer"]},
+      {"test_name": "testFavoriteConcurrentAdd", "description": "并发收藏测试：多线程竞态", "layers_involved": ["java_backend", "data_layer"]}
+    ],
+    "verification_commands": [
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=Jm5IntegrationTest", "expected_result": "所有测试通过，BUILD SUCCESS"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn test", "expected_result": "全量测试通过，JM5 验收完成"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "Jm5IntegrationTest 全部通过（8个测试方法）", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "缓存Key无冲突（null参数处理正确）", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "导出大文件（report > 50000 字符）不崩溃", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "导出特殊字符正确渲染，无XSS", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "导出空 citations 不报错", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "收藏并发测试无数据不一致，最终仅1条记录", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "缓存命中率 > 50%", "verified_by": "automated_test"},
+    {"id": "AC-008", "criterion": "JM5 验收检查点12项全部 ☑", "verified_by": "automated_test"},
+    {"id": "AC-009", "criterion": "里程碑文档 JM5 状态更新为 ✅", "verified_by": "code_review"},
+    {"id": "AC-010", "criterion": "mvn test 全量通过", "verified_by": "automated_test"},
+    {"id": "AC-011", "criterion": "JM4 遗留 Strong Suggestion 修复或记录", "verified_by": "code_review"}
+  ]
+}

@@ -1,0 +1,225 @@
+[
+  {
+    "id": "q01",
+    "query": "人形机器人全身控制与操作技能",
+    "language": "zh",
+    "topic": "robotics",
+    "expected_top10": ["arxiv_2606.06493"],
+    "relevance_scores": {
+      "arxiv_2606.06493": 3,
+      "arxiv_2606.06491": 2,
+      "arxiv_2606.06390": 1
+    }
+  },
+  {
+    "id": "q02",
+    "query": "multi-agent reinforcement learning cooperative decision",
+    "language": "en",
+    "topic": "multi_agent_rl",
+    "expected_top10": ["arxiv_2606.06486", "arxiv_2606.06388"],
+    "relevance_scores": {
+      "arxiv_2606.06486": 3,
+      "arxiv_2606.06388": 2,
+      "arxiv_2606.06448": 1
+    }
+  },
+  {
+    "id": "q03",
+    "query": "大语言模型预训练优化方法",
+    "language": "zh",
+    "topic": "llm_pretraining",
+    "expected_top10": ["arxiv_2606.06470", "arxiv_2606.06479", "arxiv_2606.06418"],
+    "relevance_scores": {
+      "arxiv_2606.06470": 3,
+      "arxiv_2606.06479": 3,
+      "arxiv_2606.06418": 2,
+      "arxiv_2606.06467": 1
+    }
+  },
+  {
+    "id": "q04",
+    "query": "sparse attention mechanism efficient inference",
+    "language": "en",
+    "topic": "attention",
+    "expected_top10": ["arxiv_2606.06467", "arxiv_2606.06453"],
+    "relevance_scores": {
+      "arxiv_2606.06467": 3,
+      "arxiv_2606.06453": 3,
+      "arxiv_2606.06448": 1
+    }
+  },
+  {
+    "id": "q05",
+    "query": "视觉语言动作模型速度控制策略",
+    "language": "zh",
+    "topic": "vla",
+    "expected_top10": ["arxiv_2606.06491"],
+    "relevance_scores": {
+      "arxiv_2606.06491": 3,
+      "arxiv_2606.06493": 1
+    }
+  },
+  {
+    "id": "q06",
+    "query": "AI text detection benchmark transformation",
+    "language": "en",
+    "topic": "detection",
+    "expected_top10": ["arxiv_2606.06481"],
+    "relevance_scores": {
+      "arxiv_2606.06481": 3,
+      "arxiv_2606.06462": 1
+    }
+  },
+  {
+    "id": "q07",
+    "query": "推理模型奖励重分配强化学习",
+    "language": "zh",
+    "topic": "reasoning_rl",
+    "expected_top10": ["arxiv_2606.06475"],
+    "relevance_scores": {
+      "arxiv_2606.06475": 3,
+      "arxiv_2606.06486": 1
+    }
+  },
+  {
+    "id": "q08",
+    "query": "diffusion language model retrieval augmentation",
+    "language": "en",
+    "topic": "diffusion",
+    "expected_top10": ["arxiv_2606.06474"],
+    "relevance_scores": {
+      "arxiv_2606.06474": 3,
+      "arxiv_2606.06479": 1
+    }
+  },
+  {
+    "id": "q09",
+    "query": "自动机器学习算法发现框架",
+    "language": "zh",
+    "topic": "automl",
+    "expected_top10": ["arxiv_2606.06473"],
+    "relevance_scores": {
+      "arxiv_2606.06473": 3,
+      "arxiv_2606.06416": 1
+    }
+  },
+  {
+    "id": "q10",
+    "query": "formal theorem proving blueprint generation",
+    "language": "en",
+    "topic": "theorem_proving",
+    "expected_top10": ["arxiv_2606.06468"],
+    "relevance_scores": {
+      "arxiv_2606.06468": 3
+    }
+  },
+  {
+    "id": "q11",
+    "query": "自动驾驶安全关键交通场景生成",
+    "language": "zh",
+    "topic": "autonomous_driving",
+    "expected_top10": ["arxiv_2606.06423", "arxiv_2606.06396"],
+    "relevance_scores": {
+      "arxiv_2606.06423": 3,
+      "arxiv_2606.06396": 3,
+      "arxiv_2606.06388": 1
+    }
+  },
+  {
+    "id": "q12",
+    "query": "agent memory stateful long horizon workload",
+    "language": "en",
+    "topic": "agent_memory",
+    "expected_top10": ["arxiv_2606.06448", "arxiv_2606.06337"],
+    "relevance_scores": {
+      "arxiv_2606.06448": 3,
+      "arxiv_2606.06337": 2,
+      "arxiv_2606.06460": 1
+    }
+  },
+  {
+    "id": "q13",
+    "query": "LLM agent access deny compliance",
+    "language": "en",
+    "topic": "agent_safety",
+    "expected_top10": ["arxiv_2606.06460"],
+    "relevance_scores": {
+      "arxiv_2606.06460": 3,
+      "arxiv_2606.06448": 1
+    }
+  },
+  {
+    "id": "q14",
+    "query": "多模态融合不完整时间序列数据",
+    "language": "zh",
+    "topic": "multimodal",
+    "expected_top10": ["arxiv_2606.06328"],
+    "relevance_scores": {
+      "arxiv_2606.06328": 3,
+      "arxiv_2606.06356": 1
+    }
+  },
+  {
+    "id": "q15",
+    "query": "in-context learning multiple instance",
+    "language": "en",
+    "topic": "icl",
+    "expected_top10": ["arxiv_2606.06458"],
+    "relevance_scores": {
+      "arxiv_2606.06458": 3
+    }
+  },
+  {
+    "id": "q16",
+    "query": "医疗视觉语言模型病灶检测",
+    "language": "zh",
+    "topic": "medical_vlm",
+    "expected_top10": ["arxiv_2606.06379"],
+    "relevance_scores": {
+      "arxiv_2606.06379": 3,
+      "arxiv_2606.06375": 1
+    }
+  },
+  {
+    "id": "q17",
+    "query": "LLM unlearning token importance forgetting",
+    "language": "en",
+    "topic": "unlearning",
+    "expected_top10": ["arxiv_2606.06320"],
+    "relevance_scores": {
+      "arxiv_2606.06320": 3,
+      "arxiv_2606.06315": 1
+    }
+  },
+  {
+    "id": "q18",
+    "query": "大语言模型决策传染病传播仿真",
+    "language": "zh",
+    "topic": "llm_simulation",
+    "expected_top10": ["arxiv_2606.06360"],
+    "relevance_scores": {
+      "arxiv_2606.06360": 3
+    }
+  },
+  {
+    "id": "q19",
+    "query": "neural network vessel trajectory prediction memory",
+    "language": "en",
+    "topic": "trajectory",
+    "expected_top10": ["arxiv_2606.06311"],
+    "relevance_scores": {
+      "arxiv_2606.06311": 3,
+      "arxiv_2606.06448": 1
+    }
+  },
+  {
+    "id": "q20",
+    "query": "音频自编码器潜在表示理解生成",
+    "language": "zh",
+    "topic": "audio",
+    "expected_top10": ["arxiv_2606.06357"],
+    "relevance_scores": {
+      "arxiv_2606.06357": 3
+    }
+  }
+]

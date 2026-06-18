@@ -221,6 +221,23 @@ json_prompt/
 | 21 | task21_agent_client_service | v0.3 | M3 / JM3 Day 7：AI服务调用打通 | java_backend | F2.5.4, F2.5.5, F2.4.1, F2.4.4, F2.4.5 |
 | 22 | task22_analysis_controller_service | v0.3 | M3 / JM3 Week 6 Day 1：分析服务基础 | java_backend | F2.4.1, F2.4.4, F2.4.5, F2.5.5 |
 | 23 | task23_analysis_query_health | v0.3 | M3 / JM3 Week 6 Day 2：分析结果/状态查询 + 健康检查 | java_backend | F2.4.4, F2.4.5, F2.5.5 |
+| 24 | task24_analysis_service_refactor | v0.4 | M4 / JM4：分析服务与SSE推送完成 | java_backend | F2.4.1, F2.4.4, F2.4.5 |
+| 25 | task25_compare_analysis_api | v0.4 | M4 / JM4：分析服务与SSE推送完成 | java_backend | F2.4.1, F2.4.4 |
+| 26 | task26_report_generation_api | v0.4 | M4 / JM4：分析服务与SSE推送完成 | java_backend | F2.4.1, F2.4.4 |
+| 27 | task27_python_ai_client_sse | v0.4 | M4 / JM4：分析服务与SSE推送完成 | java_backend | F2.5.5 |
+| 28 | task28_agent_state_redis_sse_forward | v0.4 | M4 / JM4：分析服务与SSE推送完成 | java_backend, data_layer | F2.5.5, F2.6.5 |
+| 29 | task29_sse_endpoint_frontend_integration | v0.4 | M4 / JM4：分析服务与SSE推送完成 | java_backend | F2.5.5 |
+| 30 | task30_degradation_enhancement | v0.4 | M4 / JM4：分析服务与SSE推送完成 | java_backend | F2.5.5, F2.4.4 |
+| 31 | task31_integration_test_bugfix | v0.4 | M4 / JM4：分析服务与SSE推送完成（验收） | java_backend | F2.4, F2.5, F2.6 |
+| 32 | task32_cache_user_profile_info | v0.5 | M5 / JM5：缓存优化与功能完善 | java_backend, data_layer | F2.6.1, F2.1.5, F2.1.6, F2.1.7 |
+| 33 | task33_cache_paper_search_detail | v0.5 | M5 / JM5：缓存优化与功能完善 | java_backend, data_layer | F2.6.2, F2.2.1, F2.2.2, F2.2.3 |
+| 34 | task34_cache_analysis_session_agent | v0.5 | M5 / JM5：缓存优化与功能完善 | java_backend, data_layer | F2.6.3, F2.6.4, F2.6.5, F2.3.1, F2.3.2, F2.4.1, F2.4.4 |
+| 35 | task35_paper_filter_sort_enhance | v0.5 | M5 / JM5：缓存优化与功能完善 | java_backend, data_layer | F2.2.3 |
+| 36 | task36_paper_favorite_api | v0.5 | M5 / JM5：缓存优化与功能完善 | java_backend, data_layer | F2.2.4, F2.2.5, F2.2.6 |
+| 37 | task37_pdf_export_service | v0.5 | M5 / JM5：缓存优化与功能完善 | java_backend | F2.4.8 |
+| 38 | task38_word_export_service | v0.5 | M5 / JM5：缓存优化与功能完善 | java_backend | F2.4.8 |
+| 39 | task39_cache_consistency_test | v0.5 | M5 / JM5：缓存优化与功能完善 | java_backend, data_layer | F2.6.1, F2.6.2, F2.6.3, F2.6.4, F2.6.5, F2.6.6 |
+| 40 | task40_jm5_bugfix_optimization | v0.5 | M5 / JM5：缓存优化与功能完善（验收） | java_backend, data_layer | F2.6, F2.2, F2.4 |
 
 ### ai-service/
 

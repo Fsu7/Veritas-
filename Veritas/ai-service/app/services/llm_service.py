@@ -460,10 +460,23 @@ class LLMService:
     ) -> AsyncIterator[str]:
         if self.active_provider is None:
             raise ModelNotLoadedException("LLM service not initialized")
+
+        # task51: 首字节计时
+        import time
+        stream_start = time.perf_counter()
+        first_token_yielded = False
+
         try:
             async for token in self.active_provider.generate_stream(
                 prompt, max_tokens, temperature
             ):
+                if not first_token_yielded:
+                    first_token_latency_ms = (time.perf_counter() - stream_start) * 1000
+                    logger.info(
+                        f"first_token_latency_ms={first_token_latency_ms:.1f} "
+                        f"provider={self.active_provider.mode}"
+                    )
+                    first_token_yielded = True
                 yield token
         except Exception as e:
             logger.error(f"LLM stream failed: {e}")
@@ -472,11 +485,21 @@ class LLMService:
                 self._degradation_state["consecutive_failures"].get(provider_name, 0)
                 + 1
             )
+            # task51: 流式失败降级为非流式
             try:
                 await self._fallback()
-                async for token in self.active_provider.generate_stream(
-                    prompt, max_tokens, temperature
-                ):
-                    yield token
+                logger.info("LLM stream degraded to non-stream generate()")
+                full_response = await asyncio.wait_for(
+                    self.active_provider.generate(prompt, max_tokens, temperature),
+                    timeout=30,
+                )
+                # 将完整响应作为单 token yield
+                if not first_token_yielded:
+                    first_token_latency_ms = (time.perf_counter() - stream_start) * 1000
+                    logger.info(
+                        f"first_token_latency_ms={first_token_latency_ms:.1f} "
+                        f"provider={self.active_provider.mode} (degraded)"
+                    )
+                yield full_response
             except Exception as fallback_err:
                 raise LLMException(str(fallback_err)) from fallback_err

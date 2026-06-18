@@ -150,7 +150,7 @@ class ComparerAgent(BaseAgent):
         paper_count = len(analysis_results)
 
         try:
-            analysis_data_str = json.dumps(analysis_results, ensure_ascii=False)
+            analysis_data_str = self._truncate_analysis_for_prompt(analysis_results)
         except (TypeError, ValueError) as e:
             logger.warning(f"Failed to serialize analysis_results: {e}")
             analysis_data_str = str(analysis_results)
@@ -475,6 +475,25 @@ class ComparerAgent(BaseAgent):
                     ),
                 })
 
+            # task49: 增强矛盾检测（数值/方向矛盾）
+            enhanced_conflicts = self._detect_conflicts(conclusions_i, conclusions_j)
+            for ec in enhanced_conflicts:
+                # 跳过已通过关键词检测记录的矛盾（避免重复）
+                if ec["type"] == "keyword":
+                    continue
+                contradictions.append({
+                    "papers": pair_ids,
+                    "topic": "core_conclusions",
+                    "claim_a": ec["claim_a"][:100],
+                    "claim_b": ec["claim_b"][:100],
+                    "evidence_a": f"[{ec['type']}] 触发词：{', '.join(ec['keywords'])}",
+                    "evidence_b": f"[{ec['type']}] 触发词：{', '.join(ec['keywords'])}",
+                    "root_cause": DEFAULT_ROOT_CAUSE,
+                    "resolution_suggestion": (
+                        "检测到数值/方向矛盾，建议核查实验条件与数据集差异"
+                    ),
+                })
+
         # C(N,2) 组合数（数学公式：N*(N-1)/2）
         n = len(analysis_results)
         pair_count = n * (n - 1) // 2
@@ -600,6 +619,90 @@ class ComparerAgent(BaseAgent):
         return found
 
     # ============================================================
+    # FR-008b _detect_conflicts（task49 增强：数值/方向矛盾检测）
+    # ============================================================
+
+    # 数值矛盾正则：匹配 "提升/提高/增加/上升 X%" vs "下降/降低/减少 X%"
+    _NUMERIC_INCREASE_PATTERN = re.compile(
+        r"(?:提升|提高|增加|上升|增长|improve|increase|raise|boost)[\s]*([0-9]+(?:\.[0-9]+)?)\s*%",
+        re.IGNORECASE,
+    )
+    _NUMERIC_DECREASE_PATTERN = re.compile(
+        r"(?:下降|降低|减少|下降|衰减|decrease|reduce|drop|decline|fall)[\s]*([0-9]+(?:\.[0-9]+)?)\s*%",
+        re.IGNORECASE,
+    )
+
+    # 方向矛盾关键词对（A 侧 vs B 侧）
+    _DIRECTION_PAIRS = [
+        (["优于", "胜过", "超过", "好于", "outperform", "better than", "superior to"],
+         ["劣于", "不如", "低于", "差于", "underperform", "worse than", "inferior to"]),
+        (["有效", "成功", "可行", "effective", "successful", "viable"],
+         ["无效", "失败", "不可行", "ineffective", "failed", "unviable"]),
+    ]
+
+    def _detect_conflicts(self, text1: str, text2: str) -> List[Dict[str, Any]]:
+        """检测两段文本中的矛盾（task49 增强）
+
+        相比 _detect_conflict_keywords（仅关键词子串匹配），本方法新增：
+        1. 数值矛盾：A 说提升 X%，B 说下降 Y%
+        2. 方向矛盾：A 说优于，B 说劣于；A 说有效，B 说失败
+
+        返回：[{type, keywords, claim_a, claim_b}]
+            - type: "numeric" | "directional" | "keyword"
+            - keywords: 触发矛盾的关键词列表
+            - claim_a: text1 中的相关片段
+            - claim_b: text2 中的相关片段
+        """
+        t1 = text1 or ""
+        t2 = text2 or ""
+        conflicts: List[Dict[str, Any]] = []
+
+        # 1. 数值矛盾检测
+        inc1 = self._NUMERIC_INCREASE_PATTERN.findall(t1)
+        dec1 = self._NUMERIC_DECREASE_PATTERN.findall(t1)
+        inc2 = self._NUMERIC_INCREASE_PATTERN.findall(t2)
+        dec2 = self._NUMERIC_DECREASE_PATTERN.findall(t2)
+
+        # A 增 B 减 或 A 减 B 增
+        if (inc1 and dec2) or (dec1 and inc2):
+            conflicts.append({
+                "type": "numeric",
+                "keywords": ["数值方向相反"],
+                "claim_a": t1[:150],
+                "claim_b": t2[:150],
+            })
+
+        # 2. 方向矛盾检测
+        for pos_words, neg_words in self._DIRECTION_PAIRS:
+            a_pos = [w for w in pos_words if w.lower() in t1.lower()]
+            a_neg = [w for w in neg_words if w.lower() in t1.lower()]
+            b_pos = [w for w in pos_words if w.lower() in t2.lower()]
+            b_neg = [w for w in neg_words if w.lower() in t2.lower()]
+
+            # A 正向 B 负向 或 A 负向 B 正向
+            if (a_pos and b_neg) or (a_neg and b_pos):
+                keywords = list(set(a_pos + a_neg + b_pos + b_neg))
+                conflicts.append({
+                    "type": "directional",
+                    "keywords": keywords,
+                    "claim_a": t1[:150],
+                    "claim_b": t2[:150],
+                })
+                break  # 同一对方向词只记录一次
+
+        # 3. 关键词矛盾（复用 _detect_conflict_keywords，保持兼容）
+        kw_conflicts = self._detect_conflict_keywords(t1, t2)
+        if kw_conflicts:
+            conflicts.append({
+                "type": "keyword",
+                "keywords": kw_conflicts,
+                "claim_a": t1[:150],
+                "claim_b": t2[:150],
+            })
+
+        return conflicts
+
+    # ============================================================
     # FR-009 _summarize_comparison
     # ============================================================
 
@@ -617,6 +720,41 @@ class ComparerAgent(BaseAgent):
             f"{differences_count} 个差异, "
             f"{contradictions_count} 个矛盾"
         )
+
+    # ============================================================
+    # P0-7: Token 爆炸防护 — 分析结果截断
+    # ============================================================
+
+    MAX_ANALYSIS_CHARS = 8000
+
+    def _truncate_analysis_for_prompt(self, analysis_results: List[dict]) -> str:
+        """截断分析结果，避免 Prompt 过长"""
+        full_json = json.dumps(analysis_results, ensure_ascii=False)
+        if len(full_json) <= self.MAX_ANALYSIS_CHARS:
+            return full_json
+        truncated = []
+        for ar in analysis_results:
+            truncated_ar = {
+                "paper_id": ar.get("paper_id"),
+                "paper_title": ar.get("paper_title", ""),
+                "research_problem": self._truncate_dimension(ar.get("research_problem")),
+                "core_method": self._truncate_dimension(ar.get("core_method")),
+                "core_conclusions": self._truncate_dimension(ar.get("core_conclusions")),
+            }
+            truncated.append(truncated_ar)
+        return json.dumps(truncated, ensure_ascii=False)
+
+    @staticmethod
+    def _truncate_dimension(dim_data) -> dict:
+        """截断单个维度数据"""
+        if isinstance(dim_data, dict):
+            summary = dim_data.get("summary", "")
+            if isinstance(summary, str) and len(summary) > 200:
+                return {"summary": summary[:200] + "...", "confidence": dim_data.get("confidence", 0.0)}
+            return dim_data
+        if isinstance(dim_data, str) and len(dim_data) > 200:
+            return dim_data[:200] + "..."
+        return dim_data
 
     # ============================================================
     # FR-010 _fallback_result（覆盖 BaseAgent）

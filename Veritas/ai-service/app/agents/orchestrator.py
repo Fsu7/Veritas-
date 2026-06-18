@@ -1,9 +1,9 @@
-"""AgentOrchestrator — task25 产出，task30/42/43/44 增强
+"""AgentOrchestrator — task25 产出，task30/42/43/44 增强，task52 新增 token_stream
 
 流式 Agent 编排器，封装 run_workflow_stream() 异步生成器。
 每个 Agent 执行过程通过 SSE 事件实时推送状态给 Java 后端。
 
-事件类型（9种）：
+事件类型（10种）：
   - agent_started     : Agent 开始执行
   - agent_state_update: Agent 状态变更（progress 更新）
   - agent_completed    : Agent 正常完成
@@ -13,6 +13,7 @@
   - analysis_completed : 全流程结束
   - error              : 错误事件
   - ping               : keep-alive 心跳（task30）
+  - token_stream       : Generator 流式 token（task52 新增）
 
 SSE 格式：event: <name>\ndata: <json_string>\n\n
 
@@ -28,6 +29,11 @@ task43/44 增强：
   - agent_started 增加 analysisType
   - agent_state_update 增加 degraded/errorMessage
   - analysis_completed 增加 degradationLevel/degradedAgents
+
+task52 增强：
+  - token_stream SSE 事件（第 10 种）
+  - Generator 节点使用 stream_generate 替代 _run_node
+  - 流式 token 实时推送，流结束后 yield agent_completed
 """
 import asyncio
 import json
@@ -284,23 +290,99 @@ class AgentOrchestrator:
                         yield event
                     return
 
-            # === Generator ===
+            # === Generator (task52: 使用 stream_generate 流式生成) ===
             ping = self._maybe_ping()
             if ping and not self._should_skip_event(int(ping["id"])):
                 yield ping
 
-            async for event in self._run_node(
-                node_name="generator",
-                input_data={
-                    "analysis_results": analysis_results,
-                    "compare_result": compare_result,
-                },
-                context={"user_profile": user_profile_dict},
-            ):
-                if self._should_skip_event(int(event["id"])):
-                    continue
-                self._update_event_time()
-                yield event
+            generator = self.agent_instances.get("generator")
+            generator_degraded = False
+
+            if generator is not None and hasattr(generator, "stream_generate"):
+                # task52: 流式生成路径
+                try:
+                    # 先发 agent_started
+                    start_event = self._make_event(
+                        "agent_started",
+                        {
+                            "analysisId": self.analysis_id,
+                            "agentName": "generator",
+                            "analysisType": "literature_review",
+                        },
+                    )
+                    if not self._should_skip_event(int(start_event["id"])):
+                        self._update_event_time()
+                        yield start_event
+
+                    # 流式接收 token
+                    async for chunk in generator.stream_generate(
+                        prompt="",
+                        input_data={
+                            "analysis_results": analysis_results,
+                            "compare_result": compare_result,
+                        },
+                        context={"user_profile": user_profile_dict},
+                    ):
+                        if chunk.get("is_final"):
+                            # 流结束，获取完整报告
+                            report = chunk.get("report") or ""
+                        else:
+                            # 推送 token_stream 事件
+                            token_event = self._make_event(
+                                "token_stream",
+                                {
+                                    "analysisId": self.analysis_id,
+                                    "agentName": "generator",
+                                    "token": chunk.get("token", ""),
+                                },
+                            )
+                            if not self._should_skip_event(int(token_event["id"])):
+                                self._update_event_time()
+                                yield token_event
+
+                    # 发 agent_completed
+                    complete_event = self._make_event(
+                        "agent_completed",
+                        {
+                            "analysisId": self.analysis_id,
+                            "agentName": "generator",
+                            "degraded": False,
+                        },
+                    )
+                    if not self._should_skip_event(int(complete_event["id"])):
+                        self._update_event_time()
+                        yield complete_event
+
+                except Exception as gen_err:
+                    logger.warning(f"stream_generate failed, degrading to _run_node: {gen_err}")
+                    generator_degraded = True
+                    # 降级回 _run_node
+                    async for event in self._run_node(
+                        node_name="generator",
+                        input_data={
+                            "analysis_results": analysis_results,
+                            "compare_result": compare_result,
+                        },
+                        context={"user_profile": user_profile_dict},
+                    ):
+                        if self._should_skip_event(int(event["id"])):
+                            continue
+                        self._update_event_time()
+                        yield event
+            else:
+                # 降级路径：无 stream_generate 方法时走 _run_node
+                async for event in self._run_node(
+                    node_name="generator",
+                    input_data={
+                        "analysis_results": analysis_results,
+                        "compare_result": compare_result,
+                    },
+                    context={"user_profile": user_profile_dict},
+                ):
+                    if self._should_skip_event(int(event["id"])):
+                        continue
+                    self._update_event_time()
+                    yield event
 
             generator = self.agent_instances.get("generator")
             if generator and generator.state.status == AgentStatus.COMPLETED:

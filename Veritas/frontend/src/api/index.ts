@@ -2,7 +2,7 @@ import axios from 'axios'
 import type { ApiResponse } from '@/types/common'
 import { ElMessage } from 'element-plus'
 
-const AUTH_WHITELIST = ['/users/login', '/users/register']
+const AUTH_WHITELIST = ['/users/login', '/users/register', '/users/logout']
 
 function isAuthRequest(url: string | undefined): boolean {
   if (!url) return false
@@ -69,15 +69,26 @@ http.interceptors.response.use(
   async (error) => {
     if (error.response?.status === 401) {
       if (isAuthRequest(error.config?.url)) {
+        // 登录/注册/退出接口的 401：显示具体错误，不触发全局跳转
         const message = error.response?.data?.message || '用户名或密码错误'
         ElMessage.error(message)
       } else {
         const { useUserStore } = await import('@/stores/userStore')
         const { default: router } = await import('@/router')
         const userStore = useUserStore()
-        userStore.logout()
-        router.push('/login')
-        ElMessage.error('登录已过期，请重新登录')
+        // 区分主动退出与 Token 过期
+        if (userStore.isManualLogout) {
+          // 主动退出触发的 401：不显示"登录过期"提示，不重复跳转
+          // logout 流程已处理本地清理和跳转
+        } else {
+          // Token 过期：清理本地状态并跳转登录页
+          // 不调用后端 logout API（Token 已失效），仅清理本地
+          userStore.isManualLogout = true
+          // 直接清理本地状态，避免再次调用已失效的 API
+          await userStore.logout()
+          router.push('/login')
+          ElMessage.error('登录已过期，请重新登录')
+        }
       }
     } else if (error.response?.status === 403) {
       ElMessage.error('无权限访问')

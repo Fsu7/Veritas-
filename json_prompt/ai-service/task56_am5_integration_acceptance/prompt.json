@@ -1,0 +1,127 @@
+{
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "M5 / AM5：混合检索与功能完善（验收里程碑）",
+    "requirement": "端到端集成测试，验证 AM5 全部 12 项验收检查点。覆盖 6-Agent 协同 + 混合检索 + 个性化 + 流式输出。AM4 遗留验证：6-Agent 工作流端到端运行成功（Coordinator/Comparer/Reviewer 正确激活）。降级场景测试：单 Agent 超时 / 多 Agent 失败 / LLM 降级。输出 AM5 阶段审阅报告，更新里程碑文档状态 ⬜ → ✅。本任务对应 AM5 Week 10 Day 6-7。",
+    "requirement_ids": ["F3.1-F3.5"],
+    "reference_docs": [
+      {"path": "docs/ai-service/AI服务模块系统架构文档.md", "purpose": "了解 6-Agent 工作流和 AM5 全部功能"},
+      {"path": "docs/ai-service/AI服务模块项目里程碑文档.md", "purpose": "确认 AM5 验收检查点 12 项和验收标准"},
+      {"path": "AGENTS.md", "purpose": "确认降级机制和验收规范"}
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["python_ai_service"],
+    "related_modules": [
+      {"layer": "python_ai_service", "module_path": "app.agents.graph", "description": "6-Agent LangGraph 工作流（Coordinator→Retriever→Analyzer→Comparer→Generator→Reviewer）"},
+      {"layer": "python_ai_service", "module_path": "app.agents.orchestrator", "description": "SSE 编排器，10 事件类型（含 token_stream）"},
+      {"layer": "python_ai_service", "module_path": "app.services.search_service", "description": "混合检索（语义+关键词+RRF）"},
+      {"layer": "python_ai_service", "module_path": "app.services.reranker", "description": "复合重排序 + 推荐策略"},
+      {"layer": "python_ai_service", "module_path": "app.services.llm_service", "description": "LLM 三级降级 + 流式输出"},
+      {"layer": "python_ai_service", "module_path": "app.services.embedding_service", "description": "多 Provider Embedding（DashScope/Jina/OpenAI）"}
+    ],
+    "existing_implementations": [
+      {"file_path": "Veritas/ai-service/app/agents/graph.py", "description": "6-Agent 工作流已实现，AM4 遗留需端到端验证", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/ai-service/app/agents/orchestrator.py", "description": "SSE 编排器已实现 10 事件", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/ai-service/app/services/search_service.py", "description": "混合检索已实现并优化（task46-task48, task54）", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/ai-service/app/services/reranker.py", "description": "重排序+推荐策略已实现（task55）", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/ai-service/app/services/llm_service.py", "description": "LLM 流式输出已优化（task51）", "reuse_type": "direct_reuse"},
+      {"file_path": "Veritas/ai-service/app/services/embedding_service.py", "description": "多 Provider Embedding 已实现（task53）", "reuse_type": "direct_reuse"}
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "WorkflowGraph",
+      "path": "Veritas/ai-service/app/agents/graph.py",
+      "responsibility": "6-Agent LangGraph 工作流",
+      "key_interfaces": [
+        {"name": "build_workflow", "signature": "def build_workflow() -> StateGraph", "description": "构建 6-Agent 工作流图"},
+        {"name": "should_compare", "signature": "def should_compare(state: WorkflowState) -> str", "description": "条件分支：是否激活 ComparerAgent"},
+        {"name": "should_review", "signature": "def should_review(state: WorkflowState) -> str", "description": "条件分支：是否激活 ReviewerAgent"}
+      ]
+    },
+    {
+      "name": "SSEStreamOrchestrator",
+      "path": "Veritas/ai-service/app/agents/orchestrator.py",
+      "responsibility": "SSE 事件编排",
+      "key_interfaces": [
+        {"name": "stream_workflow", "signature": "async def stream_workflow(self, ...) -> AsyncGenerator[str, None]", "description": "SSE 流式推送工作流事件"}
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {"operation": "create", "path": "Veritas/ai-service/tests/e2e/test_am5_integration.py", "description": "AM5 端到端集成测试：1) test_6agent_full_workflow 验证 6-Agent 协同端到端运行；2) test_hybrid_search_with_rerank 验证混合检索+重排序；3) test_personalization_in_workflow 验证个性化注入工作流；4) test_sse_token_stream_e2e 验证 SSE token 流端到端；5) test_degradation_single_agent_timeout 验证单 Agent 超时降级；6) test_degradation_multi_agent_failure 验证多 Agent 失败降级；7) test_degradation_llm_fallback 验证 LLM 降级。", "layer": "python_ai_service"},
+    {"operation": "create", "path": "Veritas/ai-service/tests/e2e/test_am5_acceptance.py", "description": "AM5 验收检查点验证（12 项）：1) test_hybrid_search_parallel 验证语义+关键词并行；2) test_rrf_fusion_correct 验证 RRF 融合排序；3) test_personalized_ranking_different_users 验证不同用户不同排序；4) test_conflict_detection 验证矛盾发现；5) test_conflict_annotation_complete 验证 conflicts 数组完整；6) test_llm_stream_available 验证 generate_stream() 可用；7) test_first_token_under_2s 验证首字节<2秒；8) test_external_embedding_available 验证外接 Embedding 备选；9) test_retrieval_accuracy_over_85 验证检索准确率>85%；10) test_rerank_top5_quality 验证重排序 Top5 质量；11) test_hybrid_better_than_semantic 验证混合检索>纯语义；12) test_full_integration_pass 验证全功能集成。", "layer": "python_ai_service"},
+    {"operation": "create", "path": "Veritas/ai-service/tests/e2e/test_6agent_e2e.py", "description": "AM4 遗留：6-Agent 工作流端到端测试：1) test_coordinator_activated 验证 Coordinator 正确激活；2) test_comparer_activated_when_papers_ge_2 验证 Comparer 在 papers>=2 时激活；3) test_reviewer_activated_when_report_nonempty 验证 Reviewer 在 report 非空时激活；4) test_full_workflow_output_contains_citations 验证输出含引用；5) test_full_workflow_output_personalized 验证输出个性化。", "layer": "python_ai_service"},
+    {"operation": "create", "path": "docs/ai-service/AM5阶段审阅报告.md", "description": "AM5 阶段审阅报告：1) 12 项验收检查点结果（PASS/FAIL）；2) 性能指标（首字节延迟、检索准确率、Top5 差异度）；3) 已知问题与遗留项；4) AM6 前置建议；5) 里程碑文档状态更新建议（⬜ → ✅）。", "layer": "python_ai_service"}
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {"id": "FR-001", "description": "端到端测试覆盖：6-Agent 协同 + 混合检索 + 个性化 + 流式输出：1) test_6agent_full_workflow：mock LLM/Embedding，输入主题+3篇论文，验证 6-Agent 依次执行，输出含综述报告；2) test_hybrid_search_with_rerank：验证 SearchService.hybrid_search() + Reranker.rerank() 端到端；3) test_personalization_in_workflow：验证 user_profile 注入工作流，输出个性化；4) test_sse_token_stream_e2e：验证 SSE 流含 token_stream 事件。", "priority": "P0", "acceptance_condition": "端到端测试 6-Agent 协同 + 混合检索 + 个性化 + 流式输出全部通过"},
+      {"id": "FR-002", "description": "验证 AM5 验收检查点 12 项全部通过：1) 混合检索: 语义+关键词并行（test_hybrid_search_parallel）；2) RRF融合: 融合排序正确（test_rrf_fusion_correct）；3) 个性化排序: 不同用户不同排序（test_personalized_ranking_different_users）；4) 矛盾发现: 检测论文间观点冲突（test_conflict_detection）；5) 矛盾标注: conflicts数组完整（test_conflict_annotation_complete）；6) LLM流式输出: generate_stream()可用（test_llm_stream_available）；7) 流式首字节: <2秒（test_first_token_under_2s）；8) 外接Embedding API: 备选方案可用（test_external_embedding_available）；9) 检索优化: 准确率>85%（test_retrieval_accuracy_over_85）；10) 重排序: Top5质量提升（test_rerank_top5_quality）；11) 混合检索准确率>纯语义检索（test_hybrid_better_than_semantic）；12) 全功能集成测试通过（test_full_integration_pass）。", "priority": "P0", "acceptance_condition": "AM5 验收检查点 12 项全部通过"},
+      {"id": "FR-003", "description": "AM4 遗留验证：6-Agent 工作流端到端运行成功（Coordinator/Comparer/Reviewer 正确激活）：1) test_coordinator_activated：验证 Coordinator 节点执行，输出 coordinator_result；2) test_comparer_activated_when_papers_ge_2：验证 requires_compare=True 且 papers>=2 时 should_compare 返回 'compare'，Comparer 执行；3) test_reviewer_activated_when_report_nonempty：验证 report 非空时 should_review 返回 'review'，Reviewer 执行；4) test_full_workflow_output_contains_citations：验证 Generator 输出含引用标记 [1][2]；5) test_full_workflow_output_personalized：验证输出含个性化调整（如难度适配）。", "priority": "P0", "acceptance_condition": "6-Agent 工作流端到端运行成功，Coordinator/Comparer/Reviewer 正确激活"},
+      {"id": "FR-004", "description": "降级场景测试：1) test_degradation_single_agent_timeout：mock Analyzer 超时，验证工作流降级继续，输出 degraded=True；2) test_degradation_multi_agent_failure：mock Analyzer+Comparer 失败（2+ Agent），验证 _should_degrade_workflow 触发，输出降级标记；3) test_degradation_llm_fallback：mock BuiltinLLM 失败，验证降级到 APILLM，输出 provider 降级日志。", "priority": "P0", "acceptance_condition": "降级场景测试通过：单 Agent 超时不阻塞流程"},
+      {"id": "FR-005", "description": "输出 AM5 阶段审阅报告 docs/ai-service/AM5阶段审阅报告.md：1) 12 项验收检查点结果表（检查点名/状态PASS|FAIL/证据/备注）；2) 性能指标汇总（首字节延迟 P95、检索准确率 Top5、Top5 排序差异度）；3) 已知问题与遗留项列表；4) AM6 前置建议（模型量化、HNSW 调优、部署文档）；5) 里程碑文档状态更新建议（AM5 验收检查点 ⬜ → ✅）。", "priority": "P1", "acceptance_condition": "AM5 阶段审阅报告生成，里程碑文档状态更新"}
+    ],
+    "degradation_requirements": {
+      "workflow_degradation": {"single_agent_timeout": "单 Agent 超时降级继续，输出 degraded=True", "multi_agent_failure": "2+ Agent 失败触发 _should_degrade_workflow，输出降级标记", "llm_fallback": "BuiltinLLM 失败降级到 APILLM"}
+    }
+  },
+  "constraints": {
+    "naming": {"python": {"class_name": "PascalCase", "function_variable": "snake_case", "constant": "UPPER_SNAKE_CASE", "file_name": "snake_case.py"}},
+    "layering": {"python": {"rule": "端到端测试在 tests/e2e/，审阅报告在 docs/ai-service/"}},
+    "error_handling": {"python": {"approach": "降级场景测试验证不阻塞流程，不抛异常"}},
+    "logging": {"python": "Loguru", "prohibited": ["在端到端测试中打印 INFO 日志干扰断言"]}
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或 TODO 注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "在端到端测试中调用真实 LLM/Embedding API", "reason": "必须 mock 确保测试可复现", "severity": "critical"},
+    {"id": "FA-003", "action": "修改 6-Agent 工作流代码", "reason": "本任务仅测试验证，不改工作流", "severity": "high"},
+    {"id": "FA-004", "action": "跳过任何一项验收检查点", "reason": "12 项必须全部验证", "severity": "high"},
+    {"id": "FA-005", "action": "在审阅报告中伪造 PASS 结果", "reason": "必须基于测试实际结果", "severity": "critical"},
+    {"id": "FA-006", "action": "修改里程碑文档状态", "reason": "本任务仅建议更新，实际更新由用户确认", "severity": "medium"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "test_6agent_full_workflow", "description": "6-Agent 协同端到端运行", "framework": "pytest", "coverage": ["normal_flow", "integration"]},
+      {"test_name": "test_hybrid_search_with_rerank", "description": "混合检索+重排序端到端", "framework": "pytest", "coverage": ["normal_flow", "integration"]},
+      {"test_name": "test_personalization_in_workflow", "description": "个性化注入工作流", "framework": "pytest", "coverage": ["normal_flow", "integration"]},
+      {"test_name": "test_sse_token_stream_e2e", "description": "SSE token 流端到端", "framework": "pytest", "coverage": ["normal_flow", "integration"]},
+      {"test_name": "test_degradation_single_agent_timeout", "description": "单 Agent 超时降级", "framework": "pytest", "coverage": ["error_flow", "degradation"]},
+      {"test_name": "test_degradation_multi_agent_failure", "description": "多 Agent 失败降级", "framework": "pytest", "coverage": ["error_flow", "degradation"]},
+      {"test_name": "test_degradation_llm_fallback", "description": "LLM 降级", "framework": "pytest", "coverage": ["error_flow", "degradation"]}
+    ],
+    "acceptance_tests": [
+      {"test_name": "test_hybrid_search_parallel", "description": "验收1: 语义+关键词并行", "framework": "pytest"},
+      {"test_name": "test_rrf_fusion_correct", "description": "验收2: RRF 融合排序正确", "framework": "pytest"},
+      {"test_name": "test_personalized_ranking_different_users", "description": "验收3: 不同用户不同排序", "framework": "pytest"},
+      {"test_name": "test_conflict_detection", "description": "验收4: 矛盾发现", "framework": "pytest"},
+      {"test_name": "test_conflict_annotation_complete", "description": "验收5: conflicts 数组完整", "framework": "pytest"},
+      {"test_name": "test_llm_stream_available", "description": "验收6: generate_stream() 可用", "framework": "pytest"},
+      {"test_name": "test_first_token_under_2s", "description": "验收7: 首字节<2秒", "framework": "pytest"},
+      {"test_name": "test_external_embedding_available", "description": "验收8: 外接 Embedding 备选", "framework": "pytest"},
+      {"test_name": "test_retrieval_accuracy_over_85", "description": "验收9: 检索准确率>85%", "framework": "pytest"},
+      {"test_name": "test_rerank_top5_quality", "description": "验收10: 重排序 Top5 质量", "framework": "pytest"},
+      {"test_name": "test_hybrid_better_than_semantic", "description": "验收11: 混合检索>纯语义", "framework": "pytest"},
+      {"test_name": "test_full_integration_pass", "description": "验收12: 全功能集成", "framework": "pytest"}
+    ],
+    "am4_legacy_tests": [
+      {"test_name": "test_coordinator_activated", "description": "AM4 遗留: Coordinator 激活", "framework": "pytest"},
+      {"test_name": "test_comparer_activated_when_papers_ge_2", "description": "AM4 遗留: Comparer 激活", "framework": "pytest"},
+      {"test_name": "test_reviewer_activated_when_report_nonempty", "description": "AM4 遗留: Reviewer 激活", "framework": "pytest"},
+      {"test_name": "test_full_workflow_output_contains_citations", "description": "AM4 遗留: 输出含引用", "framework": "pytest"},
+      {"test_name": "test_full_workflow_output_personalized", "description": "AM4 遗留: 输出个性化", "framework": "pytest"}
+    ],
+    "verification_commands": [
+      {"layer": "python", "command": "cd Veritas/ai-service && python -m pytest tests/e2e/test_am5_integration.py tests/e2e/test_am5_acceptance.py tests/e2e/test_6agent_e2e.py -v", "expected_result": "24 个测试用例全部通过（7 集成 + 12 验收 + 5 AM4遗留）"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "AM5 验收检查点 12 项全部通过", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "6-Agent 工作流端到端运行成功，输出含引用的个性化综述", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "降级场景测试通过：单 Agent 超时不阻塞流程", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "AM5 阶段审阅报告生成，里程碑文档状态更新", "verified_by": "manual_test"},
+    {"id": "AC-005", "criterion": "AM4 遗留验证：Coordinator/Comparer/Reviewer 正确激活", "verified_by": "automated_test"}
+  ]
+}

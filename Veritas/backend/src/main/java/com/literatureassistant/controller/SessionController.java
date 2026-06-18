@@ -53,7 +53,11 @@ public class SessionController {
 
     @GetMapping("/{sessionId}")
     public ApiResponse<SessionDetailResponse> getSessionDetail(@PathVariable String sessionId) {
-        log.info("REST getSessionDetail: sessionId={}", sessionId);
+        String userId = extractCurrentUserId();
+        log.info("REST getSessionDetail: userId={}, sessionId={}", userId, sessionId);
+        // 修复 B-004: @Cacheable 命中时 Service 方法体不执行，数据隔离校验必须上移到 Controller。
+        // validateSessionAccess 会查 DB 校验 sessionId 归属，缓存命中时仍执行（安全代价）。
+        sessionService.validateSessionAccess(userId, sessionId);
         SessionDetailResponse response = sessionService.getSessionDetail(sessionId);
         return ApiResponse.success(response);
     }

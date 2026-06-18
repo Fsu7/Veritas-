@@ -22,5 +22,12 @@ export const paperApi = {
     http.post(`/papers/${paperId}/favorite`),
 
   removeFavorite: (paperId: string) =>
-    http.delete(`/papers/${paperId}/favorite`)
+    http.delete(`/papers/${paperId}/favorite`),
+
+  /**
+   * 获取当前用户收藏的论文列表（分页）
+   * 对应后端 GET /users/me/favorites 或 /papers/favorites
+   */
+  getFavorites: (params?: { page?: number; pageSize?: number }): Promise<PageResponse<Paper>> =>
+    http.get('/papers/favorites', { params })
 }

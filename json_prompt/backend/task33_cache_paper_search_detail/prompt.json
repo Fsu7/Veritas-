@@ -1,0 +1,272 @@
+{
+  "meta": {
+    "project": "XH-202630 科研文献智能助手",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善",
+    "feature_id": ["F2.6.2", "F2.2.1", "F2.2.2", "F2.2.3"],
+    "task_name": "task33_cache_paper_search_detail",
+    "day": "Day 2",
+    "created_at": "2026-06-17"
+  },
+  "context": {
+    "project": "XH-202630 科研文献智能助手 — 领域知识个性化生成与多智能体协同决策系统研究",
+    "version": "v0.5",
+    "milestone": "JM5：缓存优化与功能完善（Week 9 Day 2）",
+    "requirement": "完善论文检索缓存与论文详情缓存：修复 paperSearch 复合key中null参数拼成'null'字符串的风险；为 listPapers 方法添加缓存（TTL=10min）；实现缓存穿透防护（论文不存在时缓存空值TTL=60s）；缓存Key规范化使用RedisKeyUtil统一生成；验证 paperDetail/paperSearch 缓存命中率。",
+    "requirement_ids": ["F2.6.2", "F2.2.1", "F2.2.2", "F2.2.3"],
+    "reference_docs": [
+      {
+        "path": "docs/backend/Java后端模块系统架构文档.md",
+        "purpose": "第5章 论文管理模块（F2.2）+ 第9章 缓存管理模块（F2.6）— paperDetail/paperSearch 缓存策略"
+      },
+      {
+        "path": "docs/backend/Java后端模块项目里程碑文档.md",
+        "purpose": "第7章 JM5 Day 2 论文检索缓存 + 论文详情缓存任务分解"
+      },
+      {
+        "path": "AGENTS.md",
+        "purpose": "关键规则第6条 Cache-Aside 写后删 Redis"
+      }
+    ]
+  },
+  "current_architecture": {
+    "involved_layers": ["java_backend", "data_layer"],
+    "related_modules": [
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.service.PaperService",
+        "description": "论文管理业务，已实现@Cacheable(paperDetail, paperSearch)，但listPapers未缓存；paperSearch复合key使用String.format拼接null参数有风险"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.repository.PaperRepositoryCustomImpl",
+        "description": "论文搜索自定义查询实现，支持yearFrom/yearTo/venue过滤+relevance/year/citations排序"
+      },
+      {
+        "layer": "java_backend",
+        "module_path": "com.literatureassistant.util.RedisKeyUtil",
+        "description": "Redis Key生成工具"
+      }
+    ],
+    "existing_implementations": [
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java",
+        "description": "PaperService已实现：getPaperDetail(@Cacheable paperDetail, TTL=30min)、searchPapers(@Cacheable paperSearch, TTL=10min, 复合key使用String.format拼接q_yearFrom_yearTo_venue_sort_page_size)；listPapers未加缓存；safePage/safeSize分页边界处理",
+        "reuse_type": "extend"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/repository/PaperRepositoryCustomImpl.java",
+        "description": "已实现searchByKeyword方法，支持keyword/yearFrom/yearTo/venue条件+relevance/year/citations排序白名单",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java",
+        "description": "已配置paperDetail(TTL=30min)、paperSearch(TTL=10min)缓存空间",
+        "reuse_type": "direct_reuse"
+      },
+      {
+        "file_path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+        "description": "RedisKeyUtil已实现userProfileKey等方法",
+        "reuse_type": "extend"
+      }
+    ]
+  },
+  "relevant_modules": [
+    {
+      "name": "PaperService",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java",
+      "responsibility": "论文管理业务，列表/详情/搜索，缓存管理",
+      "key_interfaces": [
+        {
+          "name": "listPapers",
+          "signature": "public PageResponse<PaperResponse> listPapers(int page, int size)",
+          "description": "分页查询论文列表，当前未加缓存"
+        },
+        {
+          "name": "getPaperDetail",
+          "signature": "@Cacheable(value=\"paperDetail\", key=\"#paperId\") public PaperDetailResponse getPaperDetail(String paperId)",
+          "description": "查询论文详情，缓存TTL=30min"
+        },
+        {
+          "name": "searchPapers",
+          "signature": "@Cacheable(value=\"paperSearch\", key=\"T(java.lang.String).format('%s_%s_%s_%s_%s_%d_%d', #q, #yearFrom, #yearTo, #venue, #sort, #page, #size)\") public PageResponse<PaperResponse> searchPapers(String q, Integer yearFrom, Integer yearTo, String venue, String sort, int page, int size)",
+          "description": "论文搜索，复合key有null参数风险"
+        }
+      ]
+    },
+    {
+      "name": "RedisKeyUtil",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+      "responsibility": "Redis Key统一生成工具",
+      "key_interfaces": [
+        {
+          "name": "userProfileKey",
+          "signature": "public static String userProfileKey(String userId)",
+          "description": "生成 user:profile:{userId} 格式Key"
+        }
+      ]
+    }
+  ],
+  "files_to_modify": [
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/service/PaperService.java",
+      "description": "完善缓存注解：listPapers添加@Cacheable(paperList, TTL=10min)；getPaperDetail添加unless空值防护；searchPapers修复复合key中null参数问题（使用RedisKeyUtil.paperSearchKey统一生成）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/util/RedisKeyUtil.java",
+      "description": "新增 paperDetailKey(paperId)、paperSearchKey(q,yearFrom,yearTo,venue,sort,page,size)、paperListKey(page,size) 方法，规范化缓存Key生成，处理null参数",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "modify",
+      "path": "Veritas/backend/src/main/java/com/literatureassistant/config/RedisConfig.java",
+      "description": "新增 paperList 缓存空间配置（TTL=10min，与paperSearch一致）",
+      "layer": "java_backend"
+    },
+    {
+      "operation": "create",
+      "path": "Veritas/backend/src/test/java/com/literatureassistant/service/PaperServiceCacheTest.java",
+      "description": "新增缓存测试类：验证paperDetail/paperSearch/paperList缓存命中、空值穿透防护、复合key null参数处理",
+      "layer": "java_backend"
+    }
+  ],
+  "implementation_requirements": {
+    "functional_requirements": [
+      {
+        "id": "FR-001",
+        "description": "修复 paperSearch 复合key中null参数拼成'null'字符串的风险：当前使用 String.format('%s_%s_%s_%s_%s_%d_%d', #q, #yearFrom, #yearTo, #venue, #sort, #page, #size)，当yearFrom/yearTo/venue为null时，会拼成'null'字符串，可能导致不同查询参数产生相同key。需改为使用RedisKeyUtil.paperSearchKey方法生成key，将null参数统一处理为空字符串或特定标记（如'all'）",
+        "priority": "P0",
+        "acceptance_condition": "paperSearch缓存key中null参数不再拼成'null'字符串，使用RedisKeyUtil统一生成"
+      },
+      {
+        "id": "FR-002",
+        "description": "为 listPapers 方法添加缓存：@Cacheable(value=\"paperList\", key=T(RedisKeyUtil).paperListKey(#page,#size))，TTL=10min（与paperSearch一致），缓存论文分页列表结果",
+        "priority": "P1",
+        "acceptance_condition": "listPapers第二次调用直接返回缓存数据，不命中数据库"
+      },
+      {
+        "id": "FR-003",
+        "description": "完善 getPaperDetail 缓存穿透防护：添加 unless=\"#result == null\" 条件，论文不存在时不缓存（避免缓存无效空值）；或采用空值缓存策略（TTL=60s）",
+        "priority": "P1",
+        "acceptance_condition": "论文不存在时，缓存策略正确（不缓存或缓存空值60s）"
+      },
+      {
+        "id": "FR-004",
+        "description": "RedisKeyUtil 新增3个方法：paperDetailKey(paperId) 返回 paper:detail:{paperId}；paperSearchKey(q,yearFrom,yearTo,venue,sort,page,size) 返回 paper:search:{hash}（对参数拼接后取hash，处理null）；paperListKey(page,size) 返回 paper:list:{page}:{size}",
+        "priority": "P0",
+        "acceptance_condition": "3个方法实现正确，null参数处理合理"
+      },
+      {
+        "id": "FR-005",
+        "description": "RedisConfig 新增 paperList 缓存空间配置：cacheConfigurations.put(\"paperList\", defaultConfig.entryTtl(Duration.ofMinutes(10)))",
+        "priority": "P1",
+        "acceptance_condition": "RedisConfig包含paperList缓存空间，TTL=10min"
+      },
+      {
+        "id": "FR-006",
+        "description": "验证 paperDetail/paperSearch 缓存命中率：相同查询第二次直接返回缓存，不调用PaperRepository",
+        "priority": "P1",
+        "acceptance_condition": "缓存命中率测试通过"
+      }
+    ],
+    "cross_system_consistency": {
+      "field_naming": {
+        "rule": "Java camelCase ↔ Python/JSON snake_case",
+        "mappings": [
+          {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+          {"java": "citationCount", "python": "citation_count", "json": "citation_count"},
+          {"java": "abstractText", "python": "abstract_text", "json": "abstract_text"},
+          {"java": "pdfUrl", "python": "pdf_url", "json": "pdf_url"},
+          {"java": "createdAt", "python": "created_at", "json": "created_at"}
+        ]
+      },
+      "api_contracts": [],
+      "data_flow": "论文数据流：前端 → Java PaperService（@Cacheable paperDetail/paperSearch/paperList）→ MySQL papers 表；论文搜索同时委托PythonAIClient.search()执行Chroma向量检索（混合检索）"
+    },
+    "degradation_requirements": {},
+    "security_requirements": [
+      {
+        "category": "data_isolation",
+        "requirement": "论文数据为公共数据，无需userId隔离；但缓存Key需规范化避免冲突"
+      },
+      {
+        "category": "sql_injection",
+        "requirement": "PaperRepositoryCustomImpl排序白名单已规避SQL注入，缓存Key生成不得引入新的注入风险"
+      }
+    ]
+  },
+  "constraints": {
+    "naming": {
+      "java": {"class_name": "PascalCase", "method_variable": "camelCase", "constant": "UPPER_SNAKE_CASE", "file_name": "PascalCase.java"},
+      "database": {"table_name": "snake_case, 复数形式", "column_name": "snake_case"},
+      "json": {"field_name": "snake_case"},
+      "cross_system_mapping": [
+        {"java": "paperId", "python": "paper_id", "json": "paper_id"},
+        {"java": "citationCount", "python": "citation_count", "json": "citation_count"}
+      ]
+    },
+    "layering": {
+      "java": {"rule": "Controller → Service → Repository → Client，禁止跨层", "entity_dto_separation": true, "dto_naming": "XxxRequest, XxxResponse"}
+    },
+    "error_handling": {
+      "java": {"approach": "BusinessException + GlobalExceptionHandler(@RestControllerAdvice)", "business_exception_fields": ["code", "message", "errorKey"]}
+    },
+    "caching": {
+      "pattern": "Cache-Aside：写MySQL后删Redis缓存",
+      "ttl_layers": [
+        {"cache_name": "paperDetail", "key_pattern": "paper:detail:{paperId}", "ttl": "30min (27min~33min with ±10% jitter)"},
+        {"cache_name": "paperSearch", "key_pattern": "paper:search:{hash}", "ttl": "10min (9min~11min with ±10% jitter)"},
+        {"cache_name": "paperList", "key_pattern": "paper:list:{page}:{size}", "ttl": "10min (9min~11min with ±10% jitter)"}
+      ],
+      "penetration_protection": "查询结果为空时缓存空值（TTL=60s）",
+      "avalanche_protection": "TTL添加随机偏移（±10%）",
+      "max_value_size": "单个缓存值不超过1MB"
+    },
+    "logging": {"java": "SLF4J + Logback", "prohibited": ["在循环中打印INFO及以上级别日志", "在日志中输出敏感信息"]},
+    "database": {"charset": "utf8mb4 + utf8mb4_unicode_ci", "engine": "InnoDB", "primary_key": "id BIGINT AUTO_INCREMENT", "no_select_star": true, "pagination_required": true},
+    "security": {"sql_injection_prevention": "JPA参数化查询，禁止SQL拼接", "data_isolation": "论文数据为公共数据"}
+  },
+  "forbidden_actions": [
+    {"id": "FA-001", "action": "输出伪代码或TODO注释", "reason": "必须输出完整可执行代码", "severity": "critical"},
+    {"id": "FA-002", "action": "修改需求范围外的模块（UserService/SessionService/AnalysisService）", "reason": "本任务仅涉及PaperService/RedisKeyUtil/RedisConfig缓存完善", "severity": "high"},
+    {"id": "FA-003", "action": "破坏三层分离架构", "reason": "架构约束ADR-001", "severity": "critical"},
+    {"id": "FA-004", "action": "破坏分层调用规范", "reason": "分层架构约束", "severity": "critical"},
+    {"id": "FA-005", "action": "Entity直接返回给前端", "reason": "数据隔离与接口稳定性", "severity": "high"},
+    {"id": "FA-006", "action": "硬编码敏感配置", "reason": "安全约束", "severity": "critical"},
+    {"id": "FA-007", "action": "违反跨系统字段命名约定", "reason": "跨系统一致性约束", "severity": "high"},
+    {"id": "FA-008", "action": "在循环中打印INFO及以上级别日志", "reason": "性能约束", "severity": "medium"},
+    {"id": "FA-009", "action": "使用SQL拼接", "reason": "SQL注入防护", "severity": "critical"},
+    {"id": "FA-010", "action": "忽略降级场景（缓存失效时需回源数据库）", "reason": "可用性约束", "severity": "high"}
+  ],
+  "test_requirements": {
+    "unit_tests": [
+      {"test_name": "PaperServiceCacheTest.getPaperDetail_cacheHit_returnsCached", "description": "验证paperDetail缓存命中：第二次查询不调用PaperRepository", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "PaperServiceCacheTest.searchPapers_cacheHit_returnsCached", "description": "验证paperSearch缓存命中：相同查询参数第二次直接返回缓存", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "PaperServiceCacheTest.searchPapers_nullParams_noKeyConflict", "description": "验证paperSearch复合key中null参数不产生冲突：yearFrom=null与yearTo=null的查询key不同于yearFrom=2020与yearTo=null的查询key", "framework": "junit5", "coverage": ["boundary_condition"]},
+      {"test_name": "PaperServiceCacheTest.listPapers_cacheHit_returnsCached", "description": "验证paperList缓存命中：相同page/size第二次直接返回缓存", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "PaperServiceCacheTest.getPaperDetail_notFound_penetrationProtection", "description": "验证缓存穿透防护：论文不存在时缓存策略正确", "framework": "junit5", "coverage": ["boundary_condition"]},
+      {"test_name": "RedisKeyUtilTest.paperSearchKey_nullParams_handled", "description": "验证paperSearchKey方法处理null参数，不拼成'null'字符串", "framework": "junit5", "coverage": ["boundary_condition"]},
+      {"test_name": "RedisKeyUtilTest.paperDetailKey_format", "description": "验证paperDetailKey返回 paper:detail:{paperId} 格式", "framework": "junit5", "coverage": ["normal_flow"]},
+      {"test_name": "RedisKeyUtilTest.paperListKey_format", "description": "验证paperListKey返回 paper:list:{page}:{size} 格式", "framework": "junit5", "coverage": ["normal_flow"]}
+    ],
+    "integration_tests": [],
+    "verification_commands": [
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=PaperServiceCacheTest", "expected_result": "所有测试通过"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn test -Dtest=RedisKeyUtilTest", "expected_result": "所有测试通过"},
+      {"layer": "java", "command": "cd Veritas/backend && mvn compile", "expected_result": "编译成功"}
+    ]
+  },
+  "acceptance_criteria": [
+    {"id": "AC-001", "criterion": "paperSearch复合key中null参数不再拼成'null'字符串，使用RedisKeyUtil统一生成", "verified_by": "automated_test"},
+    {"id": "AC-002", "criterion": "listPapers方法添加@Cacheable(paperList)缓存，TTL=10min", "verified_by": "automated_test"},
+    {"id": "AC-003", "criterion": "getPaperDetail缓存穿透防护生效", "verified_by": "automated_test"},
+    {"id": "AC-004", "criterion": "RedisKeyUtil新增paperDetailKey/paperSearchKey/paperListKey方法，null参数处理合理", "verified_by": "automated_test"},
+    {"id": "AC-005", "criterion": "RedisConfig新增paperList缓存空间，TTL=10min", "verified_by": "automated_test"},
+    {"id": "AC-006", "criterion": "paperDetail/paperSearch缓存命中率验证通过", "verified_by": "automated_test"},
+    {"id": "AC-007", "criterion": "未修改PaperService以外的Service类", "verified_by": "code_review"},
+    {"id": "AC-008", "criterion": "mvn test 全部通过", "verified_by": "automated_test"}
+  ]
+}

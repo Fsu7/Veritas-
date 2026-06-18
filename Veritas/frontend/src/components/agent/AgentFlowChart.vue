@@ -13,6 +13,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, markRaw } from 'vue'
 import * as echarts from 'echarts/core'
 import { GraphChart, EffectScatterChart } from 'echarts/charts'
+import { AGENT_STATUS_COLORS } from '@/constants/agent'
 import {
   TooltipComponent,
   TitleComponent,
@@ -61,13 +62,9 @@ const AGENT_LINKS = [
 /**
  * Agent 状态色（与 styles/variables.scss 中 --agent-* 一一对应）
  * ECharts 配置中无法读取 CSS 变量，使用 hex 值并在源码注释对照
+ * P2-4: 提取为 @/constants/agent.ts 共享常量
  */
-const STATUS_COLORS: Record<string, string> = {
-  waiting:   '#C0C4CC', // --agent-waiting
-  running:   '#409EFF', // --agent-running
-  completed: '#67C23A', // --agent-completed
-  failed:    '#F56C6C'  // --agent-failed
-}
+const STATUS_COLORS: Record<string, string> = AGENT_STATUS_COLORS
 
 const STATUS_LABELS: Record<string, string> = {
   waiting:   '等待中',
@@ -93,6 +90,16 @@ function formatDuration(ms?: number): string {
   if (ms == null) return '-'
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(2)}s`
+}
+
+/** P2-3: HTML 转义，防止 ECharts tooltip XSS */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 const chartOption = computed(() => {
@@ -157,7 +164,7 @@ const chartOption = computed(() => {
           `耗时：${formatDuration(v.durationMs)}`
         ]
         if (v.intermediateResult) {
-          lines.push(`结果：${v.intermediateResult.slice(0, 80)}${v.intermediateResult.length > 80 ? '...' : ''}`)
+          lines.push(`结果：${escapeHtml(v.intermediateResult.slice(0, 80))}${v.intermediateResult.length > 80 ? '...' : ''}`)
         }
         return lines.join('<br/>')
       }
@@ -242,7 +249,7 @@ onUnmounted(disposeChart)
 <style scoped lang="scss">
 .agent-flow-chart {
   width: 100%;
-  height: 450px;
+  height: var(--chart-height-lg);
   background-color: var(--el-bg-color);
   border-radius: var(--radius-md);
 }
