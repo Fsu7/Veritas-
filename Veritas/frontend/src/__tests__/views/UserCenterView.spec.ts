@@ -198,19 +198,19 @@ describe('UserCenterView', () => {
     mocks.routeQuery = {}
     mocks.fetchProfile.mockResolvedValue(undefined)
     mocks.getUserInfo.mockResolvedValue(undefined)
-    mocks.fetchSessions.mockResolvedValue({ items: [], total: 0, page: 1, size: 100, totalPages: 0 })
+    mocks.fetchSessions.mockResolvedValue({ items: [], total: 0, page: 1, size: 10, totalPages: 0 })
     mocks.fetchFavorites.mockResolvedValue(undefined)
     mocks.saveProfile.mockResolvedValue(undefined)
   })
 
   it('挂载时调用 getUserInfo / fetchProfile / fetchSessions / fetchFavorites', async () => {
-    mocks.fetchSessions.mockResolvedValue({ items: mockSessions, total: 2, page: 1, size: 100, totalPages: 1 })
+    mocks.fetchSessions.mockResolvedValue({ items: mockSessions, total: 2, page: 1, size: 10, totalPages: 1 })
     mountUserCenterView()
     await flushPromises()
 
     expect(mocks.getUserInfo).toHaveBeenCalled()
     expect(mocks.fetchProfile).toHaveBeenCalled()
-    expect(mocks.fetchSessions).toHaveBeenCalledWith({ page: 1, size: 100 })
+    expect(mocks.fetchSessions).toHaveBeenCalledWith({ page: 1, size: 10 })
     expect(mocks.fetchFavorites).toHaveBeenCalledWith(1, 1)
   })
 
@@ -227,7 +227,7 @@ describe('UserCenterView', () => {
   })
 
   it('历史记录点击跳转 /search?sessionId=xxx', async () => {
-    mocks.fetchSessions.mockResolvedValue({ items: mockSessions, total: 2, page: 1, size: 100, totalPages: 1 })
+    mocks.fetchSessions.mockResolvedValue({ items: mockSessions, total: 2, page: 1, size: 10, totalPages: 1 })
     const wrapper = mountUserCenterView()
     await flushPromises()
 
@@ -262,7 +262,7 @@ describe('UserCenterView', () => {
   })
 
   it('空历史记录状态显示 el-empty', async () => {
-    mocks.fetchSessions.mockResolvedValue({ items: [], total: 0, page: 1, size: 100, totalPages: 0 })
+    mocks.fetchSessions.mockResolvedValue({ items: [], total: 0, page: 1, size: 10, totalPages: 0 })
     const wrapper = mountUserCenterView()
     await flushPromises()
 
@@ -271,7 +271,7 @@ describe('UserCenterView', () => {
   })
 
   it('有历史记录时渲染 el-timeline', async () => {
-    mocks.fetchSessions.mockResolvedValue({ items: mockSessions, total: 2, page: 1, size: 100, totalPages: 1 })
+    mocks.fetchSessions.mockResolvedValue({ items: mockSessions, total: 2, page: 1, size: 10, totalPages: 1 })
     const wrapper = mountUserCenterView()
     await flushPromises()
 

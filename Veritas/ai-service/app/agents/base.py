@@ -71,6 +71,8 @@ class BaseAgent(ABC):
     async def execute(self, input_data: dict, context: dict) -> dict:
         self.state.status = AgentStatus.RUNNING
         self.state.started_at = datetime.now()
+        self.state.error = None
+        self.state.intermediate_result = None
         logger.warning(f"Agent {self.name} started")
 
         try:

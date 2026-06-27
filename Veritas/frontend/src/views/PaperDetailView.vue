@@ -1,22 +1,29 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Star, StarFilled, Document } from '@element-plus/icons-vue'
 import { usePaperStore } from '@/stores/paperStore'
 import { useSessionStore } from '@/stores/sessionStore'
 import { useUserStore } from '@/stores/userStore'
+import { useAgentStore } from '@/stores/agentStore'
+import { useSSE } from '@/composables/useSSE'
+import { analysisApi } from '@/api/analysis'
 import AnalysisCard from '@/components/analysis/AnalysisCard.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ErrorState from '@/components/common/ErrorState.vue'
 import { formatMeta } from '@/utils/format'
 import type { Paper } from '@/types/paper'
+import type { SSEEvent } from '@/types/agent'
 
 const route = useRoute()
 const router = useRouter()
 const paperStore = usePaperStore()
 const sessionStore = useSessionStore()
 const userStore = useUserStore()
+const agentStore = useAgentStore()
+
+const { connect, disconnect } = useSSE({ onEvent: handleSSEEvent })
 
 const paper = ref<Paper | null>(null)
 const paperLoading = ref(true)
@@ -99,11 +106,46 @@ function openPdf(url: string) {
   window.open(url, '_blank')
 }
 
+/**
+ * SSE 事件处理：agent_state_update → agentStore
+ * 复用 AgentFlowView 的字段兼容逻辑（camelCase / snake_case 双写）
+ */
+function handleSSEEvent(event: SSEEvent) {
+  if (event.type === 'agent_state_update') {
+    const { agentName, agent_name, status, progress, intermediateResult, intermediate_result, durationMs, duration_ms, error: err } = event.data
+    const name = (agentName ?? agent_name ?? '') as string
+    if (!name) return
+    agentStore.updateAgentState(name, {
+      status: (status ?? 'running') as 'waiting' | 'running' | 'completed' | 'failed',
+      progress: progress as number | undefined,
+      intermediateResult: (intermediateResult ?? intermediate_result) as string | undefined,
+      durationMs: (durationMs ?? duration_ms) as number | undefined,
+      error: err as string | undefined
+    })
+  }
+}
+
+/** 监听 currentAnalysisId 变化，自动连接/断开 SSE（store 不再管理 SSE 生命周期） */
+watch(() => sessionStore.currentAnalysisId, (newId) => {
+  if (newId) {
+    const url = analysisApi.getAgentStreamUrl(newId, userStore.token)
+    connect(url)
+  } else {
+    disconnect()
+  }
+})
+
 onMounted(() => {
   fetchPaperDetail()
+  // 若进入页面时已有进行中的分析，立即连接 SSE
+  if (sessionStore.currentAnalysisId) {
+    const url = analysisApi.getAgentStreamUrl(sessionStore.currentAnalysisId, userStore.token)
+    connect(url)
+  }
 })
 
 onUnmounted(() => {
+  disconnect()
   sessionStore.cleanup()
 })
 </script>

@@ -21,6 +21,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { AgentState } from '@/types/agent'
+import { formatDuration } from '@/utils/format'
 
 echarts.use([
   GraphChart,
@@ -84,12 +85,6 @@ function getStatus(name: string): string {
 
 function getColor(name: string): string {
   return STATUS_COLORS[getStatus(name)] ?? STATUS_COLORS.waiting
-}
-
-function formatDuration(ms?: number): string {
-  if (ms == null) return '-'
-  if (ms < 1000) return `${ms}ms`
-  return `${(ms / 1000).toFixed(2)}s`
 }
 
 /** P2-3: HTML 转义，防止 ECharts tooltip XSS */
@@ -236,7 +231,7 @@ function disposeChart() {
   }
 }
 
-watch(() => props.agentStates, refreshChart, { deep: true })
+watch(() => JSON.stringify(props.agentStates), refreshChart)
 
 onMounted(initChart)
 onUnmounted(disposeChart)

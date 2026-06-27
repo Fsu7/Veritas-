@@ -34,7 +34,7 @@ async def _safe_init(coro, name: str, timeout: int = SERVICE_INIT_TIMEOUT):
 async def _safe_init_blocking(func, name: str, timeout: int = SERVICE_INIT_TIMEOUT):
     """在线程池中运行同步初始化（避免阻塞事件循环）"""
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await asyncio.wait_for(loop.run_in_executor(None, func), timeout=timeout)
     except asyncio.TimeoutError:
         logger.error(f"{name} init timeout after {timeout}s, skipped")

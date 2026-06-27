@@ -494,9 +494,16 @@ class AgentOrchestrator:
                 yield event
 
         except asyncio.CancelledError:
-            # task30: 客户端断开，优雅关闭流
-            logger.debug(f"SSE stream cancelled for analysis_id={self.analysis_id}")
-            return
+            # P2#13.1: 客户端断开，取消所有运行中的任务并向上传播
+            logger.info("Workflow cancelled by client disconnect")
+            # Cancel any running tasks
+            for task in asyncio.all_tasks():
+                if task is not asyncio.current_task():
+                    task.cancel()
+            raise
+        except Exception as e:
+            logger.error(f"SSE stream error: analysis_id={self.analysis_id}, error={e}", exc_info=True)
+            yield self._make_event("error", {"message": f"工作流执行异常: {str(e)}"})
 
     def _get_last_result(self, agent: BaseAgent, key: Optional[str], default: Any) -> Any:
         """从 Agent 的 intermediate_result 中提取上次执行结果

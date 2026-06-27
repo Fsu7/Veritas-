@@ -15,8 +15,8 @@ export const paperApi = {
     size?: number
     sort_by?: SortField
     sort_order?: SortOrder
-  } & FilterParams): Promise<PageResponse<Paper>> =>
-    http.get('/papers/search', { params }),
+  } & FilterParams, signal?: AbortSignal): Promise<PageResponse<Paper>> =>
+    http.get('/papers/search', { params, signal }),
 
   addFavorite: (paperId: string) =>
     http.post(`/papers/${paperId}/favorite`),

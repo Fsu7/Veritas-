@@ -14,6 +14,10 @@ target/
 .DS_Store
 .env
 *.swp
+
+# 本地环境配置（含数据库密码等敏感信息）
+application-dev.yml
+application-local.yml
 *.swo
 *~
 

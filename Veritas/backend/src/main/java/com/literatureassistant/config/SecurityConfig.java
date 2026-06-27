@@ -51,9 +51,10 @@ public class SecurityConfig {
                                 "/api/users/register",
                                 "/api/users/login",
                                 "/health",
-                                "/actuator/**",
+                                "/actuator/health",
                                 "/error"
                         ).permitAll()
+                        .requestMatchers("/actuator/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .formLogin(form -> form.disable())

@@ -9,6 +9,9 @@ function isAuthRequest(url: string | undefined): boolean {
   return AUTH_WHITELIST.some(path => url.includes(path))
 }
 
+/** 并发 401 防抖标志：防止多个并发请求同时触发 logout + 重复提示 */
+let isRefreshing = false
+
 /**
  * 将后端 snake_case 字段递归转换为 camelCase。
  * 后端 application.yml 配置了 property-naming-strategy: SNAKE_CASE，
@@ -72,9 +75,10 @@ http.interceptors.response.use(
         // 登录/注册/退出接口的 401：显示具体错误，不触发全局跳转
         const message = error.response?.data?.message || '用户名或密码错误'
         ElMessage.error(message)
-      } else {
+      } else if (!isRefreshing) {
+        // 并发 401 防抖：仅首个请求执行 logout + 跳转，后续并发请求直接 reject
+        isRefreshing = true
         const { useUserStore } = await import('@/stores/userStore')
-        const { default: router } = await import('@/router')
         const userStore = useUserStore()
         // 区分主动退出与 Token 过期
         if (userStore.isManualLogout) {
@@ -86,14 +90,20 @@ http.interceptors.response.use(
           userStore.isManualLogout = true
           // 直接清理本地状态，避免再次调用已失效的 API
           await userStore.logout()
+          const { default: router } = await import('@/router')
           router.push('/login')
           ElMessage.error('登录已过期，请重新登录')
         }
+        isRefreshing = false
       }
     } else if (error.response?.status === 403) {
       ElMessage.error('无权限访问')
     } else if (error.response?.status === 404) {
-      ElMessage.error('请求的资源不存在')
+      // 画像查询 404 = 用户尚未设置画像，属于正常状态，不显示错误提示
+      const url = error.config?.url || ''
+      if (!url.includes('/profile')) {
+        ElMessage.error('请求的资源不存在')
+      }
     } else if (error.code === 'ECONNABORTED') {
       ElMessage.error('请求超时，请稍后重试')
     } else {

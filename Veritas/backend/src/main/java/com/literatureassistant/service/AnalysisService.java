@@ -135,11 +135,8 @@ public class AnalysisService {
         // 1) 用户画像
         UserProfileDTO userProfile = buildUserProfile(userId);
 
-        // 2) 验证所有 paperIds 存在
-        for (String paperId : request.getPaperIds()) {
-            PaperDetailResponse paper = paperService.getPaperDetail(paperId);
-            log.debug("compare paper validated: paperId={}, title={}", paper.getPaperId(), paper.getTitle());
-        }
+        // 2) 批量验证所有 paperIds 存在（P1-13/14 修复: 避免 N+1 查询）
+        paperService.validatePapersExist(request.getPaperIds());
 
         // 3) Session 复用/创建
         String sessionId = resolveOrCreateSession(userId, request.getSessionId(), request.getTopic());
@@ -185,11 +182,8 @@ public class AnalysisService {
         // 1) 用户画像
         UserProfileDTO userProfile = buildUserProfile(userId);
 
-        // 2) 验证所有 paperIds 存在
-        for (String paperId : request.getPaperIds()) {
-            PaperDetailResponse paper = paperService.getPaperDetail(paperId);
-            log.debug("report paper validated: paperId={}, title={}", paper.getPaperId(), paper.getTitle());
-        }
+        // 2) 批量验证所有 paperIds 存在（P1-13/14 修复: 避免 N+1 查询）
+        paperService.validatePapersExist(request.getPaperIds());
 
         // 3) Session 复用/创建
         String sessionId = resolveOrCreateSession(userId, request.getSessionId(), request.getTopic());
@@ -235,7 +229,8 @@ public class AnalysisService {
      * <p>走 @Cacheable Redis 缓存（30min TTL），命中直接返回；未命中查 DB + 反序列化 result JSON + 回填缓存。
      * <p>数据隔离：校验 AnalysisResult.sessionId 对应的 Session.userId == currentUserId。
      */
-    @Cacheable(value = "analysisResult", key = "#analysisId", unless = "#result == null")
+    // P2#16: 添加 sync=true 防止缓存击穿
+    @Cacheable(value = "analysisResult", key = "#analysisId", sync = true)
     public AnalysisResponse getAnalysisResult(String userId, String analysisId) {
         AnalysisResult entity = analysisResultRepository.findByAnalysisId(analysisId)
                 .orElseThrow(() -> new ResourceNotFoundException("AnalysisResult", analysisId));
@@ -376,10 +371,12 @@ public class AnalysisService {
      * <p>JM4 SSE 端点 (GET /api/analysis/{analysisId}/agent-stream) 入口使用，
      * 防止用户 A 订阅用户 B 的 analysisId。
      */
-    public void validateAnalysisAccess(String userId, String analysisId) {
+    // P2#14: 返回 AnalysisResult 实体，供调用方复用，减少重复查询
+    public AnalysisResult validateAnalysisAccess(String userId, String analysisId) {
         AnalysisResult entity = analysisResultRepository.findByAnalysisId(analysisId)
                 .orElseThrow(() -> new ResourceNotFoundException("AnalysisResult", analysisId));
         validateDataIsolation(userId, entity.getSessionId());
+        return entity;
     }
 
     /**

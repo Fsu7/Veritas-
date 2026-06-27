@@ -15,6 +15,7 @@ import { VideoPlay, VideoPause, RefreshLeft, DArrowLeft, DArrowRight } from '@el
 
 import { useAgentStore } from '@/stores/agentStore'
 import { useSessionStore } from '@/stores/sessionStore'
+import { useUserStore } from '@/stores/userStore'
 import { useSSE } from '@/composables/useSSE'
 import { useReplay, type PlaybackSpeed } from '@/composables/useReplay'
 import { analysisApi } from '@/api/analysis'
@@ -30,6 +31,7 @@ const route = useRoute()
 const router = useRouter()
 const agentStore = useAgentStore()
 const sessionStore = useSessionStore()
+const userStore = useUserStore()
 
 const analysisId = computed(() => route.params.analysisId as string)
 
@@ -129,7 +131,7 @@ function handleNodeClick(agentName: string) {
 /** 重试 SSE 连接 */
 function handleRetry() {
   if (!analysisId.value) return
-  const url = analysisApi.getAgentStreamUrl(analysisId.value)
+  const url = analysisApi.getAgentStreamUrl(analysisId.value, userStore.token)
   connect(url)
 }
 
@@ -168,7 +170,7 @@ function handleExitReplay() {
   hasReplayData.value = false
   // 重新连接实时 SSE
   if (analysisId.value) {
-    const url = analysisApi.getAgentStreamUrl(analysisId.value)
+    const url = analysisApi.getAgentStreamUrl(analysisId.value, userStore.token)
     connect(url)
   }
 }
@@ -234,7 +236,7 @@ onMounted(async () => {
     // 拉取失败不影响 SSE 连接
   }
 
-  const url = analysisApi.getAgentStreamUrl(analysisId.value)
+  const url = analysisApi.getAgentStreamUrl(analysisId.value, userStore.token)
   connect(url)
 })
 

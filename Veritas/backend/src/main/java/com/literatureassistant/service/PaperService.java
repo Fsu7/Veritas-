@@ -132,4 +132,25 @@ public class PaperService {
 
         return PageResponse.fromPage(paperPage, items);
     }
+
+    /**
+     * 批量校验论文是否存在（避免 N+1 查询）
+     * @param paperIds 论文ID列表
+     * @throws ResourceNotFoundException 如果有论文不存在
+     */
+    public void validatePapersExist(List<String> paperIds) {
+        if (paperIds == null || paperIds.isEmpty()) {
+            return;
+        }
+        List<Paper> papers = paperRepository.findByPaperIdIn(paperIds);
+        if (papers.size() != paperIds.size()) {
+            java.util.Set<String> found = papers.stream()
+                    .map(Paper::getPaperId)
+                    .collect(java.util.stream.Collectors.toSet());
+            List<String> missing = paperIds.stream()
+                    .filter(id -> !found.contains(id))
+                    .toList();
+            throw new ResourceNotFoundException("Paper", String.join(", ", missing));
+        }
+    }
 }

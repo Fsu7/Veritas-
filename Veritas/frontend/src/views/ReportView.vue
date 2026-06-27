@@ -6,7 +6,6 @@ import { View, Connection, Download, Edit, Check } from '@element-plus/icons-vue
 import { useSessionStore } from '@/stores/sessionStore'
 import { useUserStore } from '@/stores/userStore'
 import { usePaperStore } from '@/stores/paperStore'
-import { renderMarkdown } from '@/utils/markdown'
 import { splitReportSegments, extractCitationData } from '@/utils/citation'
 import { formatDate } from '@/utils/format'
 import ExportPanel from '@/components/report/ExportPanel.vue'
@@ -40,11 +39,6 @@ const citePopupVisible = ref(false)
 const selectedCitation = ref<CitationPopupData | null>(null)
 
 const reportRawText = computed(() => result.value?.result?.report ?? '')
-
-const reportMarkdown = computed(() => {
-  if (!reportRawText.value) return ''
-  return renderMarkdown(reportRawText.value)
-})
 
 const reportSegments = computed(() => {
   if (!reportRawText.value) return []
@@ -324,20 +318,6 @@ onMounted(() => {
               </el-link>
             </template>
           </div>
-
-          <!-- Markdown 渲染备份 -->
-          <div
-            v-if="reportMarkdown"
-            class="markdown-body report-view__markdown"
-            v-html="reportMarkdown"
-            @click="(e) => {
-              const target = e.target as HTMLElement
-              if (target.tagName === 'A' && target.getAttribute('href')?.startsWith('paper:')) {
-                e.preventDefault()
-                handleCitationClick(target.getAttribute('href')?.replace('paper:', '') ?? undefined)
-              }
-            }"
-          />
         </template>
       </el-card>
 

@@ -47,6 +47,15 @@ public class RedisConfig {
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory factory,
                                           GenericJackson2JsonRedisSerializer jsonRedisSerializer) {
+        // Task 12.3: 缓存穿透防护策略
+        // Spring Data Redis 默认允许缓存 null 值（DEFAULT_CACHE_NULL_VALUES=true），
+        // 当 Service 层的 @Cacheable 方法不使用 unless="#result == null" 时，
+        // Spring Cache 会将 null 结果以内部 null marker 写入 Redis（TTL 同缓存空间配置），
+        // 避免不存在的 key 反复击穿到 DB。
+        // 注意：现有 @Cacheable 方法（getPaperDetail/getAnalysisResult/listFavorites）
+        // 仍保留 unless="#result == null"（按既有测试 CachePenetrationAvalancheTest 约定，
+        // 这些方法不缓存 null）；如需为特定查询启用穿透防护，新建 @Cacheable 方法时
+        // 去掉 unless 即可，本配置已为其做好准备。
         RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofMinutes(30))
                 .serializeKeysWith(RedisSerializationContext.SerializationPair

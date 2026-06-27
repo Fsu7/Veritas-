@@ -1,5 +1,6 @@
 package com.literatureassistant.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.literatureassistant.dto.common.ApiResponse;
 import com.literatureassistant.dto.request.CompareRequest;
 import com.literatureassistant.dto.request.PaperAnalysisRequest;
@@ -8,10 +9,14 @@ import com.literatureassistant.dto.response.AnalysisResponse;
 import com.literatureassistant.dto.response.AnalysisStatusResponse;
 import com.literatureassistant.dto.response.AnalysisTaskResponse;
 import com.literatureassistant.exception.AuthenticationException;
+import com.literatureassistant.exception.BusinessException;
 import com.literatureassistant.service.AnalysisService;
 import com.literatureassistant.service.ExportService;
+import com.literatureassistant.util.IdempotencyUtil;
 import com.literatureassistant.util.PdfExporter;
 import com.literatureassistant.util.WordExporter;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.springframework.web.bind.annotation.RequestHeader;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +34,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * 分析服务 Controller。
@@ -48,6 +57,8 @@ public class AnalysisController {
     private final ExportService exportService;
     private final PdfExporter pdfExporter;
     private final WordExporter wordExporter;
+    private final IdempotencyUtil idempotencyUtil;
+    private final ObjectMapper objectMapper;
 
     /**
      * 论文分析入口（POST /api/analysis/paper）。
@@ -56,17 +67,40 @@ public class AnalysisController {
     @PostMapping("/paper")
     public ResponseEntity<ApiResponse<AnalysisTaskResponse>> analyzePaper(
             @Valid @RequestBody PaperAnalysisRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @AuthenticationPrincipal String userId) {
         String currentUserId = userId != null ? userId : extractCurrentUserId();
         if (currentUserId == null || currentUserId.isBlank()) {
             throw new AuthenticationException("未认证，请先登录");
+        }
+        // P1-15 修复: 幂等性检查，防止重复提交
+        String effectiveKey = idempotencyKey != null ? idempotencyKey
+                : DigestUtils.md5Hex(currentUserId + ":" + request.getPaperId() + ":" + request.getTopic());
+        if (!idempotencyUtil.tryAcquire(effectiveKey)) {
+            String cached = idempotencyUtil.getStoredResult(effectiveKey);
+            if (cached != null) {
+                try {
+                    AnalysisTaskResponse cachedResponse = objectMapper.readValue(cached, AnalysisTaskResponse.class);
+                    return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(cachedResponse));
+                } catch (Exception e) {
+                    // 反序列化失败,放行请求
+                }
+            }
+            throw new BusinessException(409, "相同的分析请求正在处理中，请稍后重试", "IDEMPOTENT_IN_PROGRESS");
         }
         log.info("REST analyzePaper: userId={}, paperId={}, topic={}",
                 currentUserId, request.getPaperId(),
                 request.getTopic() != null && request.getTopic().length() > 50
                         ? request.getTopic().substring(0, 50) + "..."
                         : request.getTopic());
-        AnalysisTaskResponse response = analysisService.analyzePaper(currentUserId, request);
+        AnalysisTaskResponse response;
+        try {
+            response = analysisService.analyzePaper(currentUserId, request);
+        } catch (Exception e) {
+            idempotencyUtil.release(effectiveKey);
+            throw e;
+        }
+        idempotencyUtil.storeResult(effectiveKey, response);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(response));
     }
 
@@ -78,17 +112,42 @@ public class AnalysisController {
     @PostMapping("/compare")
     public ResponseEntity<ApiResponse<AnalysisTaskResponse>> comparePapers(
             @Valid @RequestBody CompareRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @AuthenticationPrincipal String userId) {
         String currentUserId = userId != null ? userId : extractCurrentUserId();
         if (currentUserId == null || currentUserId.isBlank()) {
             throw new AuthenticationException("未认证，请先登录");
+        }
+        // P1-15 修复: 幂等性检查，使用排序后的 paperIds 保证顺序无关性
+        List<String> sortedPaperIds = new ArrayList<>(request.getPaperIds());
+        Collections.sort(sortedPaperIds);
+        String effectiveKey = idempotencyKey != null ? idempotencyKey
+                : DigestUtils.md5Hex(currentUserId + ":" + String.join(",", sortedPaperIds) + ":" + request.getTopic());
+        if (!idempotencyUtil.tryAcquire(effectiveKey)) {
+            String cached = idempotencyUtil.getStoredResult(effectiveKey);
+            if (cached != null) {
+                try {
+                    AnalysisTaskResponse cachedResponse = objectMapper.readValue(cached, AnalysisTaskResponse.class);
+                    return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(cachedResponse));
+                } catch (Exception e) {
+                    // 反序列化失败,放行请求
+                }
+            }
+            throw new BusinessException(409, "相同的分析请求正在处理中，请稍后重试", "IDEMPOTENT_IN_PROGRESS");
         }
         log.info("REST comparePapers: userId={}, paperCount={}, topic={}",
                 currentUserId, request.getPaperIds().size(),
                 request.getTopic() != null && request.getTopic().length() > 50
                         ? request.getTopic().substring(0, 50) + "..."
                         : request.getTopic());
-        AnalysisTaskResponse response = analysisService.comparePapers(currentUserId, request);
+        AnalysisTaskResponse response;
+        try {
+            response = analysisService.comparePapers(currentUserId, request);
+        } catch (Exception e) {
+            idempotencyUtil.release(effectiveKey);
+            throw e;
+        }
+        idempotencyUtil.storeResult(effectiveKey, response);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(response));
     }
 
@@ -100,17 +159,42 @@ public class AnalysisController {
     @PostMapping("/report")
     public ResponseEntity<ApiResponse<AnalysisTaskResponse>> generateReport(
             @Valid @RequestBody ReportRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @AuthenticationPrincipal String userId) {
         String currentUserId = userId != null ? userId : extractCurrentUserId();
         if (currentUserId == null || currentUserId.isBlank()) {
             throw new AuthenticationException("未认证，请先登录");
+        }
+        // P1-15 修复: 幂等性检查，使用排序后的 paperIds 保证顺序无关性
+        List<String> sortedPaperIds = new ArrayList<>(request.getPaperIds());
+        Collections.sort(sortedPaperIds);
+        String effectiveKey = idempotencyKey != null ? idempotencyKey
+                : DigestUtils.md5Hex(currentUserId + ":" + String.join(",", sortedPaperIds) + ":" + request.getTopic());
+        if (!idempotencyUtil.tryAcquire(effectiveKey)) {
+            String cached = idempotencyUtil.getStoredResult(effectiveKey);
+            if (cached != null) {
+                try {
+                    AnalysisTaskResponse cachedResponse = objectMapper.readValue(cached, AnalysisTaskResponse.class);
+                    return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(cachedResponse));
+                } catch (Exception e) {
+                    // 反序列化失败,放行请求
+                }
+            }
+            throw new BusinessException(409, "相同的分析请求正在处理中，请稍后重试", "IDEMPOTENT_IN_PROGRESS");
         }
         log.info("REST generateReport: userId={}, paperCount={}, topic={}",
                 currentUserId, request.getPaperIds().size(),
                 request.getTopic() != null && request.getTopic().length() > 50
                         ? request.getTopic().substring(0, 50) + "..."
                         : request.getTopic());
-        AnalysisTaskResponse response = analysisService.generateReport(currentUserId, request);
+        AnalysisTaskResponse response;
+        try {
+            response = analysisService.generateReport(currentUserId, request);
+        } catch (Exception e) {
+            idempotencyUtil.release(effectiveKey);
+            throw e;
+        }
+        idempotencyUtil.storeResult(effectiveKey, response);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(response));
     }
 

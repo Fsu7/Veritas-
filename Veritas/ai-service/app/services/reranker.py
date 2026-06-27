@@ -71,8 +71,17 @@ class Reranker:
                 score_rrf = result.get("score", 0.0) or result.get("rrf_score", 0.0)
                 title = (result.get("title") or "").lower()
                 abstract = (result.get("abstract") or "").lower()
-                citation_count = result.get("citation_count", 0) or 0
-                paper_year = result.get("year", current_year) or current_year
+                # P2#9: 添加类型转换守卫，防止字符串值导致 TypeError
+                raw_citation = result.get("citation_count", 0) or 0
+                raw_year = result.get("year", current_year) or current_year
+                try:
+                    citation_count = int(raw_citation)
+                except (ValueError, TypeError):
+                    citation_count = 0
+                try:
+                    paper_year = int(raw_year)
+                except (ValueError, TypeError):
+                    paper_year = current_year
                 venue = (result.get("venue") or "").lower()
                 keywords = result.get("keywords") or []
 

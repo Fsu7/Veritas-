@@ -6,6 +6,7 @@ import { useUserStore } from '@/stores/userStore'
 import { useSessionStore } from '@/stores/sessionStore'
 import { usePaperStore } from '@/stores/paperStore'
 import UserProfileForm from '@/components/common/UserProfileForm.vue'
+import ProfileDashboard from '@/components/common/ProfileDashboard.vue'
 import type { SessionDetail } from '@/types/session'
 import type { UserProfile } from '@/types/user'
 
@@ -128,7 +129,7 @@ onMounted(async () => {
 
 async function loadSessions() {
   try {
-    const res = await sessionStore.fetchSessions({ page: 1, size: 100 })
+    const res = await sessionStore.fetchSessions({ page: 1, size: 10 })
     sessions.value = res.items
   } catch {
     ElMessage.error('历史记录加载失败')
@@ -180,18 +181,12 @@ async function loadFavoritesCount() {
         <template #header>
           <h2 class="user-center-view__card-title">我的画像</h2>
         </template>
-        <div v-if="userStore.profile" class="user-center-view__profile-tags">
-          <el-tag
-            v-for="tag in profileTags"
-            :key="tag.key"
-            class="user-center-view__profile-tag"
-            type="info"
-            effect="plain"
-          >
-            <span class="user-center-view__profile-tag-label">{{ tag.label }}：</span>
-            <span class="user-center-view__profile-tag-value">{{ tag.value }}</span>
-          </el-tag>
-        </div>
+        <ProfileDashboard
+          v-if="userStore.profile"
+          :profile="userStore.profile"
+          :sessions-count="sessions.length"
+          :favorites-count="favoritesCount"
+        />
         <el-alert
           v-else
           title="尚未设置画像"

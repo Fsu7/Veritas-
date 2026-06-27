@@ -26,10 +26,9 @@ export const analysisApi = {
   getStatus: (analysisId: string): Promise<AnalysisResult> =>
     http.get(`/analysis/${analysisId}/status`),
 
-  getAgentStreamUrl: (analysisId: string): string => {
+  getAgentStreamUrl: (analysisId: string, token: string): string => {
     // EventSource 不支持自定义请求头，通过 URL Query 传递 Token
     // 后端需同步支持 ?token=xxx 鉴权方式
-    const token = localStorage.getItem('token') || ''
     return `/api/analysis/${analysisId}/agent-stream?token=${encodeURIComponent(token)}`
   },
 

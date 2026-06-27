@@ -89,4 +89,33 @@ public class CacheEvictionHelper {
             evictByPattern(pattern);
         }
     }
+
+    /**
+     * 在事务提交后精确删除指定 Redis Key（非 pattern 匹配）。
+     * P1-17 修复: 确保 syncProfileToRedis 写入的手动 Key 在事务提交后失效。
+     */
+    public void evictKeysAfterCommit(String... keys) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    for (String key : keys) {
+                        try {
+                            redisTemplate.delete(key);
+                        } catch (Exception e) {
+                            log.warn("Failed to evict key after commit: key={}", key, e);
+                        }
+                    }
+                }
+            });
+        } else {
+            for (String key : keys) {
+                try {
+                    redisTemplate.delete(key);
+                } catch (Exception e) {
+                    log.warn("Failed to evict key: key={}", key, e);
+                }
+            }
+        }
+    }
 }

@@ -142,7 +142,9 @@ def test_parse_task_breakdown_valid_json():
 
     input_data = {"topic": "test", "paper_ids": ["id1", "id2"], "analysis_type": "report"}
 
-    result = agent._parse_task_breakdown(VALID_BREAKDOWN_JSON, input_data)
+    # P3-17.3: _parse_task_breakdown 现在接收已解析的 JSON，需先调用 _extract_json
+    parsed_json = agent._extract_json(VALID_BREAKDOWN_JSON)
+    result = agent._parse_task_breakdown(parsed_json, input_data)
 
     assert len(result) == 5
     assert all(t["task_type"] in VALID_TASK_TYPES for t in result)
@@ -155,7 +157,9 @@ def test_parse_task_breakdown_invalid_json():
 
     input_data = {"topic": "test", "paper_ids": [], "analysis_type": "paper_analysis"}
 
-    result = agent._parse_task_breakdown("not a json at all !!!", input_data)
+    # P3-17.3: 非法 JSON 经 _extract_json 返回 None，触发降级
+    parsed_json = agent._extract_json("not a json at all !!!")
+    result = agent._parse_task_breakdown(parsed_json, input_data)
 
     # 降级到规则分解：paper_analysis + paper_ids=[] → 2 个子任务
     assert len(result) == 2
@@ -177,7 +181,8 @@ def test_parse_task_breakdown_filter_invalid_task_types():
     })
 
     input_data = {"topic": "test", "paper_ids": [], "analysis_type": "report"}
-    result = agent._parse_task_breakdown(invalid_json, input_data)
+    parsed_json = agent._extract_json(invalid_json)
+    result = agent._parse_task_breakdown(parsed_json, input_data)
 
     types = [t["task_type"] for t in result]
     assert "INVALID_TYPE" not in types
@@ -193,7 +198,8 @@ def test_parse_task_breakdown_subtask_count_constraint():
     # 测试 < 2 → 降级
     few_json = json.dumps({"sub_tasks": [{"task_type": "retrieve", "description": "only one"}]})
     input_data = {"topic": "test", "paper_ids": [], "analysis_type": "report"}
-    result = agent._parse_task_breakdown(few_json, input_data)
+    parsed_json = agent._extract_json(few_json)
+    result = agent._parse_task_breakdown(parsed_json, input_data)
     # 降级路径：report + paper_ids=[] → 4 子任务（retrieve/analyze/generate/review）
     assert len(result) >= MIN_SUB_TASKS
 
@@ -204,7 +210,8 @@ def test_parse_task_breakdown_subtask_count_constraint():
             for i in range(10)
         ]
     })
-    result = agent._parse_task_breakdown(many_json, input_data)
+    parsed_json = agent._extract_json(many_json)
+    result = agent._parse_task_breakdown(parsed_json, input_data)
     assert len(result) <= MAX_SUB_TASKS
 
 

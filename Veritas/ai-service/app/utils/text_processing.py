@@ -7,6 +7,10 @@ def chunk_text(
     chunk_size: int = 800,
     overlap: int = 100,
 ) -> List[dict]:
+    if overlap >= chunk_size:
+        raise ValueError(
+            f"overlap ({overlap}) must be less than chunk_size ({chunk_size})"
+        )
     if not text or not text.strip():
         return []
 

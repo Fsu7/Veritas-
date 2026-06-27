@@ -16,6 +16,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import List, Optional, Union
 
+import httpx
 import numpy as np
 from loguru import logger
 from openai import AsyncOpenAI
@@ -52,6 +53,9 @@ class BaseEmbeddingProvider(ABC):
     def is_available(self) -> bool:
         """Provider 是否可用（子类可覆盖）"""
         return True
+
+    async def close(self):
+        pass
 
 
 # ============================================================
@@ -123,6 +127,9 @@ class JinaProvider(BaseEmbeddingProvider):
         super().__init__(name="jina", dimension=1024)
         self.settings = settings
         self._api_key = settings.JINA_API_KEY if hasattr(settings, "JINA_API_KEY") else ""
+        self._client: Optional[httpx.AsyncClient] = None
+        if self._api_key:
+            self._client = httpx.AsyncClient(timeout=30.0)
 
     def is_available(self) -> bool:
         return bool(self._api_key)
@@ -140,30 +147,33 @@ class JinaProvider(BaseEmbeddingProvider):
     async def _embed_via_api(self, texts: List[str]) -> np.ndarray:
         if not self._api_key:
             raise ModelNotLoadedException("Jina API key not configured")
-
+        if self._client is None:
+            raise ModelNotLoadedException("Jina client not initialized")
         try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    self.JINA_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {self._api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.JINA_MODEL,
-                        "input": texts,
-                        "dimensions": self._dimension,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                embeddings = [item["embedding"] for item in data["data"]]
-                return np.array(embeddings, dtype=np.float32)
+            response = await self._client.post(
+                self.JINA_API_URL,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.JINA_MODEL,
+                    "input": texts,
+                    "dimensions": self._dimension,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            embeddings = [item["embedding"] for item in data["data"]]
+            return np.array(embeddings, dtype=np.float32)
         except Exception as e:
             logger.error(f"Jina API embedding call failed: {e}")
             raise
+
+    async def close(self):
+        if self._client:
+            await self._client.aclose()
+            self._client = None
 
 
 # ============================================================
@@ -182,6 +192,9 @@ class OpenAIProvider(BaseEmbeddingProvider):
         super().__init__(name="openai", dimension=1024)
         self.settings = settings
         self._api_key = settings.OPENAI_API_KEY if hasattr(settings, "OPENAI_API_KEY") else ""
+        self._client: Optional[httpx.AsyncClient] = None
+        if self._api_key:
+            self._client = httpx.AsyncClient(timeout=30.0)
 
     def is_available(self) -> bool:
         return bool(self._api_key)
@@ -199,39 +212,99 @@ class OpenAIProvider(BaseEmbeddingProvider):
     async def _embed_via_api(self, texts: List[str]) -> np.ndarray:
         if not self._api_key:
             raise ModelNotLoadedException("OpenAI API key not configured")
-
+        if self._client is None:
+            raise ModelNotLoadedException("OpenAI client not initialized")
         try:
-            import httpx
+            response = await self._client.post(
+                self.OPENAI_API_URL,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.OPENAI_MODEL,
+                    "input": texts,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            embeddings = [item["embedding"] for item in data["data"]]
+            result = np.array(embeddings, dtype=np.float32)
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    self.OPENAI_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {self._api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.OPENAI_MODEL,
-                        "input": texts,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                embeddings = [item["embedding"] for item in data["data"]]
-                result = np.array(embeddings, dtype=np.float32)
+            # task53: 1536维截断前1024 + L2归一化
+            if result.shape[-1] >= self._dimension:
+                result = result[..., :self._dimension]
+                # L2 归一化
+                norms = np.linalg.norm(result, axis=-1, keepdims=True)
+                norms[norms == 0] = 1.0
+                result = result / norms
 
-                # task53: 1536维截断前1024 + L2归一化
-                if result.shape[-1] >= self._dimension:
-                    result = result[..., :self._dimension]
-                    # L2 归一化
-                    norms = np.linalg.norm(result, axis=-1, keepdims=True)
-                    norms[norms == 0] = 1.0
-                    result = result / norms
-
-                return result
+            return result
         except Exception as e:
             logger.error(f"OpenAI API embedding call failed: {e}")
             raise
+
+    async def close(self):
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+
+# ============================================================
+# LocalSentenceTransformerProvider (本地模型)
+# ============================================================
+
+
+class LocalSentenceTransformerProvider(BaseEmbeddingProvider):
+    """本地 SentenceTransformer Embedding Provider (bge-m3 等)"""
+
+    def __init__(self, settings):
+        super().__init__(name="local", dimension=1024)
+        self.settings = settings
+        self._model = None
+        self._loaded = False
+        self._should_load = getattr(settings, "EMBEDDING_PROVIDER", "") == "local"
+        if self._should_load:
+            self._try_load_model()
+
+    def _try_load_model(self):
+        if self._loaded:
+            return
+        try:
+            from sentence_transformers import SentenceTransformer
+            model_path = self.settings.EMBEDDING_MODEL_PATH or "BAAI/bge-m3"
+            device = self.settings.EMBEDDING_DEVICE or "cpu"
+            self._model = SentenceTransformer(model_path, device=device)
+            self._loaded = True
+        except Exception as e:
+            logger.warning(f"Local SentenceTransformer init failed: {e}")
+
+    def is_available(self) -> bool:
+        if not self._should_load:
+            return False
+        if not self._loaded:
+            self._try_load_model()
+        return self._model is not None
+
+    async def embed_query(self, text: str) -> np.ndarray:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: self._model.encode(text, normalize_embeddings=True),
+        )
+        return np.array(result, dtype=np.float32)
+
+    async def embed_documents(self, texts: List[str]) -> np.ndarray:
+        if not texts:
+            return np.array([], dtype=np.float32).reshape(0, self._dimension)
+        import asyncio
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: self._model.encode(texts, normalize_embeddings=True),
+        )
+        return np.array(result, dtype=np.float32)
 
 
 # ============================================================
@@ -254,6 +327,7 @@ class EmbeddingService:
         "dashscope": DashScopeProvider,
         "jina": JinaProvider,
         "openai": OpenAIProvider,
+        "local": LocalSentenceTransformerProvider,
     }
 
     def __init__(self, settings):
@@ -322,7 +396,7 @@ class EmbeddingService:
             p for name, p in all_providers.items() if name != self._provider_name
         ]
 
-        self.status = "loaded_api"
+        self.status = "loaded_local" if self._provider_name == "local" else "loaded_api"
         masked_key = ""
         if self._provider_name == "dashscope" and self.settings.DASHSCOPE_API_KEY:
             masked_key = self.settings.DASHSCOPE_API_KEY[:4] + "****"
@@ -330,6 +404,8 @@ class EmbeddingService:
             masked_key = (self.settings.JINA_API_KEY or "")[:4] + "****"
         elif self._provider_name == "openai" and hasattr(self.settings, "OPENAI_API_KEY"):
             masked_key = (self.settings.OPENAI_API_KEY or "")[:4] + "****"
+        elif self._provider_name == "local":
+            masked_key = self.settings.EMBEDDING_MODEL_PATH or "BAAI/bge-m3"
 
         logger.info(
             f"EmbeddingService initialized with provider={self._provider_name}, "
@@ -337,7 +413,7 @@ class EmbeddingService:
             f"key={masked_key}"
         )
 
-    def _load_local_model(self) -> "SentenceTransformer":
+    def _load_local_model(self):
         """保留本地模型加载（向后兼容）"""
         from sentence_transformers import SentenceTransformer
 
@@ -358,9 +434,18 @@ class EmbeddingService:
 
     async def encode(self, text: Union[str, list]) -> np.ndarray:
         """单文本或批量文本向量化（向后兼容方法名）"""
+        # P1-18: 单文本缓存
+        if isinstance(text, str):
+            from app.core.cache import get_embedding_cache, _make_cache_key
+            cache_key = _make_cache_key("embed", text)
+            cached = await get_embedding_cache().get(cache_key)
+            if cached is not None:
+                logger.debug("Embedding cache hit")
+                return cached
+
         # 本地模型路径（保留）
         if self.model is not None:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 None,
                 lambda: self.model.encode(text, normalize_embeddings=True),
@@ -378,22 +463,35 @@ class EmbeddingService:
             result = await self.active_provider.embed_documents(texts)
             if is_single:
                 result = result[0] if len(result) > 0 else np.zeros(self._dimension, dtype=np.float32)
+            # P1-18: 缓存单文本 embedding
+            if is_single:
+                from app.core.cache import get_embedding_cache, _make_cache_key
+                cache_key = _make_cache_key("embed", text)
+                await get_embedding_cache().set(cache_key, result)
             return result
         except Exception as e:
             logger.warning(f"Active provider {self._provider_name} failed: {e}, trying fallbacks")
+            # P2#7: 保留 last_error，最终异常消息使用最后一个 fallback 的错误
+            last_error = e
             # 降级尝试
             for fb in self.fallback_providers:
                 try:
                     result = await fb.embed_documents(texts)
                     if is_single:
                         result = result[0] if len(result) > 0 else np.zeros(self._dimension, dtype=np.float32)
+                    # P1-18: 缓存单文本 embedding
+                    if is_single:
+                        from app.core.cache import get_embedding_cache, _make_cache_key
+                        cache_key = _make_cache_key("embed", text)
+                        await get_embedding_cache().set(cache_key, result)
                     logger.info(f"Fallback to provider {fb.name} succeeded")
                     return result
                 except Exception as fb_err:
+                    last_error = fb_err
                     logger.warning(f"Fallback provider {fb.name} also failed: {fb_err}")
                     continue
 
-            raise ModelNotLoadedException(f"All embedding providers failed, last error: {e}")
+            raise ModelNotLoadedException(f"All embedding providers failed, last error: {last_error}")
 
     async def encode_batch(self, texts: list, batch_size: int = 32) -> np.ndarray:
         """批量文本向量化（向后兼容方法名）"""
@@ -430,3 +528,18 @@ class EmbeddingService:
             "dimension": self._dimension,
             "fallbacks": [p.name for p in self.fallback_providers],
         }
+
+    async def unload_model(self) -> None:
+        """关闭所有 Provider 的持久化 HTTP 客户端（P1-19）"""
+        all_providers = []
+        if self.active_provider is not None:
+            all_providers.append(self.active_provider)
+        all_providers.extend(self.fallback_providers)
+        for provider in all_providers:
+            try:
+                await provider.close()
+            except Exception as e:
+                logger.warning(f"Failed to close provider {provider.name}: {e}")
+        self.active_provider = None
+        self.fallback_providers = []
+        self.status = "unloaded"

@@ -7,6 +7,7 @@ import com.literatureassistant.dto.response.AnalysisTaskResponse;
 import com.literatureassistant.entity.AnalysisResult;
 import com.literatureassistant.enums.AnalysisStatus;
 import com.literatureassistant.enums.AnalysisType;
+import com.literatureassistant.exception.BusinessException;
 import com.literatureassistant.exception.ResourceNotFoundException;
 import com.literatureassistant.repository.AnalysisResultRepository;
 import lombok.RequiredArgsConstructor;
@@ -62,15 +63,20 @@ public class AnalysisTransactionService {
                 : mapStatus(result);
         entity.setStatus(newStatus);
         entity.setResult(serializeResult(result));
-        AnalysisResult saved = analysisResultRepository.save(entity);
+        try {
+            AnalysisResult saved = analysisResultRepository.save(entity);
 
-        String message = buildMessage(result);
-        return AnalysisTaskResponse.builder()
-                .analysisId(saved.getAnalysisId())
-                .status(saved.getStatus())
-                .message(message)
-                .createdAt(saved.getCreatedAt() != null ? saved.getCreatedAt() : LocalDateTime.now())
-                .build();
+            String message = buildMessage(result);
+            return AnalysisTaskResponse.builder()
+                    .analysisId(saved.getAnalysisId())
+                    .status(saved.getStatus())
+                    .message(message)
+                    .createdAt(saved.getCreatedAt() != null ? saved.getCreatedAt() : LocalDateTime.now())
+                    .build();
+        } catch (org.springframework.orm.ObjectOptimisticLockingFailureException e) {
+            log.warn("Optimistic lock conflict on AnalysisResult id={}", id);
+            throw new BusinessException(409, "分析结果正在被并发更新，请重试", "CONFLICT");
+        }
     }
 
     private AnalysisStatus mapStatus(AnalysisResultDTO result) {

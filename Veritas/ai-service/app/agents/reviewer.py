@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 from app.agents.base import BaseAgent
+from app.utils.json_parser import extract_json
 
 
 class ReviewerAgent(BaseAgent):
@@ -130,45 +131,21 @@ class ReviewerAgent(BaseAgent):
         }
 
     def _parse_review_result(self, llm_output: str) -> dict:
-        """4级JSON解析降级：标准JSON → 代码块提取 → 正则提取 → 规则兜底"""
+        """4级JSON解析降级：标准JSON → 代码块提取 → 正则提取 → 规则兜底
+
+        P3-17.2: JSON 解析部分（Level 1-3.5）委托给
+        app.utils.json_parser.extract_json，统一 4 级降级策略。
+        """
         if not llm_output or not llm_output.strip():
             return self._rule_based_review()
 
-        cleaned = llm_output.strip()
-
-        # Level 1: 标准JSON解析
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            pass
-
-        # Level 2: 提取```json```代码块
-        json_match = re.search(r"```json\s*(.*?)\s*```", cleaned, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group(1))
-            except json.JSONDecodeError:
-                logger.warning("Failed to parse JSON from ```json block")
-
-        # Level 3: 提取任意```代码块
-        code_match = re.search(r"```\s*(.*?)\s*```", cleaned, re.DOTALL)
-        if code_match:
-            try:
-                return json.loads(code_match.group(1))
-            except json.JSONDecodeError:
-                logger.warning("Failed to parse JSON from ``` block")
-
-        # Level 3.5: 提取首个{}块
-        try:
-            brace_start = cleaned.find("{")
-            brace_end = cleaned.rfind("}")
-            if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
-                json_candidate = cleaned[brace_start:brace_end + 1]
-                return json.loads(json_candidate)
-        except json.JSONDecodeError:
-            logger.warning("Failed to extract JSON from text")
+        # Level 1-3.5: 统一使用 extract_json（标准JSON → ```json``` → ``` → 首个 {} 块）
+        parsed = extract_json(llm_output)
+        if parsed is not None:
+            return parsed
 
         # Level 4: 正则提取关键字段
+        cleaned = llm_output.strip()
         try:
             return self._regex_extract_review(cleaned)
         except Exception as e:
@@ -242,11 +219,18 @@ class ReviewerAgent(BaseAgent):
             return 0.0
 
         accurate_count = 0
+        valid_count = 0
         for item in fact_check:
+            # P2#10: 添加 isinstance 守卫，跳过非 dict 元素
+            if not isinstance(item, dict):
+                continue
+            valid_count += 1
             if item.get("accurate", False):
                 accurate_count += 1
 
-        return round(accurate_count / len(fact_check), 4)
+        if valid_count == 0:
+            return 0.0
+        return round(accurate_count / valid_count, 4)
 
     def _calculate_citation_accuracy_from_result(self, parsed: dict) -> float:
         """从审核结果计算引用准确率"""
@@ -265,20 +249,28 @@ class ReviewerAgent(BaseAgent):
         issues: List[dict] = []
         fact_check = parsed.get("fact_check", [])
         for item in fact_check:
-            if not item.get("accurate", True):
+            # P2#10: 添加 isinstance 守卫，跳过非 dict 元素
+            if not isinstance(item, dict):
+                continue
+            # P2#10: 统一默认值为 False（安全侧：未标记准确视为不准确）
+            if not item.get("accurate", False):
                 issues.append({
                     "claim": item.get("claim", ""),
                     "error_type": item.get("error_type", "factual_error"),
                     "note": item.get("note", ""),
                 })
 
+        # P2#10: citation_check 也添加 isinstance 守卫
         citation_check = parsed.get("citation_check", {})
-        for item in citation_check.get("inaccurate_citations", []):
-            issues.append({
-                "citation": item.get("citation", ""),
-                "error_type": item.get("error_type", "citation_error"),
-                "issue": item.get("issue", ""),
-            })
+        if isinstance(citation_check, dict):
+            for item in citation_check.get("inaccurate_citations", []):
+                if not isinstance(item, dict):
+                    continue
+                issues.append({
+                    "citation": item.get("citation", ""),
+                    "error_type": item.get("error_type", "citation_error"),
+                    "issue": item.get("issue", ""),
+                })
 
         return issues
 

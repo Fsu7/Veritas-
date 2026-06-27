@@ -44,6 +44,8 @@ class SearchService:
             self.rrf_k = 60
             self.search_top_k = 10
             self.similarity_threshold = 0.0
+        # P2#5: 降级计数器，记录搜索降级事件
+        self._degradation_count = 0
 
     def _tokenize_query(self, query: str) -> Tuple[List[str], List[str]]:
         """查询分词：返回 (tokens, phrases)。
@@ -70,19 +72,22 @@ class SearchService:
         text_without_phrases = _PHRASE_RE.sub(" ", text)
 
         tokens: List[str] = []
+        seen_tokens: set = set()  # P2#1: 用 set 辅助去重，避免 List 线性查找 O(n)
 
         # Step 2: 英文 token 提取
         for raw_token in text_without_phrases.split():
             # 处理 "Multi-Agent" 这类带连字符的 token，保留整体
             if _ENGLISH_TOKEN_RE.fullmatch(raw_token):
                 token_lower = raw_token.lower()
-                if token_lower not in STOP_WORDS and token_lower not in tokens:
+                if token_lower not in STOP_WORDS and token_lower not in seen_tokens:
+                    seen_tokens.add(token_lower)
                     tokens.append(token_lower)
             else:
                 # 混合 token，提取其中的英文部分
                 for sub_match in _ENGLISH_TOKEN_RE.finditer(raw_token):
                     token_lower = sub_match.group(0).lower()
-                    if token_lower not in STOP_WORDS and token_lower not in tokens:
+                    if token_lower not in STOP_WORDS and token_lower not in seen_tokens:
+                        seen_tokens.add(token_lower)
                         tokens.append(token_lower)
 
         # Step 3: 中文 bigram 切分
@@ -91,13 +96,15 @@ class SearchService:
         if chinese_chars:
             if len(chinese_chars) == 1:
                 # 单字中文字符作为独立 token
-                if chinese_chars[0] not in tokens:
+                if chinese_chars[0] not in seen_tokens:
+                    seen_tokens.add(chinese_chars[0])
                     tokens.append(chinese_chars[0])
             else:
                 # bigram 切分
                 for i in range(len(chinese_chars) - 1):
                     bigram = chinese_chars[i] + chinese_chars[i + 1]
-                    if bigram not in tokens:
+                    if bigram not in seen_tokens:
+                        seen_tokens.add(bigram)
                         tokens.append(bigram)
                 # 末尾单字（如果中文字符数为奇数且>1，最后一个字已在 bigram 中覆盖）
                 # 注意：bigram 已覆盖所有字符，无需额外添加单字
@@ -109,10 +116,21 @@ class SearchService:
         query: str,
         top_k: Optional[int] = None,
         filters: Optional[Dict] = None,
+        user_profile: Optional[Dict] = None,
     ) -> List[dict]:
         # task54: top_k=None 时用 settings.SEARCH_TOP_K，保留参数覆盖能力
         if top_k is None:
             top_k = self.search_top_k
+        # P1-18: 搜索结果缓存
+        # Task 12.1 修复: 缓存 Key 必须包含 user_profile 的 hash，否则个性化结果会跨用户共享
+        from app.core.cache import get_search_cache, _make_cache_key
+        cache_key = _make_cache_key(
+            "search", query, top_k, str(filters), hash(str(user_profile))
+        )
+        cached = await get_search_cache().get(cache_key)
+        if cached is not None:
+            logger.debug(f"Search cache hit: query='{query[:50]}'")
+            return cached
         start_time = time.perf_counter()
         try:
             query_embedding = await self.embedding_service.encode(query)
@@ -136,6 +154,7 @@ class SearchService:
                 f"Semantic search completed: query='{query[:50]}', top_k={top_k}, "
                 f"results={len(results)}, elapsed={elapsed_ms:.1f}ms"
             )
+            await get_search_cache().set(cache_key, results)
             return results
 
         except Exception as e:
@@ -233,6 +252,7 @@ class SearchService:
         query: str,
         top_k: Optional[int] = None,
         filters: Optional[Dict] = None,
+        user_profile: Optional[Dict] = None,
     ) -> List[dict]:
         # task54: top_k=None 时用 settings.SEARCH_TOP_K
         if top_k is None:
@@ -241,10 +261,24 @@ class SearchService:
         try:
             candidate_k = top_k * 2
 
-            semantic_results, keyword_results = await asyncio.gather(
-                self.search(query, top_k=candidate_k, filters=filters),
+            semantic_results_raw, keyword_results_raw = await asyncio.gather(
+                self.search(query, top_k=candidate_k, filters=filters, user_profile=user_profile),
                 self.keyword_search(query, top_k=candidate_k, filters=filters),
+                return_exceptions=True,
             )
+            # P2#4: 过滤 gather 中的异常结果
+            semantic_results = semantic_results_raw if isinstance(semantic_results_raw, list) else []
+            keyword_results = keyword_results_raw if isinstance(keyword_results_raw, list) else []
+            if not isinstance(semantic_results_raw, list):
+                logger.warning(f"Semantic search failed in gather: {semantic_results_raw}")
+            if not isinstance(keyword_results_raw, list):
+                logger.warning(f"Keyword search failed in gather: {keyword_results_raw}")
+            # P2#5: 两路同时返回空时记录系统降级警告
+            if not semantic_results and not keyword_results:
+                logger.warning(
+                    f"Both semantic and keyword search returned empty - possible system degradation: "
+                    f"query='{query[:50]}'"
+                )
 
             fused = self._reciprocal_rank_fusion(
                 semantic_results, keyword_results, k=self.rrf_k

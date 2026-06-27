@@ -49,7 +49,8 @@ public class PaperRepositoryCustomImpl implements PaperRepositoryCustom {
             "AND (?2 IS NULL OR year >= ?2) " +
             "AND (?3 IS NULL OR year <= ?3) " +
             "AND (?4 IS NULL OR venue = ?4) " +
-            "AND (?5 IS NULL OR authors LIKE CONCAT('%', ?5, '%')) " +
+            // P2#15: 改用 JSON_SEARCH 在 JSON 数组内搜索，语义更准确
+            "AND (?5 IS NULL OR JSON_SEARCH(authors, 'one', CONCAT('%', ?5, '%')) IS NOT NULL) " +
             "AND (?6 IS NULL OR JSON_CONTAINS(keywords, JSON_QUOTE(?6)))";
 
     private static final String COUNT_SQL =
@@ -58,7 +59,7 @@ public class PaperRepositoryCustomImpl implements PaperRepositoryCustom {
             "AND (?2 IS NULL OR year >= ?2) " +
             "AND (?3 IS NULL OR year <= ?3) " +
             "AND (?4 IS NULL OR venue = ?4) " +
-            "AND (?5 IS NULL OR authors LIKE CONCAT('%', ?5, '%')) " +
+            "AND (?5 IS NULL OR JSON_SEARCH(authors, 'one', CONCAT('%', ?5, '%')) IS NOT NULL) " +
             "AND (?6 IS NULL OR JSON_CONTAINS(keywords, JSON_QUOTE(?6)))";
 
     @PersistenceContext

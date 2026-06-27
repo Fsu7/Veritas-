@@ -1,9 +1,9 @@
-import json
 from typing import Optional
 
 from loguru import logger
 
 from app.agents.base import BaseAgent
+from app.utils.json_parser import extract_json
 
 
 class RetrieverAgent(BaseAgent):
@@ -94,32 +94,25 @@ class RetrieverAgent(BaseAgent):
             return {"query": fallback_topic, "filters": {}}
 
     def _parse_search_strategy(self, llm_output: str, fallback_topic: str = "") -> dict:
-        try:
-            json_str = llm_output
-            if "```json" in llm_output:
-                json_str = llm_output.split("```json")[1].split("```")[0].strip()
-            elif "```" in llm_output:
-                json_str = llm_output.split("```")[1].split("```")[0].strip()
+        parsed = extract_json(llm_output)
 
-            parsed = json.loads(json_str)
-
-            core_keywords = parsed.get("core_keywords", [])
-            if core_keywords:
-                query = " ".join(str(kw) for kw in core_keywords)
-            else:
-                query = fallback_topic
-
-            filters = parsed.get("filters", {})
-            if not isinstance(filters, dict):
-                filters = {}
-
-            return {"query": query, "filters": filters}
-
-        except (json.JSONDecodeError, IndexError, AttributeError) as e:
+        if not isinstance(parsed, dict):
             logger.warning(
-                f"Failed to parse search strategy JSON, using fallback topic: {e}"
+                "Failed to parse search strategy JSON, using fallback topic"
             )
             return {"query": fallback_topic, "filters": {}}
+
+        core_keywords = parsed.get("core_keywords", [])
+        if core_keywords:
+            query = " ".join(str(kw) for kw in core_keywords)
+        else:
+            query = fallback_topic
+
+        filters = parsed.get("filters", {})
+        if not isinstance(filters, dict):
+            filters = {}
+
+        return {"query": query, "filters": filters}
 
     def _adjust_top_k(self, default_top_k: int, context: dict) -> int:
         """根据 knowledge_level 调整检索数量"""

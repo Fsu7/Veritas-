@@ -131,7 +131,7 @@ public class FavoriteService {
     // 修复 B-002: Key 必须包含 page/size，避免不同分页查询命中同一缓存
     @Cacheable(value = "favoriteList",
             key = "T(com.literatureassistant.util.RedisKeyUtil).favoriteListKey(#userId, #page, #size)",
-            unless = "#result == null")
+            sync = true)
     @Transactional(readOnly = true)
     public PageResponse<FavoriteResponse> listFavorites(String userId, int page, int size) {
         int safePage = page < 1 ? DEFAULT_PAGE : page;

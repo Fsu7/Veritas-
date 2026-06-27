@@ -68,7 +68,13 @@ vi.mock('@/stores/sessionStore', () => ({
   }))
 }))
 
-const mockGetAgentStreamUrl = vi.fn((analysisId: string) =>
+vi.mock('@/stores/userStore', () => ({
+  useUserStore: vi.fn(() => ({
+    token: 'test-token'
+  }))
+}))
+
+const mockGetAgentStreamUrl = vi.fn((analysisId: string, _token: string) =>
   `/api/analysis/${analysisId}/agent-stream?token=test`
 )
 

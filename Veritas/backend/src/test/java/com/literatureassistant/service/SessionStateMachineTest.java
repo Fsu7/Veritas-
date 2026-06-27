@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -45,13 +46,16 @@ class SessionStateMachineTest {
     @Mock
     private CacheEvictionHelper cacheEvictionHelper;
 
+    @Mock
+    private RedisTemplate<String, String> redisTemplate;
+
     private SessionService sessionService;
 
     private static final String SESSION_ID = "ses_a1b2c3d4";
 
     @BeforeEach
     void setUp() {
-        sessionService = new SessionService(sessionRepository, sessionMapper, analysisResultRepository, cacheEvictionHelper);
+        sessionService = new SessionService(sessionRepository, sessionMapper, analysisResultRepository, cacheEvictionHelper, redisTemplate);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(new UsernamePasswordAuthenticationToken("usr_001", null, List.of()));
         SecurityContextHolder.setContext(context);

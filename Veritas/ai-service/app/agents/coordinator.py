@@ -7,7 +7,6 @@
     3. 输出 2-5 个结构化子任务（retrieve/analyze/compare/generate/review）
     4. LLM 失败时降级为基于规则的任务分解（保证 LangGraph 流程不中断）
 """
-import json
 import re
 from typing import Any, Dict, List, Optional
 
@@ -15,6 +14,7 @@ from loguru import logger
 
 from app.agents.base import BaseAgent
 from app.models.enums import AnalysisType
+from app.utils.json_parser import extract_json
 
 
 # ============================================================
@@ -176,13 +176,16 @@ class CoordinatorAgent(BaseAgent):
             logger.warning("Coordinator LLM returned empty output, using fallback")
             return self._fallback_result(input_data)
 
-        sub_tasks = self._parse_task_breakdown(llm_output, input_data)
+        # P3-17.3: 只解析一次 JSON，复用给 _parse_task_breakdown 和 _extract_reasoning
+        parsed_json = self._extract_json(llm_output)
+
+        sub_tasks = self._parse_task_breakdown(parsed_json, input_data)
 
         # Step 4: 计算 requires_compare / requires_review
         flags = self._determine_required_tasks(input_data, sub_tasks)
 
         # Step 5: 生成 reasoning（如果有 LLM 输出中的 reasoning 字段，优先使用）
-        reasoning = self._extract_reasoning(llm_output) or (
+        reasoning = self._extract_reasoning(parsed_json) or (
             f"Coordinator decomposed {len(sub_tasks)} sub-tasks: "
             f"{', '.join(t.get('task_type', 'unknown') for t in sub_tasks)}"
         )
@@ -208,24 +211,25 @@ class CoordinatorAgent(BaseAgent):
     # ============================================================
 
     def _parse_task_breakdown(
-        self, llm_output: str, input_data: dict
+        self, parsed_json: Optional[dict], input_data: dict
     ) -> List[dict]:
         """解析 LLM 输出为结构化子任务列表
 
         策略：
-            1. 尝试提取 ```json ... ``` 代码块
-            2. 尝试提取首个 { ... } 块
-            3. 尝试整体 JSON 解析
-            4. 失败时降级到 _rule_based_decomposition
+            1. 使用已解析的 JSON（parsed_json，由 _run 中统一调用 _extract_json 得到）
+            2. 提取 sub_tasks 数组，过滤非法 task_type
+            3. 失败时降级到 _rule_based_decomposition
 
         强制 2-5 约束：
             - < MIN_SUB_TASKS：降级到规则分解
-            - > MAX_SUB_TASKS：截断到前 5 个湃法 task_type ∈ VALID_TASK_TYPES 的项
+            - > MAX_SUB_TASKS：截断到前 5 个合法 task_type ∈ VALID_TASK_TYPES 的项
+
+        P3-17.3: 签名从 (llm_output, input_data) 改为 (parsed_json, input_data)，
+        避免重复调用 _extract_json。
         """
         parsed_sub_tasks: List[dict] = []
 
-        # Step 1: 提取 JSON
-        parsed_json = self._extract_json(llm_output)
+        # Step 1: 从已解析的 JSON 中提取 sub_tasks
         if parsed_json is not None:
             sub_tasks_candidate = parsed_json.get("sub_tasks", [])
             if isinstance(sub_tasks_candidate, list):
@@ -255,56 +259,22 @@ class CoordinatorAgent(BaseAgent):
         return parsed_sub_tasks
 
     def _extract_json(self, text: str) -> Optional[dict]:
-        """从 LLM 输出中提取 JSON
+        """从 LLM 输出中提取 JSON（委托给 app.utils.json_parser.extract_json）
 
-        返回第一个可解析的 dict。提取顺序：
-            1. ```json ... ``` 代码块
-            2. ``` ... ``` 代码块
-            3. 首个 { ... } 块
-            4. 整体文本
+        P3-17.2: 统一 JSON 解析逻辑，4 级降级策略
+        （标准 JSON → ```json``` 块 → ``` 块 → 首个 {} 块）。
         """
-        if not text or not text.strip():
+        return extract_json(text)
+
+    def _extract_reasoning(self, parsed_json: Optional[dict]) -> Optional[str]:
+        """从已解析的 JSON 中提取 reasoning 字段（如果有）
+
+        P3-17.3: 签名从 (llm_output) 改为 (parsed_json)，
+        避免重复调用 _extract_json。
+        """
+        if parsed_json is None:
             return None
-
-        cleaned = text.strip()
-
-        # 1) ```json ... ``` 块
-        json_block = re.search(r"```json\s*(.*?)\s*```", cleaned, re.DOTALL)
-        if json_block:
-            try:
-                return json.loads(json_block.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        # 2) ``` ... ``` 块
-        code_block = re.search(r"```\s*(.*?)\s*```", cleaned, re.DOTALL)
-        if code_block:
-            try:
-                return json.loads(code_block.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        # 3) 首个 { ... } 块
-        brace_start = cleaned.find("{")
-        brace_end = cleaned.rfind("}")
-        if brace_start != -1 and brace_end > brace_start:
-            try:
-                return json.loads(cleaned[brace_start : brace_end + 1])
-            except json.JSONDecodeError:
-                pass
-
-        # 4) 整体文本
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            return None
-
-    def _extract_reasoning(self, llm_output: str) -> Optional[str]:
-        """提取 LLM 输出中的 reasoning 字段（如果有）"""
-        parsed = self._extract_json(llm_output)
-        if parsed is None:
-            return None
-        reasoning = parsed.get("reasoning")
+        reasoning = parsed_json.get("reasoning")
         if isinstance(reasoning, str) and reasoning.strip():
             return reasoning
         return None
@@ -512,7 +482,8 @@ class CoordinatorAgent(BaseAgent):
         topic_str = str(topic).strip()
 
         # 移除控制字符（保留 ASCII 可打印字符 + 中文 + 常见标点）
-        topic_str = re.sub(r"[^\w\s\u4e00-\u9fff\.,;:!?\"'\-_()\[\]/\\@#$%^&*+=<>~`|]", "", topic_str)
+        # P2#13.3: 移除 "'<>[]{}`| 等可用于 Prompt 注入的字符
+        topic_str = re.sub(r"[^\w\s\u4e00-\u9fff.,;:!?()\-_/\\@#$%^&*+=~]", "", topic_str)
         # 合并多个连续空白
         topic_str = re.sub(r"\s+", " ", topic_str).strip()
 

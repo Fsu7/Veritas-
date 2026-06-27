@@ -81,6 +81,11 @@ export function useSSE(options: UseSSEOptions = {}): UseSSEReturn {
   }
 
   function attachListeners(es: EventSource) {
+    es.onopen = () => {
+      isConnected.value = true
+      reconnectCount.value = 0
+    }
+
     SUPPORTED_EVENT_TYPES.forEach(eventType => {
       es.addEventListener(eventType, (event: MessageEvent) => {
         const parsed = parseEvent(eventType, event.data)
@@ -125,7 +130,6 @@ export function useSSE(options: UseSSEOptions = {}): UseSSEReturn {
     manualDisconnect = false
     const es = new EventSource(url)
     eventSource = es
-    isConnected.value = true
     error.value = null
     attachListeners(es)
   }

@@ -448,9 +448,17 @@ class GeneratorAgent(BaseAgent):
         if not report or not report.strip():
             return 0.0
 
-        words = report.lower().split()
-        total_words = len(words)
-        if total_words == 0:
+        # P3-17.4: 检测中文文本 — 中文无空格，不能使用 split() 分词
+        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', report))
+        if chinese_chars > len(report) * 0.3:
+            # 中文文本：使用字符数作为分母
+            total_units = len(report)
+        else:
+            # 拉丁文本：使用词数作为分母
+            words = report.lower().split()
+            total_units = len(words)
+
+        if total_units == 0:
             return 0.0
 
         report_lower = report.lower()
@@ -458,7 +466,7 @@ class GeneratorAgent(BaseAgent):
         for term in ACADEMIC_TERMS:
             term_count += report_lower.count(term.lower())
 
-        density = min(term_count / total_words, 1.0)
+        density = min(term_count / total_units, 1.0)
         return round(density, 4)
 
     def _generate_fallback_report(

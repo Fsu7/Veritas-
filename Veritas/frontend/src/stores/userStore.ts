@@ -64,12 +64,22 @@ export const useUserStore = defineStore('user', () => {
   }
 
   async function fetchProfile() {
-    const res = await userApi.getProfile(userId.value)
-    profile.value = {
-      educationLevel: res.educationLevel,
-      researchField: res.researchField,
-      knowledgeLevel: res.knowledgeLevel,
-      preferredStyle: res.preferredStyle
+    try {
+      const res = await userApi.getProfile(userId.value)
+      profile.value = {
+        educationLevel: res.educationLevel,
+        researchField: res.researchField,
+        knowledgeLevel: res.knowledgeLevel,
+        preferredStyle: res.preferredStyle
+      }
+    } catch (e: unknown) {
+      // 404 = 用户尚未设置画像，属于正常状态，静默处理不抛出异常
+      const status = (e as { response?: { status?: number } })?.response?.status
+      if (status === 404) {
+        profile.value = null
+        return
+      }
+      throw e
     }
   }
 

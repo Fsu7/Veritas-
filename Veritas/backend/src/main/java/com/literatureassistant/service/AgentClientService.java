@@ -119,7 +119,7 @@ public class AgentClientService {
                             .build());
                 }));
 
-        return Flux.merge(timeoutDetection, heartbeatFlux)
+        return Flux.merge(timeoutDetection, heartbeatFlux.takeUntilOther(timeoutDetection.then()))
                 .onErrorResume(err -> {
                     log.warn("SSE stream 降级关闭: analysisId={}, error={}", analysisId, err.getMessage());
                     return handleStreamFallback(analysisId, err);

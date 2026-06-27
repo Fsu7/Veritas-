@@ -3,19 +3,17 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/userStore'
-import { usePaperStore } from '@/stores/paperStore'
 import { getRecentSearches, saveRecentSearch, clearRecentSearches } from '@/utils/storage'
 import AppFooter from '@/components/layout/AppFooter.vue'
+import DotMatrixClock from '@/components/common/DotMatrixClock.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
-const paperStore = usePaperStore()
 
 const searchQuery = ref('')
-const isSearching = ref(false)
 const recentSearches = ref<string[]>(getRecentSearches())
 
-async function handleSearch() {
+function handleSearch() {
   const query = searchQuery.value.trim()
   if (!query) return
 
@@ -28,15 +26,7 @@ async function handleSearch() {
     return
   }
 
-  isSearching.value = true
-  try {
-    await paperStore.searchPapers(query)
-    router.push({ name: 'Search', query: { q: query } })
-  } catch {
-    ElMessage.error('检索失败，请稍后重试')
-  } finally {
-    isSearching.value = false
-  }
+  router.push({ name: 'Search', query: { q: query } })
 }
 
 function handleRecentClick(query: string) {
@@ -61,14 +51,12 @@ function handleClearRecent() {
             v-model="searchQuery"
             size="large"
             clearable
-            :disabled="isSearching"
             placeholder="输入研究主题，如Multi-Agent协同决策"
             @keyup.enter="handleSearch"
           >
             <template #append>
               <el-button
                 type="primary"
-                :loading="isSearching"
                 @click="handleSearch"
               >
                 检索
@@ -91,6 +79,7 @@ function handleClearRecent() {
           <el-button text size="small" @click="handleClearRecent">清除</el-button>
         </div>
       </div>
+      <DotMatrixClock class="home-view__clock" />
     </div>
     <AppFooter class="home-view__footer" />
   </div>
@@ -118,45 +107,23 @@ function handleClearRecent() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   padding: var(--spacing-md);
-  overflow: hidden;
-}
-
-.home-view__footer {
-  flex-shrink: 0;
-  margin-top: auto;
+  overflow-y: auto;
 }
 
 .home-view__search-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   max-width: 720px;
   text-align: center;
 }
 
-.home-view__title {
-  font-size: var(--font-size-display);
-  font-weight: 700;
-  line-height: 1.2;
-  margin: 0 0 var(--spacing-md);
-  color: var(--el-text-color-primary);
-  text-align: center;
-  letter-spacing: -0.5px;
-
-  @include respond-to(md) {
-    font-size: var(--font-size-xxl);
-  }
-}
-
-.home-view__subtitle {
-  font-size: var(--font-size-lg);
-  color: var(--el-color-info);
-  margin: 0 0 var(--spacing-xl);
-  text-align: center;
-  font-weight: 400;
-}
-
 .home-view__input-wrapper {
+  width: 100%;
   margin-bottom: var(--spacing-lg);
 
   :deep(.el-input__wrapper) {
@@ -185,6 +152,28 @@ function handleClearRecent() {
   }
 }
 
+.home-view__title {
+  font-size: var(--font-size-display);
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0 0 var(--spacing-md);
+  color: var(--el-text-color-primary);
+  text-align: center;
+  letter-spacing: -0.5px;
+
+  @include respond-to(md) {
+    font-size: var(--font-size-xxl);
+  }
+}
+
+.home-view__subtitle {
+  font-size: var(--font-size-lg);
+  color: var(--el-color-info);
+  margin: 0 0 var(--spacing-xl);
+  text-align: center;
+  font-weight: 400;
+}
+
 .home-view__recent {
   margin-top: var(--spacing-md);
   display: flex;
@@ -208,5 +197,15 @@ function handleClearRecent() {
   &:hover {
     transform: translateY(-1px);
   }
+}
+
+.home-view__clock {
+  flex-shrink: 0;
+  margin-bottom: var(--spacing-lg);
+  max-width: 620px;
+}
+
+.home-view__footer {
+  flex-shrink: 0;
 }
 </style>

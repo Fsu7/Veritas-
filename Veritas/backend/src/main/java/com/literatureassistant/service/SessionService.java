@@ -20,13 +20,16 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -49,6 +52,7 @@ public class SessionService {
     private final SessionMapper sessionMapper;
     private final AnalysisResultRepository analysisResultRepository;
     private final CacheEvictionHelper cacheEvictionHelper;
+    private final RedisTemplate<String, String> redisTemplate;
 
     @Transactional
     // P2-1: 移除 @CacheEvict(allEntries=true)，改用 CacheEvictionHelper 按用户前缀精准失效。
@@ -59,6 +63,29 @@ public class SessionService {
             throw new AuthenticationException("未认证，请先登录");
         }
 
+        // P2附录: 幂等性检查 — clientToken 非空时，5分钟内相同 token 返回已有会话
+        String clientToken = request.getClientToken();
+        if (clientToken != null && !clientToken.isBlank()) {
+            String idempotencyKey = "session:idempotency:" + userId + ":" + clientToken;
+            String existingSessionId = redisTemplate.opsForValue().get(idempotencyKey);
+            if (existingSessionId != null) {
+                Optional<Session> existing = sessionRepository.findBySessionId(existingSessionId);
+                if (existing.isPresent()) {
+                    log.info("Session idempotent hit: sessionId={}, userId={}, clientToken={}",
+                            existingSessionId, userId, clientToken);
+                    return sessionMapper.toResponse(existing.get());
+                }
+            }
+            // 创建新会话并记录幂等键
+            SessionResponse response = doCreateSession(userId, request);
+            redisTemplate.opsForValue().set(idempotencyKey, response.getSessionId(), Duration.ofMinutes(5));
+            return response;
+        }
+
+        return doCreateSession(userId, request);
+    }
+
+    private SessionResponse doCreateSession(String userId, SessionCreateRequest request) {
         String sessionId = "ses_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
 
         Session session = Session.builder()
@@ -104,7 +131,7 @@ public class SessionService {
         return PageResponse.fromPage(sessionPage, items);
     }
 
-    @Cacheable(value = "sessionState", key = "#sessionId", unless = "#result == null")
+    @Cacheable(value = "sessionState", key = "#sessionId", sync = true)
     @Transactional(readOnly = true)
     public SessionDetailResponse getSessionDetail(String sessionId) {
         // 修复 B-004: 数据隔离校验已上移到 Controller（validateSessionAccess），此处信任入参。
@@ -137,7 +164,7 @@ public class SessionService {
     @CacheEvict(value = "sessionState", key = "#sessionId")
     @Transactional
     public void updateStatus(String sessionId, SessionStatus newStatus) {
-        Session session = sessionRepository.findBySessionId(sessionId)
+        Session session = sessionRepository.findBySessionIdForUpdate(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Session", sessionId));
 
         validateDataIsolation(session.getUserId());

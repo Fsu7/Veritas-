@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS analysis_results (
     type ENUM('paper_analysis', 'compare', 'report') NOT NULL COMMENT '分析类型',
     result JSON NOT NULL COMMENT '结构化分析结果（JSON格式）',
     status ENUM('pending', 'processing', 'completed', 'failed') DEFAULT 'pending' COMMENT '分析状态',
+    version INT NOT NULL DEFAULT 0 COMMENT '乐观锁版本号',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
     INDEX idx_session_id (session_id),

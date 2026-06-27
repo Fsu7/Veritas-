@@ -7,6 +7,9 @@ import { DEFAULT_SORT } from '@/types/paper'
 const MAX_SELECTED_PAPERS = 5
 const MIN_SELECTED_PAPERS = 2
 
+/** 取消上一次搜索请求，防止并发搜索竞态 */
+let searchAbortController: AbortController | null = null
+
 /**
  * 论文选择结果
  * 告知 UI 是否成功及原因，便于 ElMessage 提示
@@ -53,6 +56,9 @@ export const usePaperStore = defineStore('paper', () => {
   )
 
   async function searchPapers(query: string, page: number = 1, sort?: SortParams) {
+    searchAbortController?.abort()
+    const controller = new AbortController()
+    searchAbortController = controller
     loading.value = true
     error.value = null
     currentQuery.value = query
@@ -66,14 +72,17 @@ export const usePaperStore = defineStore('paper', () => {
         ...filters.value,
         sort_by: effectiveSort.field,
         sort_order: effectiveSort.order
-      })
+      }, controller.signal)
       searchResults.value = res.items
       totalResults.value = res.total
     } catch (e: unknown) {
+      if (e instanceof Error && e.name === 'CanceledError') return
       const message = e instanceof Error ? e.message : '搜索失败'
       error.value = message
     } finally {
-      loading.value = false
+      if (!controller.signal.aborted) {
+        loading.value = false
+      }
     }
   }
 
@@ -180,10 +189,10 @@ export const usePaperStore = defineStore('paper', () => {
     }
   }
 
-  function updateFilters(newFilters: FilterParams) {
+  async function updateFilters(newFilters: FilterParams) {
     filters.value = { ...filters.value, ...newFilters }
     if (currentQuery.value) {
-      searchPapers(currentQuery.value, 1)
+      await searchPapers(currentQuery.value, 1)
     }
   }
 

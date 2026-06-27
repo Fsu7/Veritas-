@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 
 from app.agents.base import BaseAgent
+from app.utils.json_parser import extract_json
 
 
 # ============================================================
@@ -350,42 +351,12 @@ class ComparerAgent(BaseAgent):
         return self._rule_based_comparison(input_data)
 
     def _extract_json(self, text: str) -> Optional[dict]:
-        """从 LLM 输出中提取 JSON（与 coordinator 同实现）"""
-        if not text or not text.strip():
-            return None
+        """从 LLM 输出中提取 JSON（委托给 app.utils.json_parser.extract_json）
 
-        cleaned = text.strip()
-
-        # 1) ```json ... ```
-        json_block = re.search(r"```json\s*(.*?)\s*```", cleaned, re.DOTALL)
-        if json_block:
-            try:
-                return json.loads(json_block.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        # 2) ``` ... ```
-        code_block = re.search(r"```\s*(.*?)\s*```", cleaned, re.DOTALL)
-        if code_block:
-            try:
-                return json.loads(code_block.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        # 3) 首个 { ... } 块
-        brace_start = cleaned.find("{")
-        brace_end = cleaned.rfind("}")
-        if brace_start != -1 and brace_end > brace_start:
-            try:
-                return json.loads(cleaned[brace_start : brace_end + 1])
-            except json.JSONDecodeError:
-                pass
-
-        # 4) 整体文本
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            return None
+        P3-17.2: 统一 JSON 解析逻辑，4 级降级策略
+        （标准 JSON → ```json``` 块 → ``` 块 → 首个 {} 块）。
+        """
+        return extract_json(text)
 
     # ============================================================
     # FR-005 _rule_based_comparison
@@ -413,8 +384,11 @@ class ComparerAgent(BaseAgent):
             if pid:
                 paper_ids.append(pid)
 
-        # C(N,2) 两两对比
-        for paper_i, paper_j in combinations(analysis_results, 2):
+        # P3-17.1: max_papers_for_compare 默认 5，直接两两对比即可
+        # （原 _cluster_papers 死代码已移除：n > 10 分支不可达）
+        pairs = combinations(analysis_results, 2)
+
+        for paper_i, paper_j in pairs:
             pid_i = str(paper_i.get("paper_id", ""))
             pid_j = str(paper_j.get("paper_id", ""))
             pair_ids = sorted([pid_i, pid_j])

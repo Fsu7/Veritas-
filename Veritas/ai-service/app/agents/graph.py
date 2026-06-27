@@ -35,6 +35,7 @@ class WorkflowState(TypedDict):
     # Task 43: 降级机制新增字段
     degraded_agents: List[str]
     degradation_level: str
+    paper_ids: List[str]
 
 
 def _serialize_agent_state(agent) -> Dict[str, Any]:
@@ -95,7 +96,7 @@ async def coordinator_node(state: WorkflowState, agent_instances: Dict[str, Any]
             input_data={
                 "topic": state["query"],
                 "analysis_type": state.get("analysis_type", "report"),
-                "paper_ids": state.get("user_profile", {}).get("paper_ids", []),
+                "paper_ids": state.get("paper_ids", []),
             },
             context={"user_profile": state.get("user_profile", {})},
         )
@@ -535,6 +536,7 @@ async def run_workflow(request: AnalyzeRequest, agent_instances: Dict[str, Any])
         "coordinator_result": None,
         "degraded_agents": [],
         "degradation_level": "none",
+        "paper_ids": request.paper_ids,
     }
 
     try:

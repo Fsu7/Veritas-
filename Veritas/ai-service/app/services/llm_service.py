@@ -174,7 +174,7 @@ class LocalLLMProvider(LLMProvider):
         return self._mode
 
     async def load_model(self) -> None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._sync_load_model)
 
     def _sync_load_model(self) -> None:
@@ -191,7 +191,7 @@ class LocalLLMProvider(LLMProvider):
     ) -> str:
         if self.model is None or self.tokenizer is None:
             raise ModelNotLoadedException("Local model not loaded")
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None, self._sync_generate, prompt, max_tokens, temperature
         )
@@ -226,7 +226,8 @@ class LocalLLMProvider(LLMProvider):
             "streamer": streamer,
             "do_sample": True,
         }
-        thread = threading.Thread(target=self.model.generate, kwargs=generation_kwargs)
+        # P2#3: daemon 线程 + finally join，防止 SSE 断开时线程泄漏
+        thread = threading.Thread(target=self.model.generate, kwargs=generation_kwargs, daemon=True)
         thread.start()
 
         text_queue: queue.Queue = queue.Queue()
@@ -239,20 +240,23 @@ class LocalLLMProvider(LLMProvider):
             finally:
                 finished.set()
 
-        enqueue_thread = threading.Thread(target=_enqueue)
+        enqueue_thread = threading.Thread(target=_enqueue, daemon=True)
         enqueue_thread.start()
 
-        loop = asyncio.get_event_loop()
-        while not finished.is_set() or not text_queue.empty():
-            try:
-                text = await loop.run_in_executor(None, text_queue.get, True, 0.1)
-                if text is not None:
-                    yield text
-            except queue.Empty:
-                continue
-
-        thread.join()
-        enqueue_thread.join()
+        try:
+            # P2#3: 使用 get_running_loop 替代已废弃的 get_event_loop
+            loop = asyncio.get_running_loop()
+            while not finished.is_set() or not text_queue.empty():
+                try:
+                    text = await loop.run_in_executor(None, text_queue.get, True, 0.1)
+                    if text is not None:
+                        yield text
+                except queue.Empty:
+                    continue
+        finally:
+            # P2#3: 确保线程被回收，带 timeout 防止卡死
+            thread.join(timeout=5)
+            enqueue_thread.join(timeout=5)
 
     async def test_connection(self) -> bool:
         if self.model is not None and self.tokenizer is not None:
@@ -282,6 +286,7 @@ class LocalLLMProvider(LLMProvider):
 class LLMService:
 
     PROVIDER_PRIORITY = ["builtin", "api", "local"]
+    RECOVERY_INTERVAL = 300  # P2#13.2: 恢复检查基础间隔（秒），连续失败后指数退避
 
     def __init__(self, settings) -> None:
         self.settings = settings
@@ -295,6 +300,7 @@ class LLMService:
             "last_fallback_at": None,
             "consecutive_failures": {},
         }
+        self._state_lock = asyncio.Lock()
         self._recovery_task: asyncio.Task | None = None
 
     @property
@@ -364,12 +370,13 @@ class LLMService:
                 continue
             try:
                 await provider.test_connection()
-                self.active_provider = provider
-                self._degradation_state["current_provider"] = provider_name
-                self._degradation_state["fallback_count"] += 1
-                self._degradation_state["last_fallback_at"] = datetime.now(
-                    timezone.utc
-                ).isoformat()
+                async with self._state_lock:
+                    self.active_provider = provider
+                    self._degradation_state["current_provider"] = provider_name
+                    self._degradation_state["fallback_count"] += 1
+                    self._degradation_state["last_fallback_at"] = datetime.now(
+                        timezone.utc
+                    ).isoformat()
                 logger.warning(f"LLM fallback: {current} → {provider_name}")
                 return
             except Exception:
@@ -378,8 +385,9 @@ class LLMService:
 
     def _start_recovery_task(self) -> None:
         async def _recovery_loop():
+            consecutive_failures = 0
             while True:
-                await asyncio.sleep(300)
+                recovered = False
                 try:
                     current_mode = (
                         self.active_provider.mode if self.active_provider else "local"
@@ -392,15 +400,37 @@ class LLMService:
                             continue
                         try:
                             await provider.test_connection()
-                            old = self.active_provider.mode
-                            self.active_provider = provider
-                            self._degradation_state["current_provider"] = provider_name
+                            async with self._state_lock:
+                                old = self.active_provider.mode
+                                self.active_provider = provider
+                                self._degradation_state["current_provider"] = provider_name
                             logger.info(f"LLM recovered: {old} → {provider_name}")
+                            recovered = True
                             break
                         except Exception:
                             continue
                 except Exception as e:
                     logger.debug(f"Recovery check failed: {e}")
+
+                # P2#13.2: 熔断器 — 连续失败 5 次后指数退避，上限 30 分钟
+                if recovered:
+                    consecutive_failures = 0
+                    await asyncio.sleep(self.RECOVERY_INTERVAL)
+                else:
+                    consecutive_failures += 1
+                    if consecutive_failures >= 5:
+                        backoff = min(
+                            self.RECOVERY_INTERVAL
+                            * (2 ** min(consecutive_failures - 5, 5)),
+                            1800,
+                        )
+                        logger.warning(
+                            f"All providers down, backing off for {backoff}s "
+                            f"(consecutive_failures={consecutive_failures})"
+                        )
+                        await asyncio.sleep(backoff)
+                    else:
+                        await asyncio.sleep(self.RECOVERY_INTERVAL)
 
         self._recovery_task = asyncio.create_task(_recovery_loop())
 
@@ -419,38 +449,48 @@ class LLMService:
     async def generate(
         self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7
     ) -> str:
-        if self.active_provider is None:
+        async with self._state_lock:
+            provider = self.active_provider
+        if provider is None:
             raise ModelNotLoadedException("LLM service not initialized")
         timeout = self.settings.LLM_TIMEOUT
         try:
             return await asyncio.wait_for(
-                self.active_provider.generate(prompt, max_tokens, temperature),
+                provider.generate(prompt, max_tokens, temperature),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:
             logger.error(f"LLM generation timed out after {timeout}s")
-            provider_name = self.active_provider.mode
-            self._degradation_state["consecutive_failures"][provider_name] = (
-                self._degradation_state["consecutive_failures"].get(provider_name, 0)
-                + 1
-            )
+            provider_name = provider.mode
+            async with self._state_lock:
+                self._degradation_state["consecutive_failures"][provider_name] = (
+                    self._degradation_state["consecutive_failures"].get(provider_name, 0)
+                    + 1
+                )
             await self._fallback()
+            fallback_timeout = timeout // 2
+            async with self._state_lock:
+                provider = self.active_provider
             return await asyncio.wait_for(
-                self.active_provider.generate(prompt, max_tokens, temperature),
-                timeout=timeout,
+                provider.generate(prompt, max_tokens, temperature),
+                timeout=fallback_timeout,
             )
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")
-            provider_name = self.active_provider.mode
-            self._degradation_state["consecutive_failures"][provider_name] = (
-                self._degradation_state["consecutive_failures"].get(provider_name, 0)
-                + 1
-            )
+            provider_name = provider.mode
+            async with self._state_lock:
+                self._degradation_state["consecutive_failures"][provider_name] = (
+                    self._degradation_state["consecutive_failures"].get(provider_name, 0)
+                    + 1
+                )
             try:
                 await self._fallback()
+                fallback_timeout = timeout // 2
+                async with self._state_lock:
+                    provider = self.active_provider
                 return await asyncio.wait_for(
-                    self.active_provider.generate(prompt, max_tokens, temperature),
-                    timeout=timeout,
+                    provider.generate(prompt, max_tokens, temperature),
+                    timeout=fallback_timeout,
                 )
             except Exception as fallback_err:
                 raise LLMException(str(fallback_err)) from fallback_err
@@ -458,7 +498,9 @@ class LLMService:
     async def generate_stream(
         self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7
     ) -> AsyncIterator[str]:
-        if self.active_provider is None:
+        async with self._state_lock:
+            provider = self.active_provider
+        if provider is None:
             raise ModelNotLoadedException("LLM service not initialized")
 
         # task51: 首字节计时
@@ -467,39 +509,44 @@ class LLMService:
         first_token_yielded = False
 
         try:
-            async for token in self.active_provider.generate_stream(
+            async for token in provider.generate_stream(
                 prompt, max_tokens, temperature
             ):
                 if not first_token_yielded:
                     first_token_latency_ms = (time.perf_counter() - stream_start) * 1000
                     logger.info(
                         f"first_token_latency_ms={first_token_latency_ms:.1f} "
-                        f"provider={self.active_provider.mode}"
+                        f"provider={provider.mode}"
                     )
                     first_token_yielded = True
                 yield token
         except Exception as e:
             logger.error(f"LLM stream failed: {e}")
-            provider_name = self.active_provider.mode
-            self._degradation_state["consecutive_failures"][provider_name] = (
-                self._degradation_state["consecutive_failures"].get(provider_name, 0)
-                + 1
-            )
-            # task51: 流式失败降级为非流式
+            provider_name = provider.mode
+            async with self._state_lock:
+                self._degradation_state["consecutive_failures"][provider_name] = (
+                    self._degradation_state["consecutive_failures"].get(provider_name, 0)
+                    + 1
+                )
+            # P1-8 修复: 如果已经 yield 过 token，不重发完整响应，仅通知中断
+            if first_token_yielded:
+                yield "\n\n[生成中断，已显示部分内容]"
+                return
+            # 仅在未 yield 过 token 时才降级为非流式
             try:
                 await self._fallback()
                 logger.info("LLM stream degraded to non-stream generate()")
+                async with self._state_lock:
+                    provider = self.active_provider
                 full_response = await asyncio.wait_for(
-                    self.active_provider.generate(prompt, max_tokens, temperature),
+                    provider.generate(prompt, max_tokens, temperature),
                     timeout=30,
                 )
-                # 将完整响应作为单 token yield
-                if not first_token_yielded:
-                    first_token_latency_ms = (time.perf_counter() - stream_start) * 1000
-                    logger.info(
-                        f"first_token_latency_ms={first_token_latency_ms:.1f} "
-                        f"provider={self.active_provider.mode} (degraded)"
-                    )
+                first_token_latency_ms = (time.perf_counter() - stream_start) * 1000
+                logger.info(
+                    f"first_token_latency_ms={first_token_latency_ms:.1f} "
+                    f"provider={provider.mode} (degraded)"
+                )
                 yield full_response
             except Exception as fallback_err:
                 raise LLMException(str(fallback_err)) from fallback_err

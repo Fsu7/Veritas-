@@ -16,6 +16,7 @@ import com.literatureassistant.exception.ResourceNotFoundException;
 import com.literatureassistant.mapper.UserMapper;
 import com.literatureassistant.repository.UserProfileRepository;
 import com.literatureassistant.repository.UserRepository;
+import com.literatureassistant.cache.CacheEvictionHelper;
 import com.literatureassistant.util.JwtUtil;
 import com.literatureassistant.util.RedisKeyUtil;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +45,7 @@ public class UserService {
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
     private final UserMapper userMapper;
+    private final CacheEvictionHelper cacheEvictionHelper;
 
     @Transactional
     public UserResponse register(RegisterRequest request) {
@@ -64,7 +66,17 @@ public class UserService {
                 .passwordHash(encodedPassword)
                 .build();
 
-        userRepository.save(user);
+        try {
+            userRepository.save(user);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            String msg = e.getMostSpecificCause().getMessage();
+            if (msg != null && msg.contains("uk_username")) {
+                throw new BusinessException(409, "用户名已存在", "USERNAME_DUPLICATE");
+            } else if (msg != null && msg.contains("uk_email")) {
+                throw new BusinessException(409, "邮箱已被注册", "EMAIL_DUPLICATE");
+            }
+            throw e;
+        }
 
         log.info("User registered: userId={}, username={}", userId, user.getUsername());
 
@@ -93,7 +105,7 @@ public class UserService {
                 .build();
     }
 
-    @Cacheable(value = "userInfo", key = "#userId", unless = "#result == null")
+    @Cacheable(value = "userInfo", key = "#userId", sync = true)
     public UserResponse getUserInfo(String userId) {
         User user = userRepository.findByUserId(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
@@ -127,6 +139,12 @@ public class UserService {
         userRepository.save(user);
 
         boolean hasProfile = userProfileRepository.existsByUserId(userId);
+
+        // P1-17 修复: 事务提交后删除 Spring Cache 中的旧值（替代 @CacheEvict 的时序问题）
+        cacheEvictionHelper.evictKeysAfterCommit(
+                "userProfile::" + userId,
+                "userInfo::" + userId
+        );
 
         log.info("User updated: userId={}", userId);
 
@@ -192,13 +210,19 @@ public class UserService {
         ProfileResponse response = userMapper.toProfileResponse(entity);
         syncProfileToRedis(userId, response);
 
+        // P1-17 修复: 事务提交后删除 Spring Cache 中的旧值（替代 @CacheEvict 的时序问题）
+        cacheEvictionHelper.evictKeysAfterCommit(
+                "userProfile::" + userId,
+                "userInfo::" + userId
+        );
+
         log.info("Profile created: userId={}", userId);
 
         return response;
     }
 
     @Transactional
-    @CacheEvict(value = {"userProfile", "userProfileJson", "userInfo"}, key = "#userId")
+    @CacheEvict(value = "userProfile", key = "#userId")
     public ProfileResponse updateProfile(String userId, ProfileUpdateRequest request) {
         validateDataIsolation(userId);
 

@@ -80,7 +80,8 @@ vi.mock('@/stores/userStore', () => ({
   useUserStore: vi.fn(() => ({
     get profile() {
       return mocks.state!.profile.value
-    }
+    },
+    token: 'test-token'
   }))
 }))
 

@@ -1,12 +1,11 @@
 import asyncio
-import json
-import re
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
 from app.agents.base import AgentStatus, BaseAgent
+from app.utils.json_parser import extract_json
 
 DEFAULT_DIMENSIONS = {
     "research_problem",
@@ -82,7 +81,15 @@ class AnalyzerAgent(BaseAgent):
             self._analyze_paper_with_semaphore(paper, context, semaphore, idx, total)
             for idx, paper in enumerate(papers)
         ]
-        gathered: List[Tuple[int, Optional[dict], Optional[str]]] = await asyncio.gather(*tasks)
+        # P2#4: 添加 return_exceptions=True 兜底防护
+        gathered_raw = await asyncio.gather(*tasks, return_exceptions=True)
+        gathered: List[Tuple[int, Optional[dict], Optional[str]]] = []
+        for i, item in enumerate(gathered_raw):
+            if isinstance(item, Exception):
+                logger.warning(f"Analyze task {i} failed in gather: {item}")
+                gathered.append((i, None, None))
+            else:
+                gathered.append(item)
 
         # 按原 idx 顺序整理结果，保证输出稳定
         results_by_idx: Dict[int, Tuple[Optional[dict], Optional[str]]] = {
@@ -184,35 +191,16 @@ class AnalyzerAgent(BaseAgent):
                 return self._rule_based_extraction(paper)
             return self._empty_dimensions()
 
-        cleaned = llm_output.strip()
+        # P3-17.2: 统一使用 app.utils.json_parser.extract_json
+        # （4 级降级：标准 JSON → ```json``` 块 → ``` 块 → 首个 {} 块）
+        parsed = extract_json(llm_output)
 
-        json_match = re.search(r"```json\s*(.*?)\s*```", cleaned, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group(1))
-            except json.JSONDecodeError:
-                logger.warning("Failed to parse JSON from ```json block, retrying")
+        # P2#13.4: 类型检查 — json.loads 可能返回 list/str 等非 dict
+        if not isinstance(parsed, dict):
+            logger.error(f"All JSON parsing attempts failed for output: {llm_output[:200]}")
+            return self._rule_based_extraction(paper) if paper else self._empty_dimensions()
 
-        code_match = re.search(r"```\s*(.*?)\s*```", cleaned, re.DOTALL)
-        if code_match:
-            try:
-                return json.loads(code_match.group(1))
-            except json.JSONDecodeError:
-                logger.warning("Failed to parse JSON from ``` block, retrying")
-
-        try:
-            brace_start = cleaned.find("{")
-            brace_end = cleaned.rfind("}")
-            if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
-                json_candidate = cleaned[brace_start : brace_end + 1]
-                return json.loads(json_candidate)
-        except json.JSONDecodeError:
-            logger.warning("Failed to extract JSON from text, using fallback")
-
-        logger.error(f"All JSON parsing attempts failed for output: {cleaned[:200]}")
-        if paper is not None:
-            return self._rule_based_extraction(paper)
-        return self._empty_dimensions()
+        return parsed
 
     def _validate_dimensions(self, parsed: dict, paper: dict) -> dict:
         result: Dict[str, Any] = {}

@@ -41,3 +41,19 @@ export function formatDate(value: string | number | Date | undefined | null): st
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleString('zh-CN', { hour12: false })
 }
+
+/**
+ * 格式化耗时（毫秒 → 人类可读）
+ * - null/undefined → '-'
+ * - <1s → '123ms'
+ * - <1m → '1.5s'
+ * - ≥1m → '2m 30s'
+ */
+export function formatDuration(ms?: number | null): string {
+  if (ms == null) return '-'
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  const m = Math.floor(ms / 60_000)
+  const s = Math.floor((ms % 60_000) / 1000)
+  return `${m}m ${s}s`
+}

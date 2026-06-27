@@ -11,7 +11,9 @@
 import { computed } from 'vue'
 import { Clock, Loading, Check, Close } from '@element-plus/icons-vue'
 import { ElEmpty, ElProgress, ElPopover, ElTag, ElRow, ElCol } from 'element-plus'
+import { AGENT_STATUS_COLORS } from '@/constants/agent'
 import type { AgentState } from '@/types/agent'
+import { formatDuration } from '@/utils/format'
 
 const props = defineProps<{
   agentStates: Record<string, AgentState>
@@ -34,13 +36,8 @@ const AGENT_LIST: AgentMeta[] = [
   { name: 'reviewer',    label: '审核员', description: '审核并反馈综述质量' }
 ]
 
-/** 状态色（对应 --agent-*） */
-const STATUS_COLORS: Record<string, string> = {
-  waiting:   '#C0C4CC',
-  running:   '#409EFF',
-  completed: '#67C23A',
-  failed:    '#F56C6C'
-}
+/** 状态色（对应 --agent-*，统一引用 @/constants/agent） */
+const STATUS_COLORS: Record<string, string> = AGENT_STATUS_COLORS
 
 const STATUS_LABELS: Record<string, string> = {
   waiting:   '等待中',
@@ -84,15 +81,6 @@ function getLabel(name: string): string {
 
 function getIcon(name: string) {
   return STATUS_ICONS[getStatus(name)] ?? Clock
-}
-
-function formatDuration(ms?: number): string {
-  if (ms == null) return '-'
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  const m = Math.floor(ms / 60_000)
-  const s = Math.floor((ms % 60_000) / 1000)
-  return `${m}m ${s}s`
 }
 
 function handleClick(name: string) {

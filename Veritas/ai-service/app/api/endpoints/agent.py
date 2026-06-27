@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, Request
 from loguru import logger
 from sse_starlette.sse import EventSourceResponse
 
@@ -14,6 +14,7 @@ from app.agents.orchestrator import AgentOrchestrator
 from app.agents.retriever import RetrieverAgent
 from app.agents.reviewer import ReviewerAgent
 from app.core import events
+from app.core.rate_limit import enforce_rate_limit
 from app.exception import AIServiceException, ModelNotLoadedException
 from app.models.schemas import AgentStateResponse, AnalyzeRequest, AnalyzeResponse
 from app.utils.response import fail_response, ok
@@ -97,8 +98,11 @@ def _convert_agent_states(agent_states: dict) -> list[AgentStateResponse]:
 
 
 @router.post("/analyze")
-async def analyze(request: AnalyzeRequest):
+async def analyze(request: AnalyzeRequest, http_request: Request):
     """POST /api/agent/analyze — task24 改用统一响应 ok() 包装"""
+    # task11: 速率限制检查（超限由全局异常处理器返回 429 统一响应）
+    enforce_rate_limit(http_request)
+
     try:
         agent_instances = _build_agent_instances()
     except ModelNotLoadedException as e:
@@ -146,6 +150,7 @@ async def analyze(request: AnalyzeRequest):
 @router.post("/analyze/stream")
 async def analyze_stream(
     request: AnalyzeRequest,
+    http_request: Request,
     last_event_id: Optional[str] = Header(None, alias="Last-Event-ID"),
 ):
     """POST /api/agent/analyze/stream — task25 SSE 流式推送，task30/52 增强
@@ -157,7 +162,11 @@ async def analyze_stream(
 
     task30: 支持 Last-Event-ID Header 实现断线重连。
     task52: 新增 token_stream 事件，Generator 流式 token 实时推送。
+    task11: 新增速率限制检查。
     """
+    # task11: 速率限制检查（超限由全局异常处理器返回 429 统一响应）
+    enforce_rate_limit(http_request)
+
     try:
         agent_instances = _build_agent_instances()
     except ModelNotLoadedException as e:

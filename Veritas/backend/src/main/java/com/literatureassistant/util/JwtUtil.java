@@ -72,9 +72,9 @@ public class JwtUtil {
         } catch (ExpiredJwtException e) {
             log.debug("JWT token已过期: {}", maskToken(token));
         } catch (MalformedJwtException e) {
-            log.debug("JWT token格式错误: {}", maskToken(token));
+            log.warn("JWT token格式错误: {}", maskToken(token));
         } catch (SecurityException e) {
-            log.debug("JWT签名无效: {}", maskToken(token));
+            log.warn("JWT签名无效: {}", maskToken(token));
         } catch (UnsupportedJwtException e) {
             log.debug("不支持的JWT token: {}", maskToken(token));
         } catch (IllegalArgumentException e) {

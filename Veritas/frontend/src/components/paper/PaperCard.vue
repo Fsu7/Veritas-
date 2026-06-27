@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Check } from '@element-plus/icons-vue'
 import type { Paper } from '@/types/paper'
+import { formatMeta } from '@/utils/format'
 
 const props = withDefaults(defineProps<{
   paper: Paper
@@ -25,19 +27,11 @@ function truncateText(text: string, maxLength: number = 200): string {
   return text.length > maxLength ? text.slice(0, maxLength) + '...' : text
 }
 
-function formatMeta(): string {
-  const parts: string[] = []
-  if (props.paper.authors?.length) {
-    parts.push(props.paper.authors.join(', '))
-  }
-  if (props.paper.year) {
-    parts.push(String(props.paper.year))
-  }
-  if (props.paper.venue) {
-    parts.push(props.paper.venue)
-  }
-  return parts.join(' · ')
-}
+const metaText = computed(() => formatMeta({
+  authors: props.paper.authors,
+  year: props.paper.year,
+  venue: props.paper.venue
+}))
 
 function formatScore(score: number): string {
   return `相关度 ${Math.round(score * 100)}%`
@@ -76,8 +70,8 @@ function handleSelectClick() {
       </el-tag>
     </div>
 
-    <div v-if="formatMeta()" class="paper-card__meta">
-      {{ formatMeta() }}
+    <div v-if="metaText" class="paper-card__meta">
+      {{ metaText }}
     </div>
 
     <p class="paper-card__abstract">{{ truncateText(paper.abstract) }}</p>
