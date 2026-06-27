@@ -37,13 +37,15 @@
 
 ---
 
-## 2 本机环境
+## 2 本机环境（实际部署版本）
 
 | 服务 | 地址 | 用户/密码 |
 |------|------|----------|
-| 本机MySQL 9 | localhost:3306 | root / Aa2105268075. |
-| Docker MySQL 8 | Docker内 | root / root123 |
-| Docker Redis | localhost:6379 | 无密码（内网） |
+| 本机 MySQL 9.7.0 LTS | localhost:3306 | root / ${MYSQL_PASSWORD}（已改为 `CHANGE_ME` 占位符） |
+| 本机 Redis 8.8.0 | localhost:6379 | 无密码（仅本机访问） |
+| 本机 Python 3.13.14 | ~/.pyenv/versions/3.13.14 | — |
+| 本机 JDK 25.0.3 LTS | ~/.local/lib/jdk-25.0.3+9 | — |
+| 本机 Node.js 24.17.0 LTS | ~/.local/lib/node-v24.17.0-darwin-arm64 | — |
 
 ---
 
@@ -114,9 +116,25 @@ Veritas(求真)/
 │   │   │   ├── services/                    # 服务层
 │   │   │   │   ├── llm_service.py / embedding_service.py
 │   │   │   │   ├── vector_store_service.py / prompt_manager.py
-│   │   │   │   └── personalization_service.py  # 计划中
-│   │   │   └── models/schemas.py            # Pydantic数据模型
-│   │   ├── prompts/                         # Prompt模板
+│   │   │   │   ├── personalization_service.py    # ✅ 已实现（包含 DIFFICULTY_MAP + STYLE_MAP）
+│   │   │   │   ├── search_service.py             # ✅ 混合检索 + RRF
+│   │   │   │   ├── reranker.py                   # ✅ 复合评分
+│   │   │   │   └── recommendation_service.py     # ✅ 推荐策略
+│   │   │   ├── agents/
+│   │   │   │   ├── coordinator.py / retriever.py / analyzer.py
+│   │   │   │   ├── comparer.py / generator.py / reviewer.py
+│   │   │   │   ├── base.py / tools.py / orchestrator.py
+│   │   │   │   └── graph.py                 # LangGraph 6 节点工作流 + 条件边 + 重试
+│   │   │   ├── models/
+│   │   │   │   ├── enums.py                 # ⚠️ 待创建（缺失阻断 AI 服务启动）
+│   │   │   │   └── schemas.py               # ⚠️ 待创建（缺失阻断 AI 服务启动）
+│   │   │   └── utils/
+│   │   │       ├── citation_parser.py / json_parser.py
+│   │   │       └── response.py / text_processing.py
+│   │   ├── prompts/                         # 6 个 Prompt 模板（coordinator/retriever/analyzer/comparer/generator/reviewer）
+│   │   ├── data/papers/                     # arxiv_cs_ai_100.json + sample_papers.json（200+ 篇）
+│   │   ├── scripts/                         # 10 个运维/调优脚本
+│   │   ├── tests/                           # 50+ 测试用例
 │   │   └── requirements.txt
 │   ├── frontend/                            # 前端
 │   │   ├── src/

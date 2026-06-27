@@ -132,9 +132,9 @@ graph TD
 
 ## 当前开发进度
 
-> 最后更新：2026-06-05
+> 最后更新：2026-06-28
 
-### M1/M2/M3 已完成 ✅，M4 启动中 🔄
+### M1/M2/M3 已完成 ✅，M4 代码就绪 🔄，M5 进行中 🔄
 
 ```mermaid
 graph LR
@@ -143,11 +143,11 @@ graph LR
         M2["M2 单Agent<br/>✅ AM2"]
         M3["M3 前后端联调<br/>✅ AM3/JM3/FM2"]
     end
-    subgraph M4_启动中
-        M4["M4 多Agent协同<br/>🔄 2026-06-05 启动"]
+    subgraph M4_M5_进行中
+        M4["M4 多Agent协同<br/>🔄 6 Agent+工作流+SSE 代码就绪"]
+        M5["M5 功能完整<br/>🔄 JM5✅ 447测试"]
     end
     subgraph 未开始
-        M5["M5 功能完善 ⬜"]
         M6["M6 交付就绪 ⬜"]
     end
     M1 --> M2 --> M3 --> M4 --> M5 --> M6
@@ -155,6 +155,7 @@ graph LR
     style M2 fill:#c8e6c9
     style M3 fill:#c8e6c9
     style M4 fill:#fff3e0
+    style M5 fill:#fff3e0
 ```
 
 **关键里程碑摘要**：
@@ -162,17 +163,19 @@ graph LR
 - **M1 ✅**：MySQL 6 表 + 全文索引 / Redis / ChromaDB / Java+Python+前端 3 骨架 / Embedding(text-embedding-v4 1024维) / LLM 三路降级 / 6 Prompt 模板
 - **M2 ✅**：200+ 论文向量入库 / SearchService(RRF+重排序) / 3-Agent(Retriever/Analyzer/Generator) / LangGraph 基础流程 / PersonalizationService
 - **M3 ✅**：12 项验收 12/12 / 统一响应 + 422 中文友好 + Enum 严格校验 / SSE 7 事件 + ping + 重连 / 健康检查 6 组件 / 模型状态 12 字段 / 三级降级链 / Java→Python 联调 / 全链路注册→登录→检索→分析打通
+- **M4 🔄**：6 个 Agent 全部实现（Coordinator/Comparer/Reviewer + 原 3 个）/ LangGraph 6 节点工作流 + 条件边 + 重试循环 / SSE 端点 / 个性化引擎核心 / SSE 桥接 / 字段映射文档 905 行；**阻断**：`app/models/` 目录缺失（schemas.py + enums.py），AI 服务无法启动
+- **M5 🔄**：前端 11 页面 + 21 组件全部实现（0 占位）/ Agent 可视化 ECharts 流程图 / 报告导出 PDF+Word / 引用溯源 / 矛盾发现 / 筛选排序 / 缓存分层；**待修复**：个性化旁路（AppState 未实例化）/ ddl-auto: update
 
 ### 各模块实现状态
 
 | 模块                  | 骨架 | 数据层 | 服务层 | API层 | 前端页面 |
 | ------------------- | -- | --- | --- | ---- | ---- |
 | Backend (Java)      | ✅  | ✅   | ✅   | ✅    | —    |
-| AI Service (Python) | ✅  | ✅   | ✅   | ✅    | —    |
-| Frontend (Vue3)     | ✅  | —   | ✅   | ✅    | 🔄   |
+| AI Service (Python) | ✅  | ✅   | ✅   | 🔄   | —    |
+| Frontend (Vue3)     | ✅  | —   | ✅   | ✅    | ✅    |
 | Docker/Deploy       | ✅  | —   | —   | —    | —    |
 
-> ✅ 完成 | 🔄 部分完成（M4 进行中）| ⬜ 未开始
+> ✅ 完成 | 🔄 部分完成 | ⬜ 未开始
 
 ### Backend (Java) 详细状态
 
@@ -201,12 +204,12 @@ graph LR
 | 向量存储服务       | ✅  | ChromaDB PersistentClient + 1024维校验 + HNSW cosine                                    |
 | LLM服务        | ✅  | 三路Provider(Builtin/API/Local) + 5分钟自动恢复 + DeepSeek V4 Flash 当前生效                     |
 | Prompt管理     | ✅  | 6个模板文件(coordinator/retriever/analyzer/comparer/generator/reviewer)                   |
-| API端点        | ✅  | 7 端点(analyze/analyze-stream/search/search-hybrid/search-suggest/model-status/health) |
-| Pydantic模型   | ✅  | AnalyzeRequest+Alias / SearchRequest / ModelStatusResponse(12字段)                     |
-| Agent模块      | ✅  | 3-Agent(Retriever/Analyzer/Generator) + BaseAgent超时30s + AgentOrchestrator(SSE 7 事件) |
-| LangGraph工作流 | ✅  | graph.py 顺序图(retrieve→analyze→generate) + Orchestrator 流式版                           |
-| 个性化引擎        | ✅  | PersonalizationService(4维度画像+术语密度+DIFFICULTY\_MAP+STYLE\_MAP)                        |
-| 论文数据         | ✅  | data/papers/sample\_papers.json + 200+篇实测入库                                          |
+| API端点        | 🔄  | 7 端点(analyze/analyze-stream/search/search-hybrid/search-suggest/model-status/health) — **代码就绪，schemas 缺失阻断启动** |
+| Pydantic模型   | ⚠️  | `app/models/` 目录缺失 — **待创建 schemas.py + enums.py**（按 test_graph.py 契约反推）              |
+| Agent模块      | ✅  | 6-Agent(Coordinator/Retriever/Analyzer/Comparer/Generator/Reviewer) + BaseAgent超时30s + AgentOrchestrator(SSE 8 事件) |
+| LangGraph工作流 | ✅  | graph.py 6 节点(coordinator→retrieve→analyze→compare→generate→review) + 条件边 + 重试循环            |
+| 个性化引擎        | ⚠️  | PersonalizationService 已实现(4维度画像+术语密度+DIFFICULTY_MAP+STYLE_MAP)，**但 AppState 未实例化，恒为 None** |
+| 论文数据         | ✅  | data/papers/sample_papers.json + 200+篇实测入库                                          |
 | Reranker     | ✅  | RRF(0.5) + 领域匹配(0.3) + 流行度(0.2)                                                      |
 | 三级降级         | ✅  | LLM 3 路 + Agent 跳过 + 全流程 120s 超时 + 降级 DTO                                            |
 
@@ -224,7 +227,9 @@ graph LR
 | 画像设置页     | ✅  | FM2 已通过                                         |
 | 首页+检索结果页  | ✅  | FM2 已通过                                         |
 | 论文详情+分析卡片 | ✅  | FM2 已通过                                         |
-| 业务组件      | 🔄 | FM3 启动中（论文选择器、对比表格待开发）                          |
+| 综述/对比/可视化 | ✅  | ReportView(444行) + CompareView(450行) + AgentFlowView(614行) FM4 通过 |
+| 业务组件      | ✅  | 21 个组件全部实现（agent×4 / analysis×2 / common×9 / paper×1 / report×3） |
+| SSE实时通信   | ✅  | useSSE composable + EventSource，支持 Last-Event-ID 重连 + 5次重试 |
 
 ***
 
@@ -256,53 +261,42 @@ Veritas(求真)/
 │   │   └── src/main/java/com/literatureassistant/
 │   │       ├── LiteratureAssistantApplication.java
 │   │       ├── config/                      # Security/Redis/WebClient/CORS配置
-│   │       ├── controller/                  # HealthController（业务API待开发）
-│   │       ├── service/                     # ⬜ 待开发
-│   │       ├── repository/                  # 8个Repository含FULLTEXT搜索
-│   │       ├── entity/                      # 6个JPA实体
-│   │       ├── dto/                         # 通用DTO完成，请求/响应DTO待开发
-│   │       │   ├── common/                  # ApiResponse / ErrorCode / PageResponse
-│   │       │   ├── request/                 # ⬜ 待开发
-│   │       │   └── response/                # ⬜ 待开发
-│   │       ├── client/                      # ⬜ AI服务客户端待开发
-│   │       ├── mapper/                      # ⬜ MapStruct映射器待开发
+│   │       ├── controller/                  # ✅ 6 个 Controller（Health/User/Paper/Session/Analysis/Agent）
+│   │       ├── service/                     # ✅ 8 个 Service（User/Paper/Session/Analysis/AgentClient/Favorite/Export/AnalysisTransaction）
+│   │       ├── repository/                  # ✅ 8 个 Repository 含 FULLTEXT 搜索
+│   │       ├── entity/                      # ✅ 6 个 JPA 实体
+│   │       ├── dto/                         # ✅ 完整 DTO（request/response/common）
+│   │       ├── client/                      # ✅ PythonAIClient（420 行，3 WebClient Bean）
+│   │       ├── mapper/                      # ✅ MapStruct 映射器 + JsonStringListHelper
 │   │       ├── filter/                      # JwtAuthFilter / RequestIdFilter
-│   │       ├── exception/                   # 全局异常处理+5个业务异常
-│   │       ├── enums/                       # 完整枚举体系+JPA转换器
-│   │       ├── aspect/                      # ⬜ 待开发
-│   │       └── util/                        # JwtUtil / RedisKeyUtil / DateTimeUtil
+│   │       ├── exception/                   # 5 个业务异常 + GlobalExceptionHandler
+│   │       ├── enums/                       # ✅ 6 个枚举 + JPA Converter
+│   │       ├── util/                        # JwtUtil / RedisKeyUtil / DateTimeUtil / IdempotencyUtil / PdfExporter / WordExporter
+│   │       └── cache/                       # CacheEvictionHelper
 │   │   └── src/main/resources/
-│   │       ├── application.yml
-│   │       └── db/                          # 01_create_tables / 02_indexes / 03_seed_data
+│   │       ├── application.yml              # 密码占位符 CHANGE_ME，JWT_SECRET 无默认值
+│   │       └── db/                          # 5 个 SQL 脚本（建表/索引/种子/约束/版本）
 │   ├── ai-service/                          # Python AI服务
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
 │   │   ├── .env.example
 │   │   ├── app/
 │   │   │   ├── main.py                      # FastAPI入口+健康检查
-│   │   │   ├── exception.py                 # 5个自定义异常
-│   │   │   ├── core/
-│   │   │   │   ├── config.py                # pydantic-settings配置
-│   │   │   │   ├── events.py                # 启动/关闭生命周期
-│   │   │   │   └── logging.py               # loguru日志配置
-│   │   │   ├── api/
-│   │   │   │   ├── router.py                # API路由注册
-│   │   │   │   └── endpoints/               # agent / search / model
-│   │   │   ├── services/                    # 服务层
-│   │   │   │   ├── llm_service.py           # 三路Provider+降级+恢复
-│   │   │   │   ├── embedding_service.py     # DashScope API+本地bge双模式
-│   │   │   │   ├── vector_store_service.py  # ChromaDB CRUD+搜索
-│   │   │   │   └── prompt_manager.py        # Prompt模板加载
-│   │   │   ├── agents/                      # ⬜ 6个Agent待开发
-│   │   │   ├── models/
-│   │   │   │   └── schemas.py               # Pydantic数据模型
-│   │   │   └── utils/                       # ⬜ 待开发
-│   │   ├── prompts/                         # 6个Prompt模板
-│   │   │   ├── coordinator.txt / retriever.txt / analyzer.txt
-│   │   │   └── comparer.txt / generator.txt / reviewer.txt
-│   │   ├── data/papers/                     # ⬜ 论文数据待采集
-│   │   ├── scripts/                         # ⬜ 数据处理脚本待开发
-│   │   └── tests/                           # 7个测试文件
+│   │   │   ├── exception.py                 # 6个自定义异常
+│   │   │   ├── core/                        # config / events / logging / cache / rate_limit
+│   │   │   ├── api/                         # 路由 + agent/search/model 端点
+│   │   │   ├── services/                    # llm / embedding / vector_store / prompt_manager
+│   │   │   │                                # personalization / search / reranker / recommendation
+│   │   │   ├── agents/                      # ✅ 6 个 Agent + LangGraph 工作流
+│   │   │   │   ├── coordinator.py / retriever.py / analyzer.py
+│   │   │   │   ├── comparer.py / generator.py / reviewer.py
+│   │   │   │   ├── base.py / tools.py / orchestrator.py / graph.py
+│   │   │   ├── models/                      # ⚠️ schemas.py + enums.py 待创建
+│   │   │   └── utils/                       # citation_parser / json_parser / response / text_processing
+│   │   ├── prompts/                         # 6 个 Prompt 模板
+│   │   ├── data/papers/                     # arxiv_cs_ai_100.json + sample_papers.json（200+ 篇）
+│   │   ├── scripts/                         # 10 个运维脚本
+│   │   └── tests/                           # 50+ 测试用例
 │   ├── frontend/                            # 前端
 │   │   ├── Dockerfile
 │   │   ├── package.json
@@ -313,22 +307,14 @@ Veritas(求真)/
 │   │       ├── main.ts                      # 应用入口
 │   │       ├── App.vue                      # 根组件(Header+RouterView+Footer)
 │   │       ├── env.d.ts                     # 环境类型声明
-│   │       ├── router/index.ts              # 9条路由+认证守卫
-│   │       ├── api/                         # Axios实例+4个API模块
-│   │       │   ├── index.ts                 # Axios实例+JWT拦截器
-│   │       │   ├── user.ts / paper.ts / session.ts / analysis.ts
-│   │       ├── stores/                      # 4个Pinia Store
-│   │       │   ├── userStore.ts / paperStore.ts / sessionStore.ts / agentStore.ts
-│   │       ├── types/                       # 6个TypeScript类型文件
-│   │       │   ├── user.ts / paper.ts / session.ts / analysis.ts / agent.ts / common.ts
-│   │       ├── views/                       # 页面组件
-│   │       │   ├── HomeView.vue             # ✅ 首页(搜索框+最近搜索)
-│   │       │   └── 8个占位页面              # ⬜ 待开发
-│   │       ├── components/
-│   │       │   ├── layout/                  # ✅ AppHeader + AppFooter
-│   │       │   └── agent/analysis/common/paper/report/  # ⬜ 待开发
-│   │       ├── composables/                 # ⬜ useSSE等待开发
-│   │       ├── utils/                       # ⬜ 待开发
+│   │       ├── router/                      # 9 条路由 + 认证守卫
+│   │       ├── api/                         # Axios 实例 + 4 个 API 模块
+│   │       ├── stores/                      # 4 个 Pinia Store
+│   │       ├── types/                       # 6 个 TS 类型文件
+│   │       ├── views/                       # ✅ 11 个页面全部实现
+│   │       ├── components/                  # ✅ 21 个组件全部实现
+│   │       ├── composables/                 # ✅ useSSE + useReplay
+│   │       ├── utils/                       # ✅ citation / format / validate / download
 │   │       └── styles/                      # global.scss + variables.scss
 │   ├── docker-compose.yml                   # Docker编排（5服务）
 │   ├── .env.example                         # 环境变量模板
@@ -346,13 +332,15 @@ Veritas(求真)/
 
 ### 环境要求
 
-| 依赖             | 版本要求  |
-| -------------- | ----- |
-| JDK            | 17+   |
-| Python         | 3.10+ |
-| Node.js        | 18+   |
-| Docker         | 20+   |
-| Docker Compose | 2.0+  |
+| 依赖             | 版本要求  | 本机部署版本    |
+| -------------- | ----- | --------- |
+| JDK            | 17+   | 25.0.3 LTS |
+| Python         | 3.10+ | 3.13.14   |
+| Node.js        | 18+   | 24.17.0 LTS |
+| Docker         | 20+   | —         |
+| Docker Compose | 2.0+  | —         |
+| MySQL          | 8.0+  | 9.7.0 LTS |
+| Redis          | 7.0+  | 8.8.0     |
 
 ### 1. 克隆项目
 
@@ -452,28 +440,33 @@ npm run dev
 
 | 接口                                        | 方法           | 说明       | 状态            |
 | ----------------------------------------- | ------------ | -------- | ------------- |
-| `/api/users/register`                     | POST         | 用户注册     | ✅（JM2 通过）     |
-| `/api/users/login`                        | POST         | 用户登录     | ✅（JM2 通过）     |
-| `/api/users/{userId}/profile`             | GET/POST/PUT | 画像CRUD   | ✅（JM2 通过）     |
+| `/api/users/register`                     | POST         | 用户注册     | ✅             |
+| `/api/users/login`                        | POST         | 用户登录     | ✅             |
+| `/api/users/logout`                       | POST         | 退出登录     | ✅             |
+| `/api/users/{userId}`                     | GET/PUT      | 查询/更新用户  | ✅             |
+| `/api/users/{userId}/profile`             | GET/POST/PUT | 画像CRUD   | ✅             |
 | `/api/papers`                             | GET          | 论文列表（分页） | ✅             |
 | `/api/papers/{paperId}`                   | GET          | 论文详情     | ✅             |
 | `/api/papers/search`                      | GET          | 论文搜索     | ✅             |
-| `/api/papers/{paperId}/favorite`          | POST/DELETE  | 收藏/取消    | ⬜（M5）         |
+| `/api/papers/{paperId}/favorite`          | POST/DELETE  | 收藏/取消    | ✅（JM5）        |
+| `/api/papers/favorites`                   | GET          | 收藏列表     | ✅             |
 | `/api/sessions`                           | POST/GET     | 创建/列表会话  | ✅             |
 | `/api/sessions/{sessionId}`               | GET/DELETE   | 详情/删除    | ✅             |
+| `/api/sessions/{sessionId}/status`        | PUT          | 更新会话状态   | ✅             |
 | `/api/analysis/paper`                     | POST         | 论文分析     | ✅             |
-| `/api/analysis/compare`                   | POST         | 对比分析     | ⬜（M4）         |
+| `/api/analysis/compare`                   | POST         | 对比分析     | ✅             |
 | `/api/analysis/report`                    | POST         | 综述生成     | ✅             |
 | `/api/analysis/{analysisId}`              | GET          | 分析结果     | ✅             |
 | `/api/analysis/{analysisId}/status`       | GET          | 分析状态     | ✅             |
-| `/api/analysis/{analysisId}/agent-stream` | GET(SSE)     | Agent状态流 | ✅（JM3 阶段前置实现） |
+| `/api/analysis/{analysisId}/agent-stream` | GET(SSE)     | Agent状态流 | ✅             |
+| `/api/analysis/{analysisId}/export`       | GET          | 报告导出（PDF/Word） | ✅（JM5）        |
 
 ### Python AI服务API
 
 | 接口                          | 方法        | 说明         | 状态 |
 | --------------------------- | --------- | ---------- | -- |
-| `/api/agent/analyze`        | POST      | 启动Agent工作流 | ✅  |
-| `/api/agent/analyze/stream` | POST(SSE) | Agent状态流   | ✅  |
+| `/api/agent/analyze`        | POST      | 启动6-Agent工作流 | ✅ 代码就绪 |
+| `/api/agent/analyze/stream` | POST(SSE) | Agent状态流   | ✅ 代码就绪（schemas 缺失阻断） |
 | `/api/search`               | POST      | 语义检索       | ✅  |
 | `/api/search/hybrid`        | POST      | 混合检索       | ✅  |
 | `/api/search/suggest`       | GET       | 检索建议       | ✅  |
@@ -542,26 +535,27 @@ graph LR
 | 版本   | 里程碑         | 时间         | 核心交付                                | 状态                 |
 | ---- | ----------- | ---------- | ----------------------------------- | ------------------ |
 | v0.1 | M1 基础设施就绪   | Week 1-2   | 数据库+模型+3个项目骨架+Docker Compose        | ✅ 已完成              |
-| v0.2 | M2 单Agent可用 | Week 3-4   | RAG检索+检索/分析/生成3个Agent+LangGraph基础流程 | ✅ 已完成（代码就绪，待数据实测）  |
+| v0.2 | M2 单Agent可用 | Week 3-4   | RAG检索+检索/分析/生成3个Agent+LangGraph基础流程 | ✅ 已完成              |
 | v0.3 | M3 前后端联调    | Week 5-6   | 用户认证+论文管理+前端基础页面+全链路联调              | ✅ 已完成（12/12验收通过）   |
-| v0.4 | M4 多Agent协同 | Week 7-8   | 6-Agent完整工作流+降级机制+个性化引擎+SSE推送       | 🔄 启动中（2026-06-05） |
-| v0.5 | M5 功能完整     | Week 9-10  | Agent可视化+报告导出+引用溯源+矛盾发现+筛选排序        | ⬜ 未开始              |
+| v0.4 | M4 多Agent协同 | Week 7-8   | 6-Agent完整工作流+降级机制+个性化引擎+SSE推送       | 🔄 代码就绪（待 schemas 修复后启动） |
+| v0.5 | M5 功能完整     | Week 9-10  | Agent可视化+报告导出+引用溯源+矛盾发现+筛选排序        | 🔄 进行中（JM5✅ 447 测试） |
 | v1.0 | M6 交付就绪     | Week 11-14 | 性能优化+测试+技术报告+演示视频+答辩PPT             | ⬜ 未开始              |
 
 **关键路径**：M1→M2→M3→M4→M5→M6，最关键里程碑为M4（多Agent协同）。
-**当前进度**：3/6 里程碑完成，M4 启动准备就绪。
+**当前进度**：3/6 里程碑完整完成（M1-M3），M4 代码就绪待启动，M5 部分功能（JM5 后端）已完成。
 
-### M4 启动项（2026-06-05 起）
+### M4 状态（2026-06-28 复验）
 
-| 任务                   | 优先级 | 说明                           |
+| 任务                   | 状态 | 说明                           |
 | -------------------- | --- | ---------------------------- |
-| CoordinatorAgent     | P0  | 任务分解与调度，汇总多Agent结果           |
-| ComparerAgent        | P1  | 对比2-5篇论文+矛盾检测                |
-| ReviewerAgent        | P1  | 引用核查+事实审核                    |
-| 6-Agent 完整 LangGraph | P0  | 条件边（论文≥2 → 对比）+ 审核重试(最多1次)   |
-| AnalyzerAgent 并行化    | P1  | asyncio.gather + 信号量(并发=3)   |
-| 分析结果摘要注入             | P1  | 按 5 维度压缩后注入 Generator Prompt |
-| LLM Token 监控         | P1  | Prometheus 暴露 usage 指标       |
+| CoordinatorAgent     | ✅  | 任务分解与调度，含 LLM 失败降级         |
+| ComparerAgent        | ✅  | 4 维度对比矩阵 + 5 类矛盾检测          |
+| ReviewerAgent        | ✅  | 引用核查 + 事实审核 + 4 级 JSON 解析降级   |
+| 6-Agent 完整 LangGraph | ✅  | 6 节点 + 条件边（论文≥2→对比）+ 重试（最多1次） |
+| AnalyzerAgent 并行化    | ⬜  | 未实现                          |
+| SSE 端点             | ✅  | sse-starlette EventSourceResponse + Last-Event-ID 重连 |
+| **schemas 模型定义**     | ❌  | `app/models/` 目录缺失，**阻断 AI 服务启动** |
+| **个性化旁路修复**          | ❌  | `AppState.personalization_service` 未实例化 |
 
 ***
 

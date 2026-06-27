@@ -34,6 +34,18 @@ graph TD
     REV -.->|最多重试1次| GEN
 ```
 
+**实现位置**：`ai-service/app/agents/graph.py`（622 行）
+
+**实际架构（复验 2026-06-28）**：
+- 6 节点：`coordinator → retrieve → analyze → compare → generate → review`（`graph.py:469-474`）
+- 入口点：`coordinator`（`graph.py:477`）
+- 条件边 1：`analyze → [compare | generate]`，`should_compare()` 判断 `requires_compare=True 且论文数>=2`（`graph.py:45-49`，`485-489`）
+- 条件边 2：`generate → [review | END]`，`should_review()` 判断 report 非空且非退化（`graph.py:52-60`，`492-496`）
+- 条件边 3：`review → [regenerate → generate | END]`，`should_regenerate()` 判断 `approved=False 且 regenerate_count < 1`（`graph.py:63-76`，`499-503`）
+- 重试上下文注入：`generate_node` 在 `regenerate_count > 0` 时将 review 的 issues/suggestions 注入 `retry_context`（`graph.py:286-306`）
+
+**⚠️ 阻断性警告**：因 `app/models/` 目录缺失（schemas.py + enums.py 不存在），`graph.py:9` 的 import 断裂，工作流逻辑虽完整但无法启动。
+
 **WorkflowState (TypedDict)**:
 
 ```python

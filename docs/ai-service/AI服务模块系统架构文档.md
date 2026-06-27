@@ -638,14 +638,16 @@ async def model_status():
 
 ### 5.2 Agent角色定义
 
-| Agent | 文件 | 角色定位 | 接入状态 | 核心工具 |
+| Agent | 文件 | 角色定位 | 接入状态（2026-06-28 复验） | 核心工具 |
 |-------|------|---------|---------|---------|
-| **协调者Agent** | `coordinator.py` | 项目经理 | 已实现，未接入graph | LLM任务分解+规则降级 |
+| **协调者Agent** | `coordinator.py`（538行） | 项目经理 | ✅ 已接入graph（graph.py:469 coordinator_node） | LLM任务分解+规则降级 |
 | **检索Agent** | `retriever.py` | 图书管理员 | ✅ 已接入graph | hybrid_search+reranker |
 | **分析Agent** | `analyzer.py` | 论文审稿人 | ✅ 已接入graph | LLM 5维度提取+rule-based降级 |
-| **对比Agent** | `comparer.py` | 对比研究员 | 已实现，未接入graph | LLM 4维度对比+5类矛盾根因+规则降级 |
+| **对比Agent** | `comparer.py`（795行） | 对比研究员 | ✅ 已接入graph（条件边：论文数>=2 触发） | LLM 4维度对比+5类矛盾根因+规则降级 |
 | **生成Agent** | `generator.py` | 学术写手 | ✅ 已接入graph | LLM生成+citation提取+term_density+fallback报告 |
-| **审核Agent** | graph.py(review_node) | 学术编辑 | 已实现review_node，条件边触发（运行时因未实例化而跳过） | citation验证+事实核查+重试建议 |
+| **审核Agent** | `reviewer.py`（358行） | 学术编辑 | ✅ 已接入graph（review_node + 条件边触发重试） | citation验证+事实核查+4级JSON解析降级+重试建议 |
+
+> **⚠️ 阻断性警告**：因 `app/models/` 目录缺失（schemas.py + enums.py 不存在），所有 Agent 的 import 断裂，graph.py 无法实际启动。但 6 Agent 类 + graph.py 工作流的**代码逻辑已完整**，修复 schemas 后即可启动。
 
 ### 5.3 Agent基类设计
 
@@ -1090,7 +1092,7 @@ class GeneratorAgent(BaseAgent):
         }
 ```
 
-#### 5.4.6 审核Agent（Reviewer）— 已实现review_node，条件边触发
+#### 5.4.6 审核Agent（Reviewer）— ✅ 已实现，条件边触发
 
 ```python
 # agents/graph.py — review_node
@@ -1372,13 +1374,13 @@ data: {"agentName":"reviewer","analysisId":"anl_001","regenerateCount":1,"issues
 
 | 编号 | 功能 | 优先级 | 状态 | 说明 |
 |------|------|--------|------|------|
-| F3.1.1 | 协调者Agent | P0 | 已实现，未接入graph | LLM任务分解+规则降级+Prompt注入防护 |
+| F3.1.1 | 协调者Agent | P0 | ✅ 已接入 graph（graph.py:469 coordinator_node） | LLM任务分解+规则降级+Prompt注入防护 |
 | F3.1.2 | 检索Agent | P0 | ✅ 已接入 | hybrid_search+LLM搜索策略+reranker |
 | F3.1.3 | 分析Agent | P0 | ✅ 已接入 | 5维度dict结构+rule-based降级+个性化指令 |
-| F3.1.4 | 对比Agent | P1 | 已实现，未接入graph | 4维度对比+5类矛盾根因+规则降级 |
+| F3.1.4 | 对比Agent | P1 | ✅ 已接入 graph（条件边：论文数>=2 触发） | 4维度对比+5类矛盾根因+规则降级 |
 | F3.1.5 | 生成Agent | P0 | ✅ 已接入 | citation提取+term_density+报告验证+fallback |
-| F3.1.6 | 审核Agent | P1 | 已实现review_node，条件边触发（运行时因未实例化而跳过） | citation验证+事实核查+重试建议 |
-| F3.1.7 | 工作流编排 | P0 | ✅ 已实现 | 4节点LangGraph StateGraph + 条件边 + 重试循环 |
+| F3.1.6 | 审核Agent | P1 | ✅ 已实现 review_node（reviewer.py 358行），条件边触发 + 重试循环 | citation验证+事实核查+4级JSON解析降级+重试建议 |
+| F3.1.7 | 工作流编排 | P0 | ✅ 已实现（6 节点 LangGraph StateGraph + 条件边 + 重试循环） | coordinator→retrieve→analyze→[compare]→generate→[review→regenerate]→END |
 | F3.1.8 | SSE流式编排 | P0 | ✅ 已实现 | AgentOrchestrator，8种事件+keep-alive+Last-Event-ID+review_rejected |
 | F3.1.9 | 降级机制 | P0 | ✅ 已实现 | Agent内部降级+超时降级+全流程降级 |
 
@@ -3342,4 +3344,9 @@ data: {"agentName":"reviewer","analysisId":"anl_001","regenerateCount":1,"issues
 
 > **文档维护**：架构变更时需更新本文档，重大变更需记录修订历史  
 > **变更控制**：模块间接口变更需项目组讨论确认  
-> **下一步**：依据本文档开始Python AI服务开发，按F3.5→F5.2/F4.3→F3.3→F3.2→F3.4→F3.1顺序实现
+> **下一步**：
+> - **P0（2026-06-28 复验阻断性缺陷）**：创建 `app/models/__init__.py` + `schemas.py` + `enums.py`，按 `test_graph.py:226-232` 与 `test_agent_endpoint.py:51-63` 契约反推字段定义（AnalyzeRequest、AnalyzeResponse、UserProfile、SearchRequest、SearchResponse、SearchResultItem、ModelStatusResponse 12 字段、AgentStateResponse、HybridSearchRequest、SearchSuggestResponse、AnalysisType/EducationLevel/KnowledgeLevel/PreferredStyle 枚举），使用 `populate_by_name=True` 支持 snake_case↔camelCase 双向
+> - **P0**：在 `AppState` 类中添加 `personalization_service = None` 属性，在 `on_startup()` 中实例化 `PersonalizationService(prompt_manager=app_state.prompt_manager)`，消除个性化旁路
+> - **P1**：实现 AnalyzerAgent 并行化（asyncio.gather + 信号量）
+> - **P2**：LRU 缓存 LLM 响应、Embedding 批量优化、Prometheus 指标暴露
+> - 后续按 F3.5→F5.2/F4.3→F3.3→F3.2→F3.4→F3.1 顺序实现各项增强功能

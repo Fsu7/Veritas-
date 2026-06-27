@@ -3,9 +3,9 @@
 > **课题编号**：XH-202630
 > **课题名称**：领域知识个性化生成与多智能体协同决策系统研究
 > **发榜单位**：上海云之脑智能科技有限公司（科大讯飞全资子公司）
-> **文档版本**：v2.0
+> **文档版本**：v2.1
 > **创建日期**：2026年5月23日
-> **更新日期**：2026年6月8日
+> **更新日期**：2026年6月28日
 > **文档状态**：已更新
 
 ---
@@ -17,6 +17,7 @@
 | v1.0 | 2026-05-23 | 项目组 | 初始版本 |
 | v1.2 | 2026-05-25 | 项目组 | 枚举重构：引入DbValueEnum接口+AttributeConverter模式；移除Entity中@Enumerated注解；新增Security异常统一处理；新增6个Converter + 抽象基类 |
 | v2.0 | 2026-06-08 | 项目组 | 全面更新：基于源码分析修正包结构/Controller/Service/DTO/配置/异常处理；新增SSE流式转发架构；新增WebClientConfig双连接池；新增测试体系章节；标记未实现功能 |
+| v2.1 | 2026-06-28 | 项目组 | 同步实际代码：新增AgentController（SSE桥接端点）；AnalysisController已实现compare/report/export；PaperController已实现收藏/favorites；Service层新增AnalysisTransactionService/ExportService/FavoriteService；测试数更新为447；密码改为CHANGE_ME占位符 |
 
 ---
 
@@ -2539,7 +2540,7 @@ spring:
   datasource:
     url: ${MYSQL_URL:jdbc:mysql://localhost:3306/literature_assistant?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai}
     username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:Aa2105268075.}
+    password: ${MYSQL_PASSWORD:CHANGE_ME}            # ⚠️ 已移除明文默认值，必须通过环境变量注入
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 20
@@ -2624,7 +2625,7 @@ application-prod.yml      # 生产环境（Docker内服务发现）
 |---------|------|--------|
 | `MYSQL_URL` | MySQL连接URL | `jdbc:mysql://localhost:3306/literature_assistant?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai` |
 | `MYSQL_USERNAME` | MySQL用户名 | `root` |
-| `MYSQL_PASSWORD` | MySQL密码 | `Aa2105268075.` |
+| `MYSQL_PASSWORD` | MySQL密码 | `CHANGE_ME`（已轮换原 `Aa2105268075.`，必须通过环境变量覆盖） |
 | `REDIS_HOST` | Redis主机 | `localhost` |
 | `REDIS_PORT` | Redis端口 | `6379` |
 | `REDIS_PASSWORD` | Redis密码 | 空 |

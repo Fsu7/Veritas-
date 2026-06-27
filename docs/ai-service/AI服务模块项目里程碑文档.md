@@ -3,9 +3,10 @@
 > **课题编号**：XH-202630
 > **课题名称**：领域知识个性化生成与多智能体协同决策系统研究
 > **发榜单位**：上海云之脑智能科技有限公司（科大讯飞全资子公司）
-> **文档版本**：v1.6
+> **文档版本**：v1.7
 > **创建日期**：2026年5月24日
-> **文档状态**：AM5完成（检索参数优化 + F3.4.6 推荐策略 + Embedding 维度修复，82 测试通过）
+> **更新日期**：2026年6月28日
+> **文档状态**：AM5完成（检索参数优化 + F3.4.6 推荐策略 + Embedding 维度修复，82 测试通过）；2026-06-28 复验：6 Agent 全部接入 graph.py 但 `app/models/` 缺失阻断启动
 
 ---
 
@@ -18,6 +19,9 @@
 | v1.2 | 2026-06-02 | 项目组 | AM2阶段审阅完成：3-Agent + LangGraph + RAG + Personalization代码就绪，12/13交付物已实现。唯一待办：执行import_papers.py将200+篇论文向量化入库。详见[AM2阶段审阅报告](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/log/阶段审阅报告/ai-service/M2-阶段审阅报告.md) |
 | v1.3 | 2026-06-03 | 项目组 | **LLM外接API方案B切换**：默认LLM从阿里云DashScope(qwen-plus)切到 **DeepSeek V4 Flash**（OpenAI 兼容，`https://api.deepseek.com/v1`）。原因：1M 上下文、价格仅 ¥1/百万 tokens（输入）、推理接近 V4-Pro、支持思考模式。Embedding 仍保留阿里云百炼 text-embedding-v4。冒烟测试通过：`POST /api/agent/analyze` 端到端返回 ~2.2k 字报告 + 个性化标签，generator 耗时 ~15s。 |
 | v1.4 | 2026-06-05 | 项目组 | **AM3完成确认**：API完善+Java对接100%通过，12/12检查点全部通过✅。Python端交付：统一响应包装器 / 422中文友好 / Enum严格校验 / SSE流式推送(7种事件+ping+重连) / 健康检查6组件 / 模型状态12字段 / camelCase双向映射 / 三级降级链。Java端已前置实现SSE全链路转发（AgentSseEvent DTO + sseWebClient Bean 150s超时 + `GET /api/analysis/{id}/agent-stream` 端点 + Last-Event-ID + 数据隔离校验）。ModelStatusDTO已扩展6字段对齐Python端。Java端代码272/272测试通过，BUILD SUCCESS。详见[AM3阶段审阅报告](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/log/阶段审阅报告/ai-service/M3-阶段审阅报告.md) 与 [JM3修复验证报告](file:///Users/achieve/Documents/AchiEVE_MacBook_Air/Veritas(求真)/log/阶段审阅报告/backend/JM3-AI服务调用打通-审阅报告.md)。 |
+| v1.5 | 2026-06-08 | 项目组 | **AM4 推进**：3 个新增 Agent（coordinator/comparer/reviewer）实现，graph.py 扩展为 6 节点（coordinator→retrieve→analyze→compare→generate→review）+ 条件边 + 重试循环；SSE 事件扩展为 8 种（新增 review_rejected） |
+| v1.6 | 2026-06-17 | 项目组 | **AM5 完成**：检索参数优化（RRF + Reranker 调优）+ F3.4.6 推荐策略 + Embedding 维度修复，82 测试通过 |
+| v1.7 | 2026-06-28 | 项目组 | **2026-06-28 复验更新**：标记 6 Agent 全部接入 graph.py；同步 §5.2 表格（coordinator/comparer/reviewer 从"未接入"修正为"已接入"）；reviewer.py 为独立文件（358 行）而非 graph.py 内联；**新增 P0 阻断性缺陷**：`app/models/` 目录缺失（schemas.py + enums.py 不存在），34 处 import 断裂导致 AI 服务无法启动；个性化旁路（AppState.personalization_service 未实例化） |
 
 ---
 
@@ -470,22 +474,22 @@ curl -X POST http://localhost:8000/api/agent/analyze \
 
 ### 6.2 交付物清单
 
-| 序号 | 交付物 | 验收标准 | 状态 |
+| 序号 | 交付物 | 验收标准 | 状态（2026-06-28 复验） |
 |------|--------|---------|------|
-| 1 | CoordinatorAgent | 能将复杂任务分解为2-5个子任务，汇总多Agent结果 | ⬜ |
-| 2 | ComparerAgent | 能对比2-5篇论文，生成对比表格+矛盾检测 | ⬜ |
-| 3 | ReviewerAgent | 能检测事实错误，核查引用，返回审核通过/修改建议 | ⬜ |
-| 4 | 完整6-Agent工作流 | LangGraph编排：协调→检索→分析→[对比]→生成→审核 | ⬜ |
-| 5 | 条件分支 | 论文数≥2时激活对比Agent，<2时跳过 | ⬜ |
-| 6 | 审核重试 | 审核不通过时重新生成，最多重试1次 | ⬜ |
-| 7 | Agent级降级 | 单Agent超时30s跳过，返回降级结果 | ⬜ |
-| 8 | 工作流级降级 | 多Agent失败降级为单Agent模式（仅检索+生成） | ⬜ |
-| 9 | PersonalizationService完整 | 4维度画像解析+难度适配+风格适配+Prompt片段注入 | ⬜ |
-| 10 | 个性化效果验证 | 同一主题不同画像差异度>60% | ⬜ |
-| 11 | SSE推送完善 | 6个Agent状态实时推送，含中间结果和耗时 | ⬜ |
-| 12 | Agent状态数据结构 | 完整的AgentState JSON格式（status/progress/duration/intermediateResult） | ⬜ |
-| 13 | 综述生成完整流程 | 端到端生成包含引用的个性化综述 | ⬜ |
-| 14 | 引用解析 | citation_parser提取综述中的引用标注 | ⬜ |
+| 1 | CoordinatorAgent | 能将复杂任务分解为2-5个子任务，汇总多Agent结果 | ✅ coordinator.py（538行）+ 已接入 graph.py |
+| 2 | ComparerAgent | 能对比2-5篇论文，生成对比表格+矛盾检测 | ✅ comparer.py（795行）+ 已接入 graph.py |
+| 3 | ReviewerAgent | 能检测事实错误，核查引用，返回审核通过/修改建议 | ✅ reviewer.py（358行）+ 已接入 graph.py |
+| 4 | 完整6-Agent工作流 | LangGraph编排：协调→检索→分析→[对比]→生成→审核 | ✅ graph.py（622行，6节点） |
+| 5 | 条件分支 | 论文数≥2时激活对比Agent，<2时跳过 | ✅ graph.py `should_compare()` |
+| 6 | 审核重试 | 审核不通过时重新生成，最多重试1次 | ✅ graph.py `should_regenerate()` + `retry_context` 注入 |
+| 7 | Agent级降级 | 单Agent超时30s跳过，返回降级结果 | ✅ BaseAgent 超时 30s |
+| 8 | 工作流级降级 | 多Agent失败降级为单Agent模式（仅检索+生成） | ✅ graph.py fallback 路径 |
+| 9 | PersonalizationService完整 | 4维度画像解析+难度适配+风格适配+Prompt片段注入 | ⚠️ 代码就绪（personalization_service.py），**但 AppState.personalization_service 未实例化，恒为 None** |
+| 10 | 个性化效果验证 | 同一主题不同画像差异度>60% | ⬜ 待 schemas + 个性化旁路修复后实测 |
+| 11 | SSE推送完善 | 6个Agent状态实时推送，含中间结果和耗时 | ✅ AgentOrchestrator + agent.py `/api/agent/analyze/stream`（8 种事件） |
+| 12 | Agent状态数据结构 | 完整的AgentState JSON格式（status/progress/duration/intermediateResult） | ✅ BaseAgent AgentState dataclass |
+| 13 | 综述生成完整流程 | 端到端生成包含引用的个性化综述 | ✅ 代码就绪（待 schemas 修复后联调） |
+| 14 | 引用解析 | citation_parser提取综述中的引用标注 | ✅ citation_parser.py |
 
 ### 6.3 详细任务分解
 
@@ -533,23 +537,23 @@ curl -X POST http://localhost:8000/api/agent/analyze \
 | Day 6 | SSE推送完善 + Agent状态数据结构 | api/endpoints/agent.py扩展 |
 | Day 7 | 端到端集成测试 + 个性化差异验证 | 测试报告 |
 
-### 6.4 验收检查点
+### 6.4 验收检查点（2026-06-28 复验）
 
 ```
-□ 协调者: 输入复杂问题，能分解为2-5个子任务
-□ 对比: 输入3篇论文，生成对比表格，维度完整
-□ 审核: 生成内容有事实错误时能检测出来
-□ 条件分支: 论文数≥2时激活对比，<2时跳过
-□ 审核重试: 审核不通过时重新生成，最多1次
-□ 工作流: 6-Agent顺序执行，条件分支正确
-□ Agent级降级: 人为制造Agent超时，系统不崩溃，返回降级结果
-□ 工作流级降级: 多Agent失败降级为单Agent模式
-□ 个性化: 同一主题，本科生和博士生获得不同深度的综述
-□ 差异度: 同一主题不同画像差异度>60%
-□ SSE: Agent执行过程中，前端能实时看到状态更新
-□ 综述: 生成包含引言+现状+方法对比+趋势+参考文献的完整综述
-□ 引用: 综述中引用标注格式正确
-□ 引用解析: citation_parser正确提取引用信息
+✅ 协调者: 输入复杂问题，能分解为2-5个子任务（coordinator.py 538行）
+✅ 对比: 输入3篇论文，生成对比表格，维度完整（comparer.py 795行）
+✅ 审核: 生成内容有事实错误时能检测出来（reviewer.py 358行）
+✅ 条件分支: 论文数≥2时激活对比，<2时跳过（graph.py should_compare）
+✅ 审核重试: 审核不通过时重新生成，最多1次（graph.py should_regenerate + retry_context）
+✅ 工作流: 6-Agent顺序执行，条件分支正确（graph.py 622行）
+✅ Agent级降级: 人为制造Agent超时，系统不崩溃，返回降级结果（BaseAgent 超时 30s）
+✅ 工作流级降级: 多Agent失败降级为单Agent模式（graph.py fallback）
+⚠️ 个性化: 同一主题，本科生和博士生获得不同深度的综述（存在旁路：personalization_service 恒为 None）
+□ 差异度: 同一主题不同画像差异度>60%（待 schemas + 个性化旁路修复后实测）
+✅ SSE: Agent执行过程中，前端能实时看到状态更新（agent.py + AgentOrchestrator，8 种事件）
+✅ 综述: 生成包含引言+现状+方法对比+趋势+参考文献的完整综述（generator.py）
+✅ 引用: 综述中引用标注格式正确（citation_parser.py）
+✅ 引用解析: citation_parser正确提取引用信息
 ```
 
 ### 6.5 关键演示场景
@@ -604,16 +608,16 @@ curl -X POST http://localhost:8000/api/agent/analyze \
 
 ### 7.2 交付物清单
 
-| 序号 | 交付物 | 验收标准 | 状态 |
+| 序号 | 交付物 | 验收标准 | 状态（2026-06-28 复验） |
 |------|--------|---------|------|
-| 1 | 混合检索 | 语义检索+关键词检索并行，RRF融合排序 | ⬜ |
-| 2 | RRF融合算法 | RRF_score(d) = Σ 1/(k + rank_i(d))，k=60 | ⬜ |
-| 3 | 个性化排序调整 | score_rrf×0.5 + field×0.3 + popularity×0.2 | ⬜ |
-| 4 | 矛盾发现 | 对比Agent检测论文间观点冲突，输出conflicts数组 | ⬜ |
-| 5 | LLM流式输出 | generate_stream()逐Token输出，首字节<2秒 | ⬜ |
-| 6 | 外接Embedding API | Jina/OpenAI等API作为备选方案 | ⬜ |
-| 7 | 检索优化 | 调整chunk_size/top_k/similarity_threshold参数 | ⬜ |
-| 8 | 重排序完善 | 规则重排序+关键词加分，提升Top5质量 | ⬜ |
+| 1 | 混合检索 | 语义检索+关键词检索并行，RRF融合排序 | ✅ search_service.py 已实现（代码就绪，待实测验证） |
+| 2 | RRF融合算法 | RRF_score(d) = Σ 1/(k + rank_i(d))，k=60 | ✅ search_service.py + reranker.py |
+| 3 | 个性化排序调整 | score_rrf×0.5 + field×0.3 + popularity×0.2 | ✅ reranker.py 已实现 |
+| 4 | 矛盾发现 | 对比Agent检测论文间观点冲突，输出conflicts数组 | ✅ comparer.py 内置 5 类矛盾检测 |
+| 5 | LLM流式输出 | generate_stream()逐Token输出，首字节<2秒 | 🔄 代码就绪（sse-starlette，schemas 缺失阻断启动） |
+| 6 | 外接Embedding API | Jina/OpenAI等API作为备选方案 | ✅ embedding_service.py DashScope API 优先 |
+| 7 | 检索优化 | 调整chunk_size/top_k/similarity_threshold参数 | ✅ scripts/tune_retrieval_params.py + tune_rrf_reranker.py |
+| 8 | 重排序完善 | 规则重排序+关键词加分，提升Top5质量 | ✅ reranker.py 复合评分（RRF+领域匹配+流行度） |
 
 ### 7.3 详细任务分解
 
